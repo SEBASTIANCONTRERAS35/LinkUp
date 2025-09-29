@@ -7,5 +7,19 @@
 		<string>_meshred-chat._tcp</string>
 		<string>_meshred-chat._udp</string>
 	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>network-authentication</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MeshRed necesita acceso a la red local para comunicación peer-to-peer sin infraestructura durante eventos masivos del Mundial 2026.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>MeshRed usa Bluetooth para descubrir dispositivos cercanos y crear redes mesh resilientes cuando las redes celulares colapsan.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>MeshRed necesita Bluetooth para anunciarse a otros dispositivos y permitir comunicación descentralizada.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>StadiumConnect Pro necesita tu ubicación para ayudar a familiares a encontrarte durante eventos masivos del Mundial 2026. La ubicación solo se comparte cuando tú lo autorices.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>StadiumConnect Pro usa tu ubicación en segundo plano para funciones avanzadas de localización en el estadio. Tienes control total sobre cuándo compartir tu ubicación.</string>
 </dict>
 </plist>
