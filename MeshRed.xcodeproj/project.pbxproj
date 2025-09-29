@@ -29,9 +29,22 @@
 		F02B8BD92E89DB6700BC6239 /* MeshRedUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MeshRedUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		F047DAFF2E8A431500EA76A6 /* Exceptions for "MeshRed" folder in "MeshRed" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = F02B8BC12E89DB6600BC6239 /* MeshRed */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F02B8BC42E89DB6600BC6239 /* MeshRed */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F047DAFF2E8A431500EA76A6 /* Exceptions for "MeshRed" folder in "MeshRed" target */,
+			);
 			path = MeshRed;
 			sourceTree = "<group>";
 		};
@@ -393,11 +406,16 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = QF2R75VM2Y;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MeshRed/Info.plist;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "MeshRed utiliza Bluetooth para descubrir y conectarse con dispositivos cercanos para comunicación peer-to-peer.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "MeshRed necesita Bluetooth para anunciar su disponibilidad a otros dispositivos cercanos.";
+				INFOPLIST_KEY_NSBonjourServices = "_meshred-chat._tcp _meshred-chat._udp";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "MeshRed necesita acceso a la red local";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -437,11 +455,16 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = QF2R75VM2Y;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MeshRed/Info.plist;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "MeshRed utiliza Bluetooth para descubrir y conectarse con dispositivos cercanos para comunicación peer-to-peer.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "MeshRed necesita Bluetooth para anunciar su disponibilidad a otros dispositivos cercanos.";
+				INFOPLIST_KEY_NSBonjourServices = "_meshred-chat._tcp _meshred-chat._udp";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "MeshRed necesita acceso a la red local";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
