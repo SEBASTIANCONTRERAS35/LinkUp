@@ -134,6 +134,19 @@ class LocationService: NSObject, ObservableObject {
         guard let location = currentLocation else { return false }
         return Date().timeIntervalSince(location.timestamp) < 30.0
     }
+
+    /// Get detailed diagnostic status for debugging
+    func getDetailedStatus() -> String {
+        var status = "Location Service Status:\n"
+        status += "  Authorization: \(authorizationStatus.description)\n"
+        status += "  Services Enabled: \(CLLocationManager.locationServicesEnabled())\n"
+        status += "  Is Monitoring: \(isMonitoring)\n"
+        status += "  Current Location: \(currentLocation?.coordinateString ?? "none")\n"
+        status += "  Last Error: \(locationError?.localizedDescription ?? "none")\n"
+        status += "  Has Recent Location: \(hasRecentLocation)\n"
+        status += "  Location Available: \(isLocationAvailable)\n"
+        return status
+    }
 }
 
 // MARK: - CLLocationManagerDelegate

@@ -85,12 +85,27 @@ struct DirectionVector: Codable, Equatable {
     }
 
     /// Calculate bearing in degrees (0° = North, 90° = East)
+    /// Uses horizontal plane projection (x, z) ignoring vertical component (y)
+    /// In Apple's coordinate system: +x = right, -z = forward (north)
     var bearing: Double {
-        let radians = atan2(Double(y), Double(x))
+        // For horizontal navigation, use x (east-west) and z (north-south)
+        // Note: -z is forward/north in Apple's coordinate system
+        let radians = atan2(Double(x), Double(-z))
         let degrees = radians * 180.0 / .pi
-        // Convert from mathematical angle to compass bearing
-        let bearing = 90.0 - degrees
-        return bearing >= 0 ? bearing : bearing + 360.0
+        // atan2 gives us angle from north, normalize to 0-360°
+        let normalizedBearing = degrees >= 0 ? degrees : degrees + 360.0
+
+        // 🔍 DEBUG: Log bearing calculation
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🧭 BEARING CALCULATION")
+        print("   Direction Vector: x=\(x), y=\(y), z=\(z)")
+        print("   atan2(x=\(x), -z=\(-z)) = \(radians) rad")
+        print("   Degrees: \(degrees)°")
+        print("   Normalized: \(normalizedBearing)°")
+        print("   Cardinal: \(cardinalDirection)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        return normalizedBearing
     }
 
     /// Get cardinal direction (N, NE, E, SE, S, SW, W, NW)

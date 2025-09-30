@@ -21,5 +21,11 @@
 	<string>StadiumConnect Pro necesita tu ubicación para ayudar a familiares a encontrarte durante eventos masivos del Mundial 2026. La ubicación solo se comparte cuando tú lo autorices.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>StadiumConnect Pro usa tu ubicación en segundo plano para funciones avanzadas de localización en el estadio. Tienes control total sobre cuándo compartir tu ubicación.</string>
+	<key>NSNearbyInteractionAllowOnceUsageDescription</key>
+	<string>MeshRed necesita acceso a Nearby Interaction para localizar dispositivos cercanos con precisión centimétrica usando Ultra Wideband (UWB). Esto permite navegación con flecha direccional en tiempo real.</string>
+	<key>NSNearbyInteractionUsageDescription</key>
+	<string>MeshRed usa Nearby Interaction para proporcionar navegación precisa hacia otros dispositivos, mostrándote la dirección y distancia exacta con precisión de centímetros.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>MeshRed usa la cámara para mejorar la precisión direccional de Ultra Wideband, combinando ARKit con UWB para una navegación más precisa hacia otros dispositivos.</string>
 </dict>
 </plist>

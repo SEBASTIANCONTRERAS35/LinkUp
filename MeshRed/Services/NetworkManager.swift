@@ -46,7 +46,7 @@ class NetworkManager: NSObject, ObservableObject {
     // MARK: - Location Components
     let locationService = LocationService()
     let locationRequestManager = LocationRequestManager()
-    private var uwbSessionManager: UWBSessionManager?
+    var uwbSessionManager: UWBSessionManager?
     private var processingTimer: Timer?
     private let processingQueue = DispatchQueue(label: "com.meshred.processing", qos: .userInitiated)
     private var lastBrowseTime = Date.distantPast
@@ -56,6 +56,10 @@ class NetworkManager: NSObject, ObservableObject {
     // Event deduplication
     private var peerEventTimes: [String: (found: Date?, lost: Date?)] = [:]
     private let eventDeduplicationWindow: TimeInterval = 10.0  // Increased from 3.0
+
+    // UWB retry management
+    private var uwbRetryCount: [String: Int] = [:]
+    private let maxUWBRetries = 3
 
     // Network configuration
     private let config = NetworkConfig.shared
@@ -432,27 +436,44 @@ class NetworkManager: NSObject, ObservableObject {
             print("⚡ FORCING connection to \(peerID.displayName) - bypassing conflict resolution")
         }
 
-        // Acquire mutex lock
+        // Acquire mutex lock to serialize invites
         guard connectionMutex.tryAcquireLock(for: peerID, operation: .browserInvite) else {
             print("🔒 Connection operation already in progress for \(peerID.displayName)")
             return
         }
 
-        // Defer lock release
-        defer { connectionMutex.releaseLock(for: peerID) }
+        var lockReleased = false
+        let releaseLock: () -> Void = { [weak self] in
+            guard let self = self, !lockReleased else { return }
+            lockReleased = true
+            self.connectionMutex.releaseLock(for: peerID)
+        }
 
         guard sessionManager.shouldAttemptConnection(to: peerID) else {
             print("⏸️ Skipping connection attempt to \(peerID.displayName)")
+            releaseLock()
             return
         }
 
         sessionManager.recordConnectionAttempt(to: peerID)
         print("🔗 NetworkManager: Attempting to connect to peer: \(peerID.displayName)")
         browser.invitePeer(peerID, to: session, withContext: nil, timeout: SessionManager.connectionTimeout)
+
+        // Watchdog: if the session never transitions, clear the lock to avoid deadlocks
+        let handshakeTimeout = SessionManager.connectionTimeout + 4.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + handshakeTimeout) { [weak self] in
+            guard let self = self else { return }
+            if self.connectionMutex.hasActiveOperation(for: peerID) {
+                print("⏳ Connection handshake timeout for \(peerID.displayName) - releasing lock")
+                // Note: Browser doesn't have cancelConnectPeer - session handles timeouts
+                releaseLock()
+            }
+        }
     }
 
     func disconnectFromPeer(_ peerID: MCPeerID) {
-        session.cancelConnectPeer(peerID)
+        // Note: MCNearbyServiceBrowser doesn't have cancelConnectPeer, only MCSession does
+        // This would be handled by the session state changes
         connectionMutex.releaseLock(for: peerID)
         print("🔌 NetworkManager: Manually disconnected from peer: \(peerID.displayName)")
     }
@@ -774,27 +795,51 @@ class NetworkManager: NSObject, ObservableObject {
         }
 
         // Check if requester is a connected peer and we have UWB session with them
-        if #available(iOS 14.0, *),
-           let uwbManager = uwbSessionManager,
-           let requesterPeer = connectedPeers.first(where: { $0.displayName == request.requesterId }),
-           uwbManager.hasActiveSession(with: requesterPeer),
-           let distance = uwbManager.getDistance(to: requesterPeer) {
+        print("📍 NetworkManager: Checking UWB availability with requester \(request.requesterId)...")
 
-            // We have UWB with the requester! Send precise UWB response
-            let direction = uwbManager.getDirection(to: requesterPeer).map { DirectionVector(from: $0) }
+        if #available(iOS 14.0, *) {
+            if let uwbManager = uwbSessionManager {
+                print("   ✓ UWBSessionManager available")
 
-            let response = LocationResponseMessage.uwbDirectResponse(
-                requestId: request.id,
-                targetId: localPeerID.displayName,
-                distance: distance,
-                direction: direction,
-                accuracy: 0.5  // UWB typical accuracy
-            )
+                if let requesterPeer = connectedPeers.first(where: { $0.displayName == request.requesterId }) {
+                    print("   ✓ Requester found in connected peers")
 
-            sendLocationResponse(response)
-            print("📍 NetworkManager: Sent UWB direct response - Distance: \(String(format: "%.2f", distance))m")
-            return
+                    let hasSession = uwbManager.hasActiveSession(with: requesterPeer)
+                    print("   UWB session active: \(hasSession ? "✓ YES" : "✗ NO")")
+
+                    if hasSession {
+                        if let distance = uwbManager.getDistance(to: requesterPeer) {
+                            print("   ✓ UWB distance available: \(String(format: "%.2f", distance))m")
+
+                            // We have UWB with the requester! Send precise UWB response
+                            let direction = uwbManager.getDirection(to: requesterPeer).map { DirectionVector(from: $0) }
+
+                            let response = LocationResponseMessage.uwbDirectResponse(
+                                requestId: request.id,
+                                targetId: localPeerID.displayName,
+                                distance: distance,
+                                direction: direction,
+                                accuracy: 0.5  // UWB typical accuracy
+                            )
+
+                            sendLocationResponse(response)
+                            print("✅ NetworkManager: Sent UWB direct response - \(String(format: "%.2f", distance))m \(direction?.cardinalDirection ?? "no direction")")
+                            return
+                        } else {
+                            print("   ✗ UWB session exists but no distance data yet")
+                        }
+                    }
+                } else {
+                    print("   ✗ Requester \(request.requesterId) not in connected peers list")
+                }
+            } else {
+                print("   ✗ UWBSessionManager is nil")
+            }
+        } else {
+            print("   ✗ iOS 14.0+ required for UWB")
         }
+
+        print("📍 NetworkManager: Falling back to GPS (UWB not available)")
 
         // Fallback: No UWB available, send GPS location
         Task {
@@ -857,10 +902,26 @@ class NetworkManager: NSObject, ObservableObject {
     // MARK: - UWB Discovery Token Exchange
 
     private func sendUWBDiscoveryToken(to peerID: MCPeerID) {
-        guard #available(iOS 14.0, *),
-              let uwbManager = uwbSessionManager,
-              uwbManager.isUWBSupported,
-              let token = uwbManager.getLocalDiscoveryToken() else {
+        print("📡 NetworkManager: Attempting to send UWB token to \(peerID.displayName)...")
+
+        guard #available(iOS 14.0, *) else {
+            print("   ✗ iOS 14.0+ required for UWB - skipping token exchange")
+            return
+        }
+
+        guard let uwbManager = uwbSessionManager else {
+            print("   ✗ UWBSessionManager is nil - skipping token exchange")
+            return
+        }
+
+        guard uwbManager.isUWBSupported else {
+            print("   ✗ UWB not supported on this device (requires iPhone 11+ with U1/U2 chip)")
+            return
+        }
+
+        // Prepare session for this peer (creates session, extracts token, but doesn't run it)
+        guard let token = uwbManager.prepareSession(for: peerID) else {
+            print("   ✗ Failed to prepare session and get discovery token")
             return
         }
 
@@ -873,21 +934,71 @@ class NetworkManager: NSObject, ObservableObject {
             let data = try encoder.encode(payload)
             try session.send(data, toPeers: [peerID], with: .reliable)
 
-            print("📡 NetworkManager: Sent UWB discovery token to \(peerID.displayName)")
+            print("✅ NetworkManager: Sent UWB discovery token to \(peerID.displayName)")
+            print("   Session prepared and ready to run when we receive peer's token")
         } catch {
             print("❌ NetworkManager: Failed to send UWB token: \(error.localizedDescription)")
         }
     }
 
+    // Coordinate a bidirectional UWB restart with a peer by resetting local state
+    // and re-initiating the token exchange. This avoids introducing a new payload
+    // type and leverages the existing discovery-token flow to re-establish ranging.
+    private func sendUWBResetRequest(to peer: MCPeerID) {
+        print("📡 NetworkManager: UWB reset requested for \(peer.displayName) — resetting local session and re-initiating token exchange")
+
+        guard #available(iOS 14.0, *), let uwbManager = uwbSessionManager else {
+            print("   ✗ UWB not available — cannot perform reset")
+            return
+        }
+
+        // Stop any active session with this peer
+        uwbManager.stopSession(with: peer)
+
+        // Clear token exchange state and retries so we start fresh
+        uwbTokenExchangeState[peer.displayName] = .idle
+        uwbRetryCount[peer.displayName] = 0
+
+        // Small delay to allow session invalidation to propagate before restarting
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self = self else { return }
+
+            // Mark that we're initiating a fresh exchange and send our token
+            print("📤 NetworkManager: Re-initiating UWB token exchange with \(peer.displayName) after reset")
+            self.uwbTokenExchangeState[peer.displayName] = .sentToken
+            self.sendUWBDiscoveryToken(to: peer)
+        }
+    }
+
+    // Track UWB token exchange state
+    private var uwbTokenExchangeState: [String: TokenExchangeState] = [:]  // PeerID -> Exchange state
+    private var uwbSessionRole: [String: String] = [:]  // PeerID -> "master" or "slave"
+
+    // MARK: - Token Exchange State Enum
+    enum TokenExchangeState {
+        case idle                 // No exchange started
+        case preparing            // Preparing local session
+        case waitingForToken      // SLAVE waiting for MASTER's token
+        case sentToken            // MASTER sent token, waiting for response
+        case receivedToken        // Received token from peer
+        case exchangeComplete     // Both tokens exchanged, both sessions running
+    }
+
     private func handleUWBDiscoveryToken(_ tokenMessage: UWBDiscoveryTokenMessage, from peerID: MCPeerID) {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📥 UWB TOKEN RECEIVED")
+        print("   From: \(peerID.displayName)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
         guard #available(iOS 14.0, *),
               let uwbManager = uwbSessionManager,
               uwbManager.isUWBSupported else {
+            print("   ✗ UWB not supported on this device")
             return
         }
 
         do {
-            guard let token = try NSKeyedUnarchiver.unarchivedObject(
+            guard let remotePeerToken = try NSKeyedUnarchiver.unarchivedObject(
                 ofClass: NIDiscoveryToken.self,
                 from: tokenMessage.tokenData
             ) else {
@@ -895,9 +1006,64 @@ class NetworkManager: NSObject, ObservableObject {
                 return
             }
 
-            // Start UWB session with this peer
-            uwbManager.startSession(with: peerID, discoveryToken: token)
-            print("📡 NetworkManager: Started UWB session with \(peerID.displayName)")
+            print("   ✓ Token unarchived successfully")
+
+            // Determine role based on peer ID comparison
+            let isMaster = localPeerID.displayName > peerID.displayName
+            uwbSessionRole[peerID.displayName] = isMaster ? "master" : "slave"
+
+            print("   🎭 UWB Role: \(isMaster ? "MASTER" : "SLAVE") for session with \(peerID.displayName)")
+            print("   📊 Comparison: '\(localPeerID.displayName)' \(isMaster ? ">" : "<") '\(peerID.displayName)'")
+
+            if isMaster {
+                // MASTER receives SLAVE's token response
+                print("   📥 MASTER received SLAVE's token")
+
+                // Our session should already be prepared (we sent our token first)
+                // Now run our session with the slave's token
+                uwbManager.startSession(with: peerID, remotePeerToken: remotePeerToken)
+
+                // Mark exchange complete
+                uwbTokenExchangeState[peerID.displayName] = .exchangeComplete
+                print("   ✅ Token exchange complete - both sessions running")
+
+            } else {
+                // SLAVE receives MASTER's initial token
+                print("   📥 SLAVE received MASTER's token")
+
+                // Step 1: Prepare our session (if not already prepared)
+                // This will create session and extract our token
+                guard let myToken = uwbManager.prepareSession(for: peerID) else {
+                    print("   ❌ Failed to prepare session")
+                    return
+                }
+
+                // Step 2: Run our session with master's token
+                uwbManager.startSession(with: peerID, remotePeerToken: remotePeerToken)
+
+                // Step 3: Send our token back to master
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self = self else { return }
+
+                    print("   📤 SLAVE sending token back to MASTER")
+
+                    // Manually encode and send (can't use sendUWBDiscoveryToken since session is already prepared)
+                    do {
+                        let tokenData = try NSKeyedArchiver.archivedData(withRootObject: myToken, requiringSecureCoding: true)
+                        let message = UWBDiscoveryTokenMessage(senderId: self.localPeerID.displayName, tokenData: tokenData)
+                        let payload = NetworkPayload.uwbDiscoveryToken(message)
+
+                        let encoder = JSONEncoder()
+                        let data = try encoder.encode(payload)
+                        try self.session.send(data, toPeers: [peerID], with: .reliable)
+
+                        self.uwbTokenExchangeState[peerID.displayName] = .exchangeComplete
+                        print("   ✅ SLAVE sent token - exchange complete")
+                    } catch {
+                        print("   ❌ Failed to send token back: \(error.localizedDescription)")
+                    }
+                }
+            }
 
         } catch {
             print("❌ NetworkManager: Error handling UWB token: \(error.localizedDescription)")
@@ -938,9 +1104,36 @@ extension NetworkManager: MCSessionDelegate {
                 self.manageBrowsing()  // Stop browsing if configured
                 print("✅ NetworkManager: Connected to peer: \(peerID.displayName) | Total peers: \(self.connectedPeers.count)")
 
-                // Send UWB discovery token to establish ranging session
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                    self?.sendUWBDiscoveryToken(to: peerID)
+                // Reset UWB retry count and token exchange state for this peer
+                self.uwbRetryCount[peerID.displayName] = 0
+                self.uwbTokenExchangeState[peerID.displayName] = .idle
+                self.uwbSessionRole.removeValue(forKey: peerID.displayName)
+
+                // Determine who should initiate UWB token exchange based on peer ID
+                let shouldInitiate = self.localPeerID.displayName > peerID.displayName
+
+                if shouldInitiate {
+                    // We initiate if we have the higher ID (master role)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                        guard let self = self else { return }
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        print("🎯 UWB TOKEN EXCHANGE INITIATOR")
+                        print("   Local: \(self.localPeerID.displayName)")
+                        print("   Remote: \(peerID.displayName)")
+                        print("   Role: MASTER (initiating)")
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        self.uwbTokenExchangeState[peerID.displayName] = .sentToken
+                        self.sendUWBDiscoveryToken(to: peerID)
+                    }
+                } else {
+                    // Wait for the other peer to initiate (slave role)
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("⏳ UWB TOKEN EXCHANGE WAITER")
+                    print("   Local: \(self.localPeerID.displayName)")
+                    print("   Remote: \(peerID.displayName)")
+                    print("   Role: SLAVE (waiting for token)")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    self.uwbTokenExchangeState[peerID.displayName] = .waitingForToken
                 }
 
             case .connecting:
@@ -958,12 +1151,25 @@ extension NetworkManager: MCSessionDelegate {
                     self.connectionMutex.releaseLock(for: peerID)
                 }
 
+                // Note: MCNearbyServiceBrowser doesn't have cancelConnectPeer method
+                // Disconnection is handled by the session state changes
+
                 let wasConnected = self.connectedPeers.contains(peerID)
                 self.connectedPeers.removeAll { $0 == peerID }
                 self.sessionManager.recordDisconnection(from: peerID)
                 self.healthMonitor.removePeer(peerID)
+
+                // Stop UWB session and clear token exchange state
+                if #available(iOS 14.0, *) {
+                    self.uwbSessionManager?.stopSession(with: peerID)
+                    self.uwbTokenExchangeState[peerID.displayName] = .idle
+                    self.uwbRetryCount[peerID.displayName] = 0
+                }
                 self.updateConnectionStatus()
                 self.manageBrowsing()  // Restart browsing if no connections left
+
+                // No longer waiting for this peer to invite us
+                self.waitingForInvitationFrom.removeValue(forKey: peerID.displayName)
 
                 if wasConnected {
                     print("❌ DISCONNECTION: Lost connection to peer: \(peerID.displayName)")
@@ -977,9 +1183,17 @@ extension NetworkManager: MCSessionDelegate {
                 // Always stop monitoring when disconnected
                 print("🏥 Stopped monitoring: \(peerID.displayName)")
 
-                // Clear from available peers to force re-discovery
-                self.availablePeers.removeAll { $0 == peerID }
-                print("🔍 Peer \(peerID.displayName) removed from available peers - requires rediscovery")
+                if wasConnected {
+                    // Force rediscovery for truly disconnected peers
+                    self.availablePeers.removeAll { $0 == peerID }
+                    print("🔍 Peer \(peerID.displayName) removed from available peers - requires rediscovery")
+                } else {
+                    // Keep failed peers in the available list so retry logic can trigger quickly
+                    if !self.availablePeers.contains(where: { $0.displayName == peerID.displayName }) {
+                        self.availablePeers.append(peerID)
+                    }
+                    print("🕸️ Retaining \(peerID.displayName) in available peers for retry")
+                }
 
             @unknown default:
                 print("⚠️ NetworkManager: Unknown connection state for peer: \(peerID.displayName)")
@@ -1304,6 +1518,36 @@ extension NetworkManager {
             }
         }
     }
+
+    /// Get location diagnostics for debugging
+    func getLocationDiagnostics() -> String {
+        var diag = "=== LOCATION DIAGNOSTICS ===\n"
+
+        // Location Service Status
+        diag += locationService.getDetailedStatus()
+        diag += "\n"
+
+        // UWB Status
+        if #available(iOS 14.0, *), let uwbManager = uwbSessionManager {
+            diag += "UWB Status:\n"
+            diag += "  Supported: \(uwbManager.isUWBSupported)\n"
+            diag += "  Active Sessions: \(uwbManager.activeSessions.count)\n"
+
+            if !uwbManager.activeSessions.isEmpty {
+                diag += "  Sessions:\n"
+                for (peerId, _) in uwbManager.activeSessions {
+                    let hasDistance = uwbManager.nearbyObjects[peerId]?.distance != nil
+                    let hasDirection = uwbManager.nearbyObjects[peerId]?.direction != nil
+                    diag += "    • \(peerId): distance=\(hasDistance), direction=\(hasDirection)\n"
+                }
+            }
+        } else {
+            diag += "UWB: Not available\n"
+        }
+
+        diag += "============================\n"
+        return diag
+    }
 }
 
 // MARK: - AckManagerDelegate
@@ -1359,10 +1603,84 @@ extension NetworkManager: UWBSessionManagerDelegate {
     func uwbSessionManager(_ manager: UWBSessionManager, sessionInvalidatedFor peerId: String, error: Error) {
         print("❌ NetworkManager: UWB session invalidated for \(peerId): \(error.localizedDescription)")
 
-        // Try to restart session if peer is still connected
+        // Check if it's a permission denied error
+        if error.localizedDescription.contains("USER_DID_NOT_ALLOW") {
+            print("⚠️ NetworkManager: UWB permission denied by user for \(peerId)")
+            // Reset retry count but don't retry - user needs to grant permission
+            uwbRetryCount[peerId] = 0
+
+            // Notify UI about permission issue
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: Notification.Name("UWBPermissionDenied"),
+                    object: nil,
+                    userInfo: ["peerId": peerId]
+                )
+            }
+            return
+        }
+
+        // Check retry count
+        let retries = uwbRetryCount[peerId] ?? 0
+
+        // Try to restart session if peer is still connected and under retry limit
         if let peer = connectedPeers.first(where: { $0.displayName == peerId }) {
-            print("🔄 NetworkManager: Attempting to restart UWB session with \(peerId)")
-            sendUWBDiscoveryToken(to: peer)
+            if retries < maxUWBRetries {
+                uwbRetryCount[peerId] = retries + 1
+                print("🔄 NetworkManager: Attempting to restart UWB session with \(peerId) (retry \(retries + 1)/\(maxUWBRetries))")
+
+                // Add a delay before retrying
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                    self?.sendUWBDiscoveryToken(to: peer)
+                }
+            } else {
+                print("❌ NetworkManager: Max UWB retries reached for \(peerId)")
+                uwbRetryCount[peerId] = 0
+            }
+        }
+    }
+
+    func uwbSessionManager(_ manager: UWBSessionManager, requestsRestartFor peerId: String) {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🔄 UWB RESTART REQUESTED")
+        print("   Peer: \(peerId)")
+        print("   Action: Coordinating bidirectional restart")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Send UWB_RESET_REQUEST to peer
+        if let peer = connectedPeers.first(where: { $0.displayName == peerId }) {
+            sendUWBResetRequest(to: peer)
+        }
+    }
+
+    func uwbSessionManager(_ manager: UWBSessionManager, needsFreshTokenFor peerId: String) {
+        print("🔄 NetworkManager: Restarting token exchange for \(peerId)")
+
+        guard #available(iOS 14.0, *) else {
+            return
+        }
+
+        // Send fresh token to peer
+        if let peer = connectedPeers.first(where: { $0.displayName == peerId }) {
+            // Reset exchange state
+            uwbTokenExchangeState[peerId] = .idle
+
+            // Determine role and re-initiate exchange
+            let isMaster = localPeerID.displayName > peer.displayName
+
+            if isMaster {
+                // MASTER re-initiates
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    print("📤 NetworkManager: MASTER re-sending UWB token to \(peerId)")
+                    self?.uwbTokenExchangeState[peerId] = .sentToken
+                    self?.sendUWBDiscoveryToken(to: peer)
+                }
+            } else {
+                // SLAVE waits for master
+                uwbTokenExchangeState[peerId] = .waitingForToken
+                print("⏳ NetworkManager: SLAVE waiting for MASTER to re-send token")
+            }
         }
     }
 }
+
