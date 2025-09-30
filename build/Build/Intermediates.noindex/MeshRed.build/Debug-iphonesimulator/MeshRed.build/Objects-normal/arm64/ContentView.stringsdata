@@ -1,0 +1,272 @@
+{
+  "source": "/Users/emiliocontreras/Downloads/MeshRed/MeshRed/ContentView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Dispositivos Detectados",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 98
+        }
+      },
+      {
+        "comment": "",
+        "key": "Dispositivos Conectados",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 122
+        }
+      },
+      {
+        "comment": "",
+        "key": "Mensajes",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 166
+        }
+      },
+      {
+        "comment": "",
+        "key": "Estadísticas de Red",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 189
+        }
+      },
+      {
+        "comment": "",
+        "key": "Reenviando...",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 47
+        }
+      },
+      {
+        "comment": "",
+        "key": "Disponibles: %lld",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 59
+        }
+      },
+      {
+        "comment": "",
+        "key": "Conectados: %lld",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 74
+        }
+      },
+      {
+        "comment": "",
+        "key": "ACKs: %lld",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 68
+        }
+      },
+      {
+        "comment": "",
+        "key": "%lld bloqueados",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 83
+        }
+      },
+      {
+        "comment": "",
+        "key": "Buscando dispositivos...",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 100
+        }
+      },
+      {
+        "comment": "",
+        "key": "Disponible",
+        "location": {
+          "startingColumn": 38,
+          "startingLine": 111
+        }
+      },
+      {
+        "comment": "",
+        "key": "No hay dispositivos conectados",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 125
+        }
+      },
+      {
+        "comment": "",
+        "key": "Reconectar",
+        "location": {
+          "startingColumn": 38,
+          "startingLine": 135
+        }
+      },
+      {
+        "comment": "",
+        "key": "Conectado",
+        "location": {
+          "startingColumn": 38,
+          "startingLine": 155
+        }
+      },
+      {
+        "comment": "",
+        "key": "No hay mensajes",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 170
+        }
+      },
+      {
+        "comment": "",
+        "key": "Intentos de conexión:",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 192
+        }
+      },
+      {
+        "comment": "",
+        "key": "%lld",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 195
+        }
+      },
+      {
+        "comment": "",
+        "key": "Peers bloqueados:",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 199
+        }
+      },
+      {
+        "comment": "",
+        "key": "%lld",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 202
+        }
+      },
+      {
+        "comment": "",
+        "key": "Conexiones activas:",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 207
+        }
+      },
+      {
+        "comment": "",
+        "key": "%lld",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 210
+        }
+      },
+      {
+        "comment": "",
+        "key": "Limpiar Conexiones",
+        "location": {
+          "startingColumn": 39,
+          "startingLine": 219
+        }
+      },
+      {
+        "comment": "",
+        "key": "Opciones Avanzadas",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 238
+        }
+      },
+      {
+        "comment": "",
+        "key": "Tipo:",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 249
+        }
+      },
+      {
+        "comment": "",
+        "key": "Tipo",
+        "location": {
+          "startingColumn": 36,
+          "startingLine": 251
+        }
+      },
+      {
+        "comment": "",
+        "key": "Prioridad:",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 262
+        }
+      },
+      {
+        "comment": "",
+        "key": "%lld",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 267
+        }
+      },
+      {
+        "comment": "",
+        "key": "Destinatario:",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 275
+        }
+      },
+      {
+        "comment": "",
+        "key": "Destinatario",
+        "location": {
+          "startingColumn": 36,
+          "startingLine": 277
+        }
+      },
+      {
+        "comment": "",
+        "key": "Broadcast (todos)",
+        "location": {
+          "startingColumn": 38,
+          "startingLine": 278
+        }
+      },
+      {
+        "comment": "",
+        "key": "Mensaje dirigido - probará multi-hop si no hay conexión directa",
+        "location": {
+          "startingColumn": 42,
+          "startingLine": 290
+        }
+      },
+      {
+        "comment": "",
+        "key": "Requiere confirmación",
+        "location": {
+          "startingColumn": 38,
+          "startingLine": 302
+        }
+      },
+      {
+        "comment": "",
+        "key": "Escribe un mensaje...",
+        "location": {
+          "startingColumn": 31,
+          "startingLine": 327
+        }
+      }
+    ]
+  },
+  "version": 1
+}

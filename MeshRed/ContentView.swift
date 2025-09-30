@@ -497,13 +497,49 @@ struct LocationResponseView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             switch response.responseType {
+            case .uwbDirect:
+                // UWB direct response - highest precision
+                if let relative = response.relativeLocation {
+                    HStack(spacing: 4) {
+                        Image(systemName: "location.north.circle.fill")
+                            .font(.caption2)
+                            .foregroundColor(.green)
+                        Text("Ubicación UWB Precisa:")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.green)
+                    }
+
+                    HStack(spacing: 6) {
+                        // Distance
+                        Text(relative.distanceString)
+                            .font(.caption.bold())
+                            .foregroundColor(.green)
+
+                        // Direction if available
+                        if let dir = relative.directionString {
+                            Image(systemName: "arrow.up")
+                                .font(.caption2)
+                                .foregroundColor(.green)
+                            Text(dir)
+                                .font(.caption2)
+                                .foregroundColor(.green)
+                        }
+                    }
+
+                    Text("Precisión: ±\(String(format: "%.1f", relative.accuracy))m (UWB)")
+                        .font(.caption2)
+                        .foregroundColor(.green.opacity(0.8))
+                }
+
             case .direct:
+                // GPS fallback
                 if let location = response.directLocation {
                     HStack(spacing: 4) {
                         Image(systemName: "location.fill")
                             .font(.caption2)
                             .foregroundColor(.blue)
-                        Text("Ubicación directa:")
+                        Text("Ubicación GPS:")
                             .font(.caption)
                             .fontWeight(.semibold)
                     }
@@ -517,6 +553,7 @@ struct LocationResponseView: View {
                 }
 
             case .triangulated:
+                // Deprecated - should not appear anymore
                 if let relative = response.relativeLocation {
                     HStack(spacing: 4) {
                         Image(systemName: "point.3.connected.trianglepath.dotted")

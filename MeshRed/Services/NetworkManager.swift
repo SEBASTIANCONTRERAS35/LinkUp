@@ -268,12 +268,12 @@ class NetworkManager: NSObject, ObservableObject {
         for (peerKey, waitStartTime) in waitingForInvitationFrom {
             let waitDuration = now.timeIntervalSince(waitStartTime)
 
-            // Progressive timeout: 10s, 15s, 20s... (give more time for normal connections)
+            // Progressive timeout: 5s, 8s, 12s... (faster for deadlock detection)
             let failureCount = failedConnectionAttempts[peerKey] ?? 0
-            let timeoutThreshold = 10.0 + (Double(failureCount) * 5.0)
+            let timeoutThreshold = 5.0 + (Double(failureCount) * 3.0)
 
-            // Cap maximum wait time at 30 seconds
-            let effectiveThreshold = min(timeoutThreshold, 30.0)
+            // Cap maximum wait time at 15 seconds
+            let effectiveThreshold = min(timeoutThreshold, 15.0)
 
             if waitDuration > effectiveThreshold {
                 stuckPeers.append(peerKey)
@@ -738,28 +738,14 @@ class NetworkManager: NSObject, ObservableObject {
     private func handleLocationRequest(_ request: LocationRequestMessage, from peerID: MCPeerID) {
         print("📍 NetworkManager: Received location request from \(request.requesterId) for \(request.targetId)")
 
-        // Case 1: Request is for me - respond with my location
+        // Case 1: Request is for me - respond with my location (UWB or GPS)
         if request.targetId == localPeerID.displayName {
             handleLocationRequestForMe(request)
             return
         }
 
-        // Case 2: Check if I can provide triangulated response using UWB
-        if request.allowCollaborativeTriangulation,
-           let targetPeer = connectedPeers.first(where: { $0.displayName == request.targetId }) {
-
-            if #available(iOS 14.0, *),
-               let uwbManager = uwbSessionManager,
-               uwbManager.hasActiveSession(with: targetPeer),
-               let myLocation = locationService.currentLocation {
-
-                // I have UWB session with target, can provide triangulated response
-                handleLocationRequestWithTriangulation(request, targetPeer: targetPeer, myLocation: myLocation)
-                return
-            }
-        }
-
-        // Case 3: Just relay the request (normal multi-hop routing)
+        // Case 2: Relay the request (normal multi-hop routing)
+        // Intermediaries do NOT respond with their own UWB data
         print("📍 NetworkManager: Relaying location request for \(request.targetId)")
         let payload = NetworkPayload.locationRequest(request)
 
@@ -787,7 +773,30 @@ class NetworkManager: NSObject, ObservableObject {
             return
         }
 
-        // Get current location
+        // Check if requester is a connected peer and we have UWB session with them
+        if #available(iOS 14.0, *),
+           let uwbManager = uwbSessionManager,
+           let requesterPeer = connectedPeers.first(where: { $0.displayName == request.requesterId }),
+           uwbManager.hasActiveSession(with: requesterPeer),
+           let distance = uwbManager.getDistance(to: requesterPeer) {
+
+            // We have UWB with the requester! Send precise UWB response
+            let direction = uwbManager.getDirection(to: requesterPeer).map { DirectionVector(from: $0) }
+
+            let response = LocationResponseMessage.uwbDirectResponse(
+                requestId: request.id,
+                targetId: localPeerID.displayName,
+                distance: distance,
+                direction: direction,
+                accuracy: 0.5  // UWB typical accuracy
+            )
+
+            sendLocationResponse(response)
+            print("📍 NetworkManager: Sent UWB direct response - Distance: \(String(format: "%.2f", distance))m")
+            return
+        }
+
+        // Fallback: No UWB available, send GPS location
         Task {
             do {
                 guard let location = try await locationService.getCurrentLocation() else {
@@ -802,7 +811,7 @@ class NetworkManager: NSObject, ObservableObject {
                     return
                 }
 
-                // Send direct response
+                // Send direct GPS response
                 let response = LocationResponseMessage.directResponse(
                     requestId: request.id,
                     targetId: localPeerID.displayName,
@@ -810,7 +819,7 @@ class NetworkManager: NSObject, ObservableObject {
                 )
 
                 sendLocationResponse(response)
-                print("📍 NetworkManager: Sent direct location response")
+                print("📍 NetworkManager: Sent GPS fallback response")
 
             } catch {
                 print("❌ NetworkManager: Error getting location: \(error)")
@@ -825,36 +834,8 @@ class NetworkManager: NSObject, ObservableObject {
         }
     }
 
-    @available(iOS 14.0, *)
-    private func handleLocationRequestWithTriangulation(_ request: LocationRequestMessage, targetPeer: MCPeerID, myLocation: UserLocation) {
-        guard let uwbManager = uwbSessionManager else { return }
-
-        // Get relative location from UWB
-        guard var relativeLocation = uwbManager.getRelativeLocationInfo(for: targetPeer, intermediaryLocation: myLocation) else {
-            print("⚠️ NetworkManager: No UWB data available for \(targetPeer.displayName)")
-            return
-        }
-
-        // Fill in intermediary ID
-        relativeLocation = RelativeLocation(
-            intermediaryId: localPeerID.displayName,
-            intermediaryLocation: myLocation,
-            targetDistance: relativeLocation.targetDistance,
-            targetDirection: relativeLocation.targetDirection,
-            accuracy: relativeLocation.accuracy
-        )
-
-        // Create triangulated response
-        let response = LocationResponseMessage.triangulatedResponse(
-            requestId: request.id,
-            intermediaryId: localPeerID.displayName,
-            targetId: request.targetId,
-            relativeLocation: relativeLocation
-        )
-
-        sendLocationResponse(response)
-        print("📍 NetworkManager: Sent triangulated location response for \(request.targetId)")
-    }
+    // REMOVED: Intermediary triangulation no longer supported
+    // Only direct requester-target UWB is used
 
     private func sendLocationResponse(_ response: LocationResponseMessage) {
         let payload = NetworkPayload.locationResponse(response)
@@ -958,7 +939,9 @@ extension NetworkManager: MCSessionDelegate {
                 print("✅ NetworkManager: Connected to peer: \(peerID.displayName) | Total peers: \(self.connectedPeers.count)")
 
                 // Send UWB discovery token to establish ranging session
-                self.sendUWBDiscoveryToken(to: peerID)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    self?.sendUWBDiscoveryToken(to: peerID)
+                }
 
             case .connecting:
                 self.connectionStatus = .connecting

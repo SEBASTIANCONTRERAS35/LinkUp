@@ -58,7 +58,34 @@ struct LocationResponseMessage: Codable, Identifiable {
         )
     }
 
-    /// Create a triangulated response (intermediary responds with relative position)
+    /// Create a UWB direct response (target responds with UWB distance/direction to requester)
+    static func uwbDirectResponse(
+        requestId: UUID,
+        targetId: String,
+        distance: Float,
+        direction: DirectionVector?,
+        accuracy: Float = 0.5
+    ) -> LocationResponseMessage {
+        // Create a RelativeLocation without intermediary GPS (using zeros as placeholder)
+        let placeholderLocation = UserLocation(latitude: 0, longitude: 0, accuracy: 0)
+        let relativeLocation = RelativeLocation(
+            intermediaryId: targetId,  // Target is reporting their own position
+            intermediaryLocation: placeholderLocation,
+            targetDistance: distance,
+            targetDirection: direction,
+            accuracy: accuracy
+        )
+
+        return LocationResponseMessage(
+            requestId: requestId,
+            responderId: targetId,
+            targetId: targetId,
+            responseType: .uwbDirect,
+            relativeLocation: relativeLocation
+        )
+    }
+
+    /// Create a triangulated response (intermediary responds with relative position) - DEPRECATED
     static func triangulatedResponse(
         requestId: UUID,
         intermediaryId: String,
@@ -91,7 +118,8 @@ struct LocationResponseMessage: Codable, Identifiable {
 
     enum ResponseType: String, Codable {
         case direct = "direct"              // Target responded with their GPS
-        case triangulated = "triangulated"  // Intermediary responded with UWB-based relative position
+        case uwbDirect = "uwbDirect"        // Target responded with UWB distance/direction to requester
+        case triangulated = "triangulated"  // Intermediary responded with UWB-based relative position (deprecated)
         case unavailable = "unavailable"    // Location unavailable (permission denied, GPS off, etc.)
     }
 
@@ -103,6 +131,12 @@ struct LocationResponseMessage: Codable, Identifiable {
                 return "Ubicación directa: \(loc.coordinateString) (\(loc.accuracyString))"
             }
             return "Ubicación directa (sin datos)"
+
+        case .uwbDirect:
+            if let rel = relativeLocation {
+                return "Ubicación UWB: \(rel.distanceString) \(rel.directionString ?? "sin dirección") (±\(String(format: "%.1f", rel.accuracy))m)"
+            }
+            return "Ubicación UWB (sin datos)"
 
         case .triangulated:
             if let rel = relativeLocation {

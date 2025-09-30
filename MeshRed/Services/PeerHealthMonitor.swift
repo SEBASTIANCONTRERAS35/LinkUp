@@ -1,0 +1,358 @@
+import Foundation
+import MultipeerConnectivity
+
+enum ConnectionQuality: String {
+    case excellent = "🟢"
+    case good = "🟡"
+    case poor = "🔴"
+    case unknown = "⚪"
+
+    var displayName: String {
+        switch self {
+        case .excellent: return "Excelente"
+        case .good: return "Buena"
+        case .poor: return "Mala"
+        case .unknown: return "Desconocida"
+        }
+    }
+}
+
+struct PeerHealth {
+    let peerId: MCPeerID
+    var lastPingSent: Date?
+    var lastPongReceived: Date?
+    var latencyMs: Double = 0
+    var pingCount: Int = 0
+    var pongCount: Int = 0
+    var consecutiveFailures: Int = 0
+    var isHealthy: Bool = true
+
+    init(peerId: MCPeerID) {
+        self.peerId = peerId
+    }
+
+    var lossRate: Double {
+        guard pingCount > 0 else { return 0 }
+        return 1.0 - (Double(pongCount) / Double(pingCount))
+    }
+
+    var quality: ConnectionQuality {
+        if !isHealthy { return .poor }
+        if latencyMs == 0 { return .unknown }
+
+        if latencyMs < 50 && lossRate < 0.01 {
+            return .excellent
+        } else if latencyMs < 150 && lossRate < 0.05 {
+            return .good
+        } else {
+            return .poor
+        }
+    }
+
+    mutating func recordPingSent() {
+        lastPingSent = Date()
+        pingCount += 1
+    }
+
+    mutating func recordPongReceived() {
+        guard let sentTime = lastPingSent else { return }
+
+        lastPongReceived = Date()
+        let latency = Date().timeIntervalSince(sentTime) * 1000
+
+        if latencyMs == 0 {
+            latencyMs = latency
+        } else {
+            latencyMs = (latencyMs * 0.8) + (latency * 0.2)
+        }
+
+        pongCount += 1
+        consecutiveFailures = 0
+        isHealthy = true
+    }
+
+    mutating func recordFailure() {
+        consecutiveFailures += 1
+        if consecutiveFailures >= 3 {
+            isHealthy = false
+        }
+    }
+
+    func timeSinceLastPong() -> TimeInterval {
+        guard let lastPong = lastPongReceived else { return .infinity }
+        return Date().timeIntervalSince(lastPong)
+    }
+
+    func isStale() -> Bool {
+        // If we've never sent a ping, the connection is new and not stale
+        guard lastPingSent != nil else { return false }
+
+        // If we've sent pings but never received a pong after 60 seconds, it's stale
+        if lastPongReceived == nil {
+            guard let lastPing = lastPingSent else { return false }
+            return Date().timeIntervalSince(lastPing) > 60.0
+        }
+
+        // Consider connection stale if no pong received in 60 seconds
+        return timeSinceLastPong() > 60.0
+    }
+}
+
+struct HealthPing: Codable {
+    let pingId: UUID
+    let timestamp: Date
+}
+
+struct HealthPong: Codable {
+    let pingId: UUID
+    let timestamp: Date
+}
+
+enum HealthMessage: Codable {
+    case ping(HealthPing)
+    case pong(HealthPong)
+
+    private enum CodingKeys: String, CodingKey {
+        case type, payload
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(String.self, forKey: .type)
+
+        switch type {
+        case "ping":
+            let ping = try container.decode(HealthPing.self, forKey: .payload)
+            self = .ping(ping)
+        case "pong":
+            let pong = try container.decode(HealthPong.self, forKey: .payload)
+            self = .pong(pong)
+        default:
+            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown health message type")
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        switch self {
+        case .ping(let ping):
+            try container.encode("ping", forKey: .type)
+            try container.encode(ping, forKey: .payload)
+        case .pong(let pong):
+            try container.encode("pong", forKey: .type)
+            try container.encode(pong, forKey: .payload)
+        }
+    }
+}
+
+protocol PeerHealthMonitorDelegate: AnyObject {
+    func peerHealthMonitor(_ monitor: PeerHealthMonitor, shouldDisconnect peer: MCPeerID)
+    func peerHealthMonitor(_ monitor: PeerHealthMonitor, qualityChanged quality: ConnectionQuality, for peer: MCPeerID)
+}
+
+class PeerHealthMonitor {
+    weak var delegate: PeerHealthMonitorDelegate?
+
+    private var peerHealth: [String: PeerHealth] = [:]
+    private var pendingPings: [UUID: (peerId: String, sentTime: Date)] = [:]
+    private let pingInterval: TimeInterval = 30.0
+    private let unhealthyThreshold: TimeInterval = 60.0
+    private let queue = DispatchQueue(label: "com.meshred.healthmonitor", attributes: .concurrent)
+    private var pingTimer: Timer?
+
+    init() {
+        startPingTimer()
+    }
+
+    deinit {
+        pingTimer?.invalidate()
+    }
+
+    private func startPingTimer() {
+        pingTimer = Timer.scheduledTimer(withTimeInterval: pingInterval, repeats: true) { [weak self] _ in
+            self?.sendPings()
+            self?.checkHealthStatus()
+        }
+    }
+
+    func addPeer(_ peer: MCPeerID) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            let peerKey = peer.displayName
+            if self.peerHealth[peerKey] == nil {
+                self.peerHealth[peerKey] = PeerHealth(peerId: peer)
+                print("🏥 Monitoring health for: \(peerKey)")
+            }
+        }
+    }
+
+    func removePeer(_ peer: MCPeerID) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            let peerKey = peer.displayName
+            self.peerHealth.removeValue(forKey: peerKey)
+
+            self.pendingPings = self.pendingPings.filter { $0.value.peerId != peerKey }
+
+            print("🏥 Stopped monitoring: \(peerKey)")
+        }
+    }
+
+    func createPingData(for peer: MCPeerID) -> Data? {
+        let pingId = UUID()
+        let ping = HealthPing(pingId: pingId, timestamp: Date())
+        let message = HealthMessage.ping(ping)
+
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            let peerKey = peer.displayName
+            self.peerHealth[peerKey]?.recordPingSent()
+            self.pendingPings[pingId] = (peerId: peerKey, sentTime: Date())
+        }
+
+        return try? JSONEncoder().encode(message)
+    }
+
+    func handleHealthMessage(_ data: Data, from peer: MCPeerID) -> Data? {
+        guard let message = try? JSONDecoder().decode(HealthMessage.self, from: data) else {
+            return nil
+        }
+
+        switch message {
+        case .ping(let ping):
+            let pong = HealthPong(pingId: ping.pingId, timestamp: Date())
+            let response = HealthMessage.pong(pong)
+            return try? JSONEncoder().encode(response)
+
+        case .pong(let pong):
+            handlePongReceived(pong, from: peer)
+            return nil
+        }
+    }
+
+    private func handlePongReceived(_ pong: HealthPong, from peer: MCPeerID) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            guard self.pendingPings.removeValue(forKey: pong.pingId) != nil else {
+                return
+            }
+
+            let peerKey = peer.displayName
+            var health = self.peerHealth[peerKey] ?? PeerHealth(peerId: peer)
+            let previousQuality = health.quality
+
+            health.recordPongReceived()
+            self.peerHealth[peerKey] = health
+
+            if previousQuality != health.quality {
+                DispatchQueue.main.async {
+                    self.delegate?.peerHealthMonitor(self, qualityChanged: health.quality, for: peer)
+                }
+            }
+
+            print("🏓 Pong from \(peerKey): \(Int(health.latencyMs))ms, quality: \(health.quality.rawValue)")
+        }
+    }
+
+    private func sendPings() {
+        // This should be called from NetworkManager to actually send pings
+    }
+
+    private func checkHealthStatus() {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            let now = Date()
+
+            for (peerKey, var health) in self.peerHealth {
+                // Check for stale connections (no pong in 30s means likely dead)
+                if health.isStale() {
+                    let timeString: String
+                    if health.lastPongReceived != nil {
+                        let timeSince = health.timeSinceLastPong()
+                        timeString = "\(Int(timeSince))s ago"
+                    } else if let lastPing = health.lastPingSent {
+                        let timeSincePing = Date().timeIntervalSince(lastPing)
+                        timeString = "never (ping sent \(Int(timeSincePing))s ago)"
+                    } else {
+                        timeString = "never"
+                    }
+                    print("⚠️ Stale connection detected: \(peerKey) (no pong for \(timeString))")
+                    health.isHealthy = false
+                    self.peerHealth[peerKey] = health
+
+                    // Force disconnect stale connections
+                    DispatchQueue.main.async {
+                        print("🔌 Force disconnecting stale peer: \(peerKey)")
+                        self.delegate?.peerHealthMonitor(self, shouldDisconnect: health.peerId)
+                    }
+                    continue
+                }
+
+                if let lastPong = health.lastPongReceived {
+                    let timeSinceLastPong = now.timeIntervalSince(lastPong)
+
+                    if timeSinceLastPong > self.unhealthyThreshold {
+                        health.recordFailure()
+                        self.peerHealth[peerKey] = health
+
+                        if !health.isHealthy {
+                            print("💔 Peer unhealthy: \(peerKey) (no response for \(Int(timeSinceLastPong))s)")
+                            DispatchQueue.main.async {
+                                self.delegate?.peerHealthMonitor(self, shouldDisconnect: health.peerId)
+                            }
+                        }
+                    }
+                }
+            }
+
+            for (pingId, pingInfo) in self.pendingPings {
+                let timeSincePing = now.timeIntervalSince(pingInfo.sentTime)
+                if timeSincePing > 10 {
+                    self.pendingPings.removeValue(forKey: pingId)
+                    self.peerHealth[pingInfo.peerId]?.recordFailure()
+                }
+            }
+        }
+    }
+
+    func getHealthStats(for peer: MCPeerID) -> (quality: ConnectionQuality, latency: Double, lossRate: Double)? {
+        queue.sync {
+            guard let health = peerHealth[peer.displayName] else { return nil }
+            return (health.quality, health.latencyMs, health.lossRate)
+        }
+    }
+
+    func getAllHealthStats() -> [(peerId: String, quality: ConnectionQuality, latency: Double)] {
+        queue.sync {
+            return peerHealth.map { key, value in
+                (key, value.quality, value.latencyMs)
+            }
+        }
+    }
+
+    func resetStats(for peer: MCPeerID) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            let peerKey = peer.displayName
+            if self.peerHealth[peerKey] != nil {
+                self.peerHealth[peerKey] = PeerHealth(peerId: peer)
+                print("📊 Reset health stats for: \(peerKey)")
+            }
+        }
+    }
+
+    func clearAll() {
+        queue.async(flags: .barrier) { [weak self] in
+            self?.peerHealth.removeAll()
+            self?.pendingPings.removeAll()
+            print("🗑️ Cleared all health monitoring data")
+        }
+    }
+}
