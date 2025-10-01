@@ -65,6 +65,12 @@ class LocationRequestManager: ObservableObject {
     func handleResponse(_ response: LocationResponseMessage) {
         print("📍 LocationRequestManager: Received response for request \(response.requestId)")
 
+        // Privacy Guard: Only process responses for requests WE made (not relayed)
+        guard pendingRequests[response.requestId] != nil else {
+            print("   ↪ Ignoring relayed response for \(response.targetId) (not our request)")
+            return
+        }
+
         // Cancel timeout timer
         cancelTimeoutTimer(for: response.requestId)
 
@@ -75,7 +81,7 @@ class LocationRequestManager: ObservableObject {
                 self.pendingRequests[response.requestId] = state
             }
 
-            // Store response
+            // Store response (only if we requested it)
             self.receivedResponses[response.targetId] = response
         }
 

@@ -13,8 +13,10 @@ import Combine
 class LocationService: NSObject, ObservableObject {
     // MARK: - Published Properties
     @Published var currentLocation: UserLocation?
+    @Published var currentHeading: CLHeading?
     @Published var authorizationStatus: CLAuthorizationStatus
     @Published var isMonitoring: Bool = false
+    @Published var isMonitoringHeading: Bool = false
     @Published var locationError: LocationError?
 
     // MARK: - Private Properties
@@ -24,6 +26,7 @@ class LocationService: NSObject, ObservableObject {
     // MARK: - Configuration
     private let desiredAccuracy: CLLocationAccuracy = kCLLocationAccuracyBest
     private let distanceFilter: CLLocationDistance = 10.0  // Update every 10 meters
+    private let headingFilter: CLLocationDegrees = 5.0  // Update every 5 degrees
 
     // MARK: - Errors
     enum LocationError: LocalizedError {
@@ -48,14 +51,15 @@ class LocationService: NSObject, ObservableObject {
 
     // MARK: - Initialization
     override init() {
-        self.authorizationStatus = locationManager.authorizationStatus
+        // Initialize with notDetermined, delegate will update with actual status
+        self.authorizationStatus = .notDetermined
         super.init()
 
         locationManager.delegate = self
         locationManager.desiredAccuracy = desiredAccuracy
         locationManager.distanceFilter = distanceFilter
 
-        print("📍 LocationService: Initialized with status: \(authorizationStatus.description)")
+        print("📍 LocationService: Initialized, waiting for authorization status from delegate...")
     }
 
     // MARK: - Public Methods
@@ -123,6 +127,27 @@ class LocationService: NSObject, ObservableObject {
         print("📍 LocationService: Stopped continuous monitoring")
     }
 
+    /// Start continuous heading (compass) monitoring
+    func startMonitoringHeading() {
+        guard CLLocationManager.headingAvailable() else {
+            print("❌ LocationService: Heading not available on this device")
+            return
+        }
+
+        locationManager.headingFilter = headingFilter
+        locationManager.startUpdatingHeading()
+        isMonitoringHeading = true
+        print("🧭 LocationService: Started heading monitoring")
+    }
+
+    /// Stop continuous heading monitoring
+    func stopMonitoringHeading() {
+        locationManager.stopUpdatingHeading()
+        isMonitoringHeading = false
+        currentHeading = nil
+        print("🧭 LocationService: Stopped heading monitoring")
+    }
+
     /// Check if location services are available
     var isLocationAvailable: Bool {
         return CLLocationManager.locationServicesEnabled() &&
@@ -135,6 +160,17 @@ class LocationService: NSObject, ObservableObject {
         return Date().timeIntervalSince(location.timestamp) < 30.0
     }
 
+    /// Check if heading is available on this device
+    var isHeadingAvailable: Bool {
+        return CLLocationManager.headingAvailable()
+    }
+
+    /// Get current heading value (true heading if available, magnetic otherwise)
+    var headingValue: Double? {
+        guard let heading = currentHeading else { return nil }
+        return heading.trueHeading >= 0 ? heading.trueHeading : heading.magneticHeading
+    }
+
     /// Get detailed diagnostic status for debugging
     func getDetailedStatus() -> String {
         var status = "Location Service Status:\n"
@@ -145,6 +181,17 @@ class LocationService: NSObject, ObservableObject {
         status += "  Last Error: \(locationError?.localizedDescription ?? "none")\n"
         status += "  Has Recent Location: \(hasRecentLocation)\n"
         status += "  Location Available: \(isLocationAvailable)\n"
+        status += "\nHeading Service Status:\n"
+        status += "  Heading Available: \(isHeadingAvailable)\n"
+        status += "  Is Monitoring Heading: \(isMonitoringHeading)\n"
+        if let heading = currentHeading {
+            let headingVal = heading.trueHeading >= 0 ? heading.trueHeading : heading.magneticHeading
+            let headingType = heading.trueHeading >= 0 ? "true" : "magnetic"
+            status += "  Current Heading: \(String(format: "%.1f", headingVal))° (\(headingType))\n"
+            status += "  Heading Accuracy: ±\(String(format: "%.1f", heading.headingAccuracy))°\n"
+        } else {
+            status += "  Current Heading: none\n"
+        }
         return status
     }
 }
@@ -153,10 +200,17 @@ class LocationService: NSObject, ObservableObject {
 extension LocationService: CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let newStatus = manager.authorizationStatus
-        print("📍 LocationService: Authorization changed: \(authorizationStatus.description) -> \(newStatus.description)")
 
         DispatchQueue.main.async {
+            let oldStatus = self.authorizationStatus
             self.authorizationStatus = newStatus
+
+            // Log initial status or changes
+            if oldStatus == .notDetermined {
+                print("📍 LocationService: Initial authorization: \(newStatus.description)")
+            } else {
+                print("📍 LocationService: Authorization changed: \(oldStatus.description) -> \(newStatus.description)")
+            }
 
             switch newStatus {
             case .authorizedWhenInUse, .authorizedAlways:
@@ -209,6 +263,23 @@ extension LocationService: CLLocationManagerDelegate {
 
         for continuation in continuations {
             continuation.resume(throwing: LocationError.locationUnavailable)
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        // Validate heading accuracy
+        guard newHeading.headingAccuracy >= 0 else {
+            print("⚠️ LocationService: Invalid heading accuracy (\(newHeading.headingAccuracy))")
+            return
+        }
+
+        DispatchQueue.main.async {
+            self.currentHeading = newHeading
+
+            // Log heading updates (using trueHeading if available, magneticHeading otherwise)
+            let heading = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
+            let headingType = newHeading.trueHeading >= 0 ? "true" : "magnetic"
+            print("🧭 LocationService: Heading updated: \(String(format: "%.1f", heading))° (\(headingType), accuracy: ±\(String(format: "%.1f", newHeading.headingAccuracy))°)")
         }
     }
 }

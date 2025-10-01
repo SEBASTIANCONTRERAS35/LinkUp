@@ -41,8 +41,6 @@ class UWBSessionManager: NSObject, ObservableObject {
     @Published var isUWBSupported: Bool = false
     @Published var sessionStates: [String: SessionState] = [:]  // PeerID -> State
     @Published var supportsDirectionMeasurement: Bool = false
-    @Published var supportsCameraAssistance: Bool = false
-    @Published var horizontalAngles: [String: Float] = [:]  // PeerID -> Horizontal angle (camera assistance)
 
     // MARK: - Private Properties
     private var discoveryTokens: [String: NIDiscoveryToken] = [:]  // PeerID -> Remote peer's token
@@ -68,7 +66,6 @@ class UWBSessionManager: NSObject, ObservableObject {
         #if targetEnvironment(simulator)
         isUWBSupported = false
         supportsDirectionMeasurement = false
-        supportsCameraAssistance = false
         print("⚠️ UWBSessionManager: UWB not available in simulator")
         #else
         isUWBSupported = NISession.deviceCapabilities.supportsPreciseDistanceMeasurement
@@ -81,16 +78,6 @@ class UWBSessionManager: NSObject, ObservableObject {
             // Check direction measurement capability
             supportsDirectionMeasurement = NISession.deviceCapabilities.supportsDirectionMeasurement
             print("   Direction measurement: \(supportsDirectionMeasurement ? "✅" : "❌")")
-
-            // Check camera assistance capability (iOS 16+)
-            if #available(iOS 16.0, *) {
-                supportsCameraAssistance = NISession.deviceCapabilities.supportsCameraAssistance
-                print("   Camera assistance: \(supportsCameraAssistance ? "✅" : "❌")")
-            } else {
-                supportsCameraAssistance = false
-                print("   Camera assistance: ❌ (requires iOS 16+)")
-            }
-
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             // Check if Nearby Interaction permission is available (iOS 15+)
@@ -99,7 +86,6 @@ class UWBSessionManager: NSObject, ObservableObject {
             }
         } else {
             supportsDirectionMeasurement = false
-            supportsCameraAssistance = false
             print("⚠️ UWBSessionManager: UWB not supported (requires iPhone 11+ with U1/U2 chip)")
         }
         #endif
@@ -221,14 +207,6 @@ class UWBSessionManager: NSObject, ObservableObject {
 
             // Configure and run session with remote peer's token
             let config = NINearbyPeerConfiguration(peerToken: remotePeerToken)
-
-            // Enable camera assistance if available (iOS 16+)
-            if #available(iOS 16.0, *), self.supportsCameraAssistance {
-                config.isCameraAssistanceEnabled = true
-                print("📸 UWBSessionManager: Camera assistance ENABLED for \(peerId)")
-                print("   This will provide horizontalAngle when direction is unavailable")
-            }
-
             session.run(config)
 
             DispatchQueue.main.async {
@@ -416,12 +394,6 @@ class UWBSessionManager: NSObject, ObservableObject {
         return nearbyObjects[peerId]?.direction
     }
 
-    /// Get horizontal angle from camera assistance (iOS 16+)
-    func getHorizontalAngle(to peerID: MCPeerID) -> Float? {
-        let peerId = peerID.displayName
-        return horizontalAngles[peerId]
-    }
-
     /// Check if we have an active UWB session with a peer
     func hasActiveSession(with peerID: MCPeerID) -> Bool {
         return activeSessions[peerID.displayName] != nil
@@ -503,37 +475,6 @@ class UWBSessionManager: NSObject, ObservableObject {
 // MARK: - NISessionDelegate
 @available(iOS 14.0, *)
 extension UWBSessionManager: NISessionDelegate {
-    /// Camera assistance convergence update (iOS 16+)
-    @available(iOS 16.0, *)
-    func session(_ session: NISession, didUpdateAlgorithmConvergence convergence: NINearbyObject, for object: NINearbyObject?) {
-        guard let peerId = activeSessions.first(where: { $0.value === session })?.key else {
-            return
-        }
-
-        // Extract horizontal angle from camera assistance
-        let horizontalAngle = convergence.horizontalAngle
-
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📸 CAMERA ASSISTANCE UPDATE")
-        print("   Peer: \(peerId)")
-        print("   Horizontal Angle: \(horizontalAngle?.description ?? "nil")°")
-
-        if horizontalAngle != nil {
-            print("   ✅ Camera assistance providing approximate direction")
-        } else {
-            print("   ⚠️ Camera assistance active but no angle yet")
-        }
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-        // Update horizontal angle
-        if let angle = horizontalAngle {
-            DispatchQueue.main.async {
-                self.horizontalAngles[peerId] = angle
-                print("✅ Published horizontalAngle update: \(angle)° for \(peerId)")
-            }
-        }
-    }
-
     func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
         // Find which peer this session belongs to
         guard let peerId = activeSessions.first(where: { $0.value === session })?.key else {

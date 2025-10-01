@@ -35,6 +35,15 @@ class NetworkManager: NSObject, ObservableObject {
     // MARK: - Message Store
     let messageStore = MessageStore()
 
+    // MARK: - Family Group Manager
+    let familyGroupManager = FamilyGroupManager()
+
+    // MARK: - Geofence Manager
+    var geofenceManager: GeofenceManager?
+
+    // MARK: - Routing Table
+    private(set) var routingTable: RoutingTable!
+
     // MARK: - Advanced Components
     private let messageQueue = MessageQueue()
     private let messageCache = MessageCache()
@@ -46,7 +55,14 @@ class NetworkManager: NSObject, ObservableObject {
     // MARK: - Location Components
     let locationService = LocationService()
     let locationRequestManager = LocationRequestManager()
+    let peerLocationTracker = PeerLocationTracker()
     var uwbSessionManager: UWBSessionManager?
+
+    // GPS Location Sharing for Navigation
+    private var locationSharingTimer: Timer?
+    private var peersInNavigation: Set<String> = []
+    private let locationSharingInterval: TimeInterval = 5.0  // Broadcast every 5 seconds
+
     private var processingTimer: Timer?
     private let processingQueue = DispatchQueue(label: "com.meshred.processing", qos: .userInitiated)
     private var lastBrowseTime = Date.distantPast
@@ -75,6 +91,16 @@ class NetworkManager: NSObject, ObservableObject {
         self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .required)
         super.init()
 
+        // Initialize routing table
+        self.routingTable = RoutingTable(localPeerID: localPeerID.displayName)
+
+        // Initialize geofence manager
+        self.geofenceManager = GeofenceManager(
+            locationService: locationService,
+            familyGroupManager: familyGroupManager
+        )
+        self.geofenceManager?.setNetworkManager(self)
+
         session.delegate = self
         ackManager.delegate = self
         healthMonitor.delegate = self
@@ -91,6 +117,7 @@ class NetworkManager: NSObject, ObservableObject {
         startStatsUpdateTimer()
         startHealthCheck()
         startWaitingCheckTimer()
+        startTopologyBroadcastTimer()
 
         print("🚀 NetworkManager: Initialized with peer ID: \(localPeerID.displayName)")
     }
@@ -100,6 +127,7 @@ class NetworkManager: NSObject, ObservableObject {
         processingTimer?.invalidate()
         statsUpdateTimer?.invalidate()
         waitingCheckTimer?.invalidate()
+        locationSharingTimer?.invalidate()
     }
 
     private var statsUpdateTimer: Timer?
@@ -272,12 +300,12 @@ class NetworkManager: NSObject, ObservableObject {
         for (peerKey, waitStartTime) in waitingForInvitationFrom {
             let waitDuration = now.timeIntervalSince(waitStartTime)
 
-            // Progressive timeout: 5s, 8s, 12s... (faster for deadlock detection)
+            // Progressive timeout: 15s, 18s, 22s... (increased from 5s to reduce noise)
             let failureCount = failedConnectionAttempts[peerKey] ?? 0
-            let timeoutThreshold = 5.0 + (Double(failureCount) * 3.0)
+            let timeoutThreshold = 15.0 + (Double(failureCount) * 3.0)
 
-            // Cap maximum wait time at 15 seconds
-            let effectiveThreshold = min(timeoutThreshold, 15.0)
+            // Cap maximum wait time at 30 seconds
+            let effectiveThreshold = min(timeoutThreshold, 30.0)
 
             if waitDuration > effectiveThreshold {
                 stuckPeers.append(peerKey)
@@ -293,6 +321,13 @@ class NetworkManager: NSObject, ObservableObject {
 
         // Force reconnect to stuck peers
         for peerKey in stuckPeers {
+            // Check if already connected (don't force reconnect if connected)
+            if connectedPeers.contains(where: { $0.displayName == peerKey }) {
+                print("✓ Peer \(peerKey) already connected - cleaning up stuck waiting state")
+                waitingForInvitationFrom.removeValue(forKey: peerKey)
+                continue
+            }
+
             waitingForInvitationFrom.removeValue(forKey: peerKey)
 
             // Find the peer and force connect
@@ -342,8 +377,25 @@ class NetworkManager: NSObject, ObservableObject {
             ackManager.trackMessage(networkMessage)
         }
 
-        let message = Message(sender: localPeerID.displayName, content: content)
-        messageStore.addMessage(message)
+        let isBroadcast = recipientId == "broadcast"
+        let isFamilyConversation = !isBroadcast && familyGroupManager.isFamilyMember(peerID: recipientId)
+        let conversationDescriptor: MessageStore.ConversationDescriptor
+
+        if isFamilyConversation {
+            let displayName = familyGroupManager.getMember(withPeerID: recipientId)?.displayName ?? recipientId
+            conversationDescriptor = .familyChat(peerId: recipientId, displayName: displayName)
+        } else {
+            conversationDescriptor = .publicChat()
+        }
+
+        let message = Message(
+            sender: localPeerID.displayName,
+            content: content,
+            recipientId: isBroadcast ? nil : recipientId,
+            conversationId: conversationDescriptor.id,
+            conversationName: conversationDescriptor.title
+        )
+        messageStore.addMessage(message, context: conversationDescriptor)
 
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("📤 SENDING NEW MESSAGE")
@@ -373,11 +425,32 @@ class NetworkManager: NSObject, ObservableObject {
         print("   Connected Peers: \(connectedPeers.map { $0.displayName })")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-        var targetPeers = connectedPeers
+        var targetPeers: [MCPeerID]
+
+        // INTELLIGENT ROUTING: Use routing table for directed messages
+        if message.recipientId != "broadcast" {
+            // Check if recipient is directly connected
+            if let directPeer = connectedPeers.first(where: { $0.displayName == message.recipientId }) {
+                targetPeers = [directPeer]
+                print("🎯 Direct connection to recipient")
+            } else if let nextHopNames = routingTable.getNextHops(to: message.recipientId) {
+                // Recipient is reachable indirectly - send only to next hops
+                targetPeers = connectedPeers.filter { nextHopNames.contains($0.displayName) }
+                print("🗺️ Using routing table - next hops: [\(nextHopNames.joined(separator: ", "))]")
+            } else {
+                // Recipient not reachable - fallback to broadcast
+                targetPeers = connectedPeers
+                print("⚠️ Recipient not in routing table - broadcasting to all peers")
+            }
+        } else {
+            // Broadcast message
+            targetPeers = connectedPeers
+            print("📢 Broadcasting to all peers")
+        }
 
         // Testing multi-hop: Filter out blocked connections
         if TestingConfig.forceMultiHop && message.recipientId != "broadcast" {
-            targetPeers = connectedPeers.filter { peer in
+            targetPeers = targetPeers.filter { peer in
                 !TestingConfig.shouldBlockDirectConnection(
                     from: localPeerID.displayName,
                     to: peer.displayName
@@ -385,7 +458,6 @@ class NetworkManager: NSObject, ObservableObject {
             }
             if targetPeers.count < connectedPeers.count {
                 print("🧪 TEST MODE: Forcing multi-hop by limiting direct connections")
-                print("🧪 Connected peers: \(connectedPeers.map { $0.displayName })")
                 print("🧪 Allowed peers: \(targetPeers.map { $0.displayName })")
             }
         }
@@ -651,6 +723,24 @@ class NetworkManager: NSObject, ObservableObject {
             case .uwbDiscoveryToken(let tokenMessage):
                 print("   Payload Type: UWB Discovery Token")
                 handleUWBDiscoveryToken(tokenMessage, from: peerID)
+            case .familySync(let familySyncMessage):
+                print("   Payload Type: Family Sync")
+                handleFamilySync(familySyncMessage, from: peerID)
+            case .familyJoinRequest(let joinRequest):
+                print("   Payload Type: Family Join Request")
+                handleFamilyJoinRequest(joinRequest, from: peerID)
+            case .familyGroupInfo(let groupInfo):
+                print("   Payload Type: Family Group Info")
+                handleFamilyGroupInfo(groupInfo, from: peerID)
+            case .topology(var topologyMessage):
+                print("   Payload Type: Topology")
+                handleTopologyMessage(&topologyMessage, from: peerID)
+            case .geofenceEvent(let geofenceEvent):
+                print("   Payload Type: Geofence Event")
+                handleGeofenceEvent(geofenceEvent, from: peerID)
+            case .geofenceShare(let geofenceShare):
+                print("   Payload Type: Geofence Share")
+                handleGeofenceShare(geofenceShare, from: peerID)
             }
         } catch {
             guard let message = Message.fromData(data) else {
@@ -658,7 +748,17 @@ class NetworkManager: NSObject, ObservableObject {
                 return
             }
             DispatchQueue.main.async {
-                self.messageStore.addMessage(message)
+                let identifier = ConversationIdentifier(rawValue: message.conversationId)
+                let descriptor: MessageStore.ConversationDescriptor
+
+                if identifier.isFamily, let peerId = identifier.familyPeerId {
+                    let displayName = self.familyGroupManager.getMember(withPeerID: peerId)?.displayName ?? message.conversationName ?? peerId
+                    descriptor = .familyChat(peerId: peerId, displayName: displayName)
+                } else {
+                    descriptor = .publicChat()
+                }
+
+                self.messageStore.addMessage(message, context: descriptor)
                 print("📥 Legacy message from \(peerID.displayName): \(message.content)")
             }
         }
@@ -682,9 +782,23 @@ class NetworkManager: NSObject, ObservableObject {
         print("   For me? \(isForMe ? "✅ YES" : "❌ NO (will relay)")")
 
         if isForMe {
+            let isBroadcast = message.recipientId == "broadcast"
+            let isFamilyConversation = !isBroadcast && familyGroupManager.isFamilyMember(peerID: message.senderId)
+            let conversationDescriptor: MessageStore.ConversationDescriptor
+
+            if isFamilyConversation {
+                let displayName = familyGroupManager.getMember(withPeerID: message.senderId)?.displayName ?? message.senderId
+                conversationDescriptor = .familyChat(peerId: message.senderId, displayName: displayName)
+            } else {
+                conversationDescriptor = .publicChat()
+            }
+
             let simpleMessage = Message(
                 sender: message.senderId,
-                content: "[\(message.messageType.displayName)] \(message.content)"
+                content: "[\(message.messageType.displayName)] \(message.content)",
+                recipientId: isBroadcast ? nil : message.recipientId,
+                conversationId: conversationDescriptor.id,
+                conversationName: conversationDescriptor.title
             )
 
             // Capture values needed for the async block
@@ -693,7 +807,7 @@ class NetworkManager: NSObject, ObservableObject {
             let route = message.routePath.joined(separator: " → ")
 
             DispatchQueue.main.async {
-                self.messageStore.addMessage(simpleMessage)
+                self.messageStore.addMessage(simpleMessage, context: conversationDescriptor)
                 print("📨 ✅ DELIVERED - Type: \(messageTypeDisplayName), Hops: \(hopCount), Route: \(route)")
             }
 
@@ -897,6 +1011,102 @@ class NetworkManager: NSObject, ObservableObject {
     private func handleLocationResponse(_ response: LocationResponseMessage, from peerID: MCPeerID) {
         print("📍 NetworkManager: Received location response: \(response.description)")
         locationRequestManager.handleResponse(response)
+
+        // Auto-update PeerLocationTracker ONLY if we requested this location (privacy guard)
+        if locationRequestManager.pendingRequests[response.requestId] != nil,
+           response.responseType == .direct,
+           let location = response.directLocation {
+            peerLocationTracker.updatePeerLocation(peerID: response.responderId, location: location)
+        }
+    }
+
+    // MARK: - GPS Location Sharing for Navigation
+
+    /// Start sharing GPS location with a peer during active navigation
+    func startSharingLocationWithPeer(peerID: String) {
+        print("📍 NetworkManager: Starting GPS sharing with peer: \(peerID)")
+
+        peersInNavigation.insert(peerID)
+
+        // Start location monitoring if not already active
+        if !locationService.isMonitoring {
+            locationService.startMonitoring()
+        }
+
+        // Start timer if not already running
+        if locationSharingTimer == nil {
+            startLocationSharingTimer()
+        }
+
+        // Send immediate location update
+        broadcastMyLocationToPeersInNavigation()
+    }
+
+    /// Stop sharing GPS location with a peer when navigation ends
+    func stopSharingLocationWithPeer(peerID: String) {
+        print("📍 NetworkManager: Stopping GPS sharing with peer: \(peerID)")
+
+        peersInNavigation.remove(peerID)
+
+        // Stop timer if no more peers in navigation
+        if peersInNavigation.isEmpty {
+            stopLocationSharingTimer()
+        }
+    }
+
+    /// Start periodic GPS location broadcast timer
+    private func startLocationSharingTimer() {
+        guard locationSharingTimer == nil else { return }
+
+        locationSharingTimer = Timer.scheduledTimer(
+            withTimeInterval: locationSharingInterval,
+            repeats: true
+        ) { [weak self] _ in
+            self?.broadcastMyLocationToPeersInNavigation()
+        }
+
+        print("📍 NetworkManager: Started location sharing timer (every \(locationSharingInterval)s)")
+    }
+
+    /// Stop periodic GPS location broadcast timer
+    private func stopLocationSharingTimer() {
+        locationSharingTimer?.invalidate()
+        locationSharingTimer = nil
+        print("📍 NetworkManager: Stopped location sharing timer")
+    }
+
+    /// Broadcast current GPS location to all peers in active navigation
+    private func broadcastMyLocationToPeersInNavigation() {
+        guard !peersInNavigation.isEmpty else { return }
+
+        guard let currentLocation = locationService.currentLocation else {
+            print("⚠️ NetworkManager: Cannot broadcast location - no GPS fix available")
+            return
+        }
+
+        guard locationService.hasRecentLocation else {
+            print("⚠️ NetworkManager: Cannot broadcast location - GPS data is stale")
+            return
+        }
+
+        // Create location response message (direct GPS response)
+        let response = LocationResponseMessage.directResponse(
+            requestId: UUID(),  // No specific request, periodic broadcast
+            targetId: localPeerID.displayName,
+            location: currentLocation
+        )
+
+        // Send to all connected peers (they'll filter if needed)
+        let payload = NetworkPayload.locationResponse(response)
+
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(payload)
+            try session.send(data, toPeers: connectedPeers, with: .reliable)
+            print("📍 NetworkManager: Broadcasted GPS location to \(connectedPeers.count) peers: \(currentLocation.coordinateString)")
+        } catch {
+            print("❌ NetworkManager: Failed to broadcast GPS location: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - UWB Discovery Token Exchange
@@ -1069,6 +1279,269 @@ class NetworkManager: NSObject, ObservableObject {
             print("❌ NetworkManager: Error handling UWB token: \(error.localizedDescription)")
         }
     }
+
+    // MARK: - Family Sync Handling
+
+    private func handleFamilySync(_ syncMessage: FamilySyncMessage, from peerID: MCPeerID) {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("👨‍👩‍👧‍👦 FAMILY SYNC RECEIVED")
+        print("   From: \(peerID.displayName)")
+        print("   Code: \(syncMessage.groupCode.displayCode)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Handle sync through family group manager
+        familyGroupManager.handleFamilySync(syncMessage)
+
+        // Update member's last seen
+        familyGroupManager.updateMemberLastSeen(peerID: peerID.displayName)
+    }
+
+    /// Send family sync to a specific peer
+    private func sendFamilySync(to peerID: MCPeerID) {
+        // Check if we have an active family group
+        guard let group = familyGroupManager.currentGroup,
+              let syncMessage = FamilySyncMessage.create(from: group, currentPeerID: localPeerID.displayName) else {
+            print("⚠️ NetworkManager: No active family group to sync")
+            return
+        }
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📤 SENDING FAMILY SYNC")
+        print("   To: \(peerID.displayName)")
+        print("   Code: \(syncMessage.groupCode.displayCode)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        let payload = NetworkPayload.familySync(syncMessage)
+
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(payload)
+            try session.send(data, toPeers: [peerID], with: .reliable)
+            print("✅ NetworkManager: Sent family sync to \(peerID.displayName)")
+        } catch {
+            print("❌ NetworkManager: Failed to send family sync: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Geofence Handling
+
+    /// Handle received geofence event from a family member
+    private func handleGeofenceEvent(_ event: GeofenceEventMessage, from peerID: MCPeerID) {
+        // Forward to GeofenceManager if available
+        geofenceManager?.handleGeofenceEvent(event)
+    }
+
+    /// Handle received geofence share from a family member
+    private func handleGeofenceShare(_ share: GeofenceShareMessage, from peerID: MCPeerID) {
+        // Forward to GeofenceManager if available
+        geofenceManager?.handleGeofenceShare(share)
+    }
+
+    /// Send geofence event to family members via mesh
+    func sendGeofenceEvent(_ event: GeofenceEventMessage) {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📤 SENDING GEOFENCE EVENT")
+        print("   Type: \(event.eventType.rawValue)")
+        print("   Place: \(event.geofenceName)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        let payload = NetworkPayload.geofenceEvent(event)
+
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(payload)
+            // Send to all connected peers (family will filter by code)
+            try session.send(data, toPeers: connectedPeers, with: .reliable)
+            print("✅ NetworkManager: Sent geofence event to \(connectedPeers.count) peers")
+        } catch {
+            print("❌ NetworkManager: Failed to send geofence event: \(error.localizedDescription)")
+        }
+    }
+
+    /// Send geofence share to family members via mesh
+    func sendGeofenceShare(_ share: GeofenceShareMessage) {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📤 SENDING GEOFENCE SHARE")
+        print("   Geofence: \(share.geofence.name)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        let payload = NetworkPayload.geofenceShare(share)
+
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(payload)
+            // Send to all connected peers (family will filter by code)
+            try session.send(data, toPeers: connectedPeers, with: .reliable)
+            print("✅ NetworkManager: Sent geofence share to \(connectedPeers.count) peers")
+        } catch {
+            print("❌ NetworkManager: Failed to send geofence share: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Family Join Request/Response Handling
+
+    private func handleFamilyJoinRequest(_ request: FamilyJoinRequestMessage, from peerID: MCPeerID) {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🔍 FAMILY JOIN REQUEST RECEIVED")
+        print("   From: \(request.requesterId)")
+        print("   Code: \(request.groupCode.displayCode)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Check if we have this group code
+        guard let myGroup = familyGroupManager.currentGroup,
+              myGroup.code == request.groupCode else {
+            print("⚠️ We don't have group with code \(request.groupCode.displayCode)")
+            return
+        }
+
+        print("✅ We have this group! Sending info back...")
+        print("   Group: \(myGroup.name)")
+        print("   Members: \(myGroup.memberCount)")
+
+        // Create response with group info
+        let groupInfo = FamilyGroupInfoMessage.create(
+            from: myGroup,
+            requestId: request.id,
+            responderId: localPeerID.displayName
+        )
+
+        // Send back to requester
+        sendFamilyGroupInfo(groupInfo, to: peerID)
+    }
+
+    private func handleFamilyGroupInfo(_ info: FamilyGroupInfoMessage, from peerID: MCPeerID) {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📥 FAMILY GROUP INFO RECEIVED")
+        print("   From: \(info.responderId)")
+        print("   Group: \(info.groupName)")
+        print("   Code: \(info.groupCode.displayCode)")
+        print("   Members: \(info.memberCount)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Notify via NotificationCenter (para que JoinFamilyGroupView lo reciba)
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: Notification.Name("FamilyGroupInfoReceived"),
+                object: nil,
+                userInfo: ["groupInfo": info]
+            )
+        }
+    }
+
+    /// Request family group info from connected peers (broadcast)
+    func requestFamilyGroupInfo(code: FamilyGroupCode, requesterId: String, memberInfo: FamilySyncMessage.FamilyMemberInfo) {
+        guard !connectedPeers.isEmpty else {
+            print("⚠️ No connected peers to request family group info from")
+            return
+        }
+
+        let request = FamilyJoinRequestMessage(
+            requesterId: requesterId,
+            groupCode: code,
+            memberInfo: memberInfo
+        )
+
+        let payload = NetworkPayload.familyJoinRequest(request)
+
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(payload)
+            try session.send(data, toPeers: connectedPeers, with: .reliable)
+
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("📤 BROADCASTING FAMILY JOIN REQUEST")
+            print("   Code: \(code.displayCode)")
+            print("   To: \(connectedPeers.count) peers")
+            print("   Peers: \(connectedPeers.map { $0.displayName }.joined(separator: ", "))")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        } catch {
+            print("❌ Failed to send family join request: \(error.localizedDescription)")
+        }
+    }
+
+    private func sendFamilyGroupInfo(_ info: FamilyGroupInfoMessage, to peerID: MCPeerID) {
+        let payload = NetworkPayload.familyGroupInfo(info)
+
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(payload)
+            try session.send(data, toPeers: [peerID], with: .reliable)
+            print("✅ Sent family group info to \(peerID.displayName)")
+        } catch {
+            print("❌ Failed to send family group info: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Topology Discovery
+
+    private var topologyBroadcastTimer: Timer?
+
+    private func startTopologyBroadcastTimer() {
+        // Broadcast topology every 10 seconds
+        topologyBroadcastTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
+            self?.broadcastTopology()
+        }
+    }
+
+    /// Broadcast current topology to all connected peers
+    private func broadcastTopology() {
+        guard !connectedPeers.isEmpty else { return }
+
+        let connectedPeerNames = connectedPeers.map { $0.displayName }
+        let topologyMessage = TopologyMessage(
+            senderId: localPeerID.displayName,
+            connectedPeers: connectedPeerNames
+        )
+
+        let payload = NetworkPayload.topology(topologyMessage)
+
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(payload)
+            try session.send(data, toPeers: connectedPeers, with: .reliable)
+
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("📡 TOPOLOGY BROADCAST")
+            print("   Connections: [\(connectedPeerNames.joined(separator: ", "))]")
+            print("   Sent to: \(connectedPeers.count) peers")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            // Update local routing table
+            routingTable.updateLocalTopology(connectedPeers: connectedPeers)
+
+        } catch {
+            print("❌ Failed to broadcast topology: \(error.localizedDescription)")
+        }
+    }
+
+    /// Handle received topology message
+    private func handleTopologyMessage(_ message: inout TopologyMessage, from peerID: MCPeerID) {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🗺️ TOPOLOGY RECEIVED")
+        print("   From: \(message.senderId)")
+        print("   Connections: [\(message.connectedPeers.joined(separator: ", "))]")
+        print("   Hop: \(message.hopCount)/\(message.ttl)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Update routing table
+        routingTable.updateTopology(message)
+
+        // Relay to other peers if possible
+        if message.canHop() && !message.hasVisited(localPeerID.displayName) {
+            message.addHop(localPeerID.displayName)
+
+            let payload = NetworkPayload.topology(message)
+
+            do {
+                let encoder = JSONEncoder()
+                let data = try encoder.encode(payload)
+                try session.send(data, toPeers: connectedPeers, with: .reliable)
+                print("🔄 Relayed topology message (hop \(message.hopCount)/\(message.ttl))")
+            } catch {
+                print("❌ Failed to relay topology: \(error.localizedDescription)")
+            }
+        }
+    }
 }
 
 // MARK: - MCSessionDelegate
@@ -1103,6 +1576,19 @@ extension NetworkManager: MCSessionDelegate {
                 self.updateConnectionStatus()
                 self.manageBrowsing()  // Stop browsing if configured
                 print("✅ NetworkManager: Connected to peer: \(peerID.displayName) | Total peers: \(self.connectedPeers.count)")
+
+                // Broadcast updated topology immediately
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.broadcastTopology()
+                }
+
+                // Send family sync if we have an active group
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    guard let self = self else { return }
+                    if self.familyGroupManager.hasActiveGroup {
+                        self.sendFamilySync(to: peerID)
+                    }
+                }
 
                 // Reset UWB retry count and token exchange state for this peer
                 self.uwbRetryCount[peerID.displayName] = 0
@@ -1158,6 +1644,11 @@ extension NetworkManager: MCSessionDelegate {
                 self.connectedPeers.removeAll { $0 == peerID }
                 self.sessionManager.recordDisconnection(from: peerID)
                 self.healthMonitor.removePeer(peerID)
+
+                // Remove from routing table
+                self.routingTable.removePeer(peerID.displayName)
+                // Immediately broadcast updated topology to reflect disconnection
+                self.broadcastTopology()
 
                 // Stop UWB session and clear token exchange state
                 if #available(iOS 14.0, *) {
@@ -1683,4 +2174,3 @@ extension NetworkManager: UWBSessionManagerDelegate {
         }
     }
 }
-

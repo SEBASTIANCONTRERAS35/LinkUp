@@ -8,13 +8,22 @@
 import SwiftUI
 import MultipeerConnectivity
 
-/// Vista de navegación UWB con flecha direccional que guía al usuario
-/// Actualiza en tiempo real conforme el usuario o peer se mueven
+/// Vista de navegación UWB híbrida con 4 niveles de fallback
+/// Nivel 1: UWB Direction precisa (SIMD3)
+/// Nivel 2: GPS + Compass (cuando peer comparte ubicación)
+/// Nivel 3: Radar circular (solo UWB distance)
+/// Nivel 4: Walking Triangulation (modo interactivo)
 struct UWBNavigationView: View {
     let targetName: String
     let targetPeerID: MCPeerID
     @ObservedObject var uwbManager: UWBSessionManager
+    @ObservedObject var locationService: LocationService
+    @ObservedObject var peerLocationTracker: PeerLocationTracker
+    @ObservedObject var networkManager: NetworkManager
     let onDismiss: () -> Void
+
+    // State for triangulation mode
+    @State private var isTriangulationMode: Bool = false
 
     // Computed properties que se actualizan automáticamente desde UWB
     private var distance: Float? {
@@ -35,25 +44,105 @@ struct UWBNavigationView: View {
         return nil
     }
 
-    private var horizontalAngle: Float? {
-        let angle = uwbManager.getHorizontalAngle(to: targetPeerID)
-        if let angle = angle {
-            print("🔍 UWBNavigationView: Getting horizontalAngle = \(angle)°")
-        }
-        return angle
-    }
-
     private var supportsDirectionMeasurement: Bool {
         uwbManager.supportsDirectionMeasurement
     }
 
-    private var supportsCameraAssistance: Bool {
-        uwbManager.supportsCameraAssistance
+    private var peerLocation: UserLocation? {
+        peerLocationTracker.getPeerLocation(peerID: targetPeerID.displayName)
+    }
+
+    private var userHeading: Double? {
+        locationService.headingValue
+    }
+
+    private var userLocation: UserLocation? {
+        locationService.currentLocation
+    }
+
+    // Navigation level detection
+    private enum NavigationLevel {
+        case level1_uwbPrecise      // UWB direction available
+        case level2_gpsCompass      // GPS + Compass available
+        case level3_radar           // Only UWB distance
+        case level4_triangulation   // Walking triangulation mode
+        case loading                // Waiting for data
+    }
+
+    private var currentNavigationLevel: NavigationLevel {
+        // Level 4: User activated triangulation mode
+        if isTriangulationMode {
+            return .level4_triangulation
+        }
+
+        // Check if we have UWB distance
+        guard distance != nil else {
+            return .loading
+        }
+
+        // Level 1: UWB direction available
+        if direction != nil {
+            return .level1_uwbPrecise
+        }
+
+        // Level 2: GPS + Compass available
+        if let _ = peerLocation,
+           let _ = userLocation,
+           let _ = userHeading {
+            return .level2_gpsCompass
+        }
+
+        // Level 3: Fallback to radar (only distance)
+        return .level3_radar
     }
 
     var body: some View {
         ZStack {
-            // Fondo semi-transparente
+            // Route to appropriate view based on navigation level
+            switch currentNavigationLevel {
+            case .level1_uwbPrecise:
+                level1UWBPreciseView
+
+            case .level2_gpsCompass:
+                level2GPSCompassView
+
+            case .level3_radar:
+                level3RadarView
+
+            case .level4_triangulation:
+                level4TriangulationView
+
+            case .loading:
+                loadingView
+            }
+        }
+        .onAppear {
+            // Start heading monitoring when navigation view appears
+            if locationService.isHeadingAvailable {
+                locationService.startMonitoringHeading()
+            }
+
+            // Start GPS location sharing with target peer
+            networkManager.startSharingLocationWithPeer(peerID: targetPeerID.displayName)
+
+            // Start location monitoring if not already active
+            if !locationService.isMonitoring {
+                locationService.startMonitoring()
+            }
+        }
+        .onDisappear {
+            // Stop GPS location sharing when navigation ends
+            networkManager.stopSharingLocationWithPeer(peerID: targetPeerID.displayName)
+
+            // Stop heading monitoring
+            locationService.stopMonitoringHeading()
+        }
+    }
+
+    // MARK: - Level 1: UWB Precise Direction
+
+    private var level1UWBPreciseView: some View {
+        ZStack {
             Color.black.opacity(0.8)
                 .ignoresSafeArea()
 
@@ -69,9 +158,9 @@ struct UWBNavigationView: View {
                         .foregroundColor(.white)
                 }
 
-                // Distancia
-                VStack(spacing: 4) {
-                    if let dist = distance {
+                // Distance
+                if let dist = distance {
+                    VStack(spacing: 4) {
                         Text(distanceString(for: dist))
                             .font(.system(size: 56, weight: .heavy, design: .rounded))
                             .foregroundColor(.cyan)
@@ -79,48 +168,26 @@ struct UWBNavigationView: View {
                         Text("de distancia")
                             .font(.subheadline)
                             .foregroundColor(.white.opacity(0.6))
-                    } else {
-                        // Indicador de carga mientras esperamos datos
-                        ProgressView()
-                            .scaleEffect(2.0)
-                            .tint(.cyan)
-                            .padding()
-
-                        Text("Estableciendo ranging...")
-                            .font(.subheadline)
-                            .foregroundColor(.white.opacity(0.6))
                     }
-                }
-                .padding()
-
-                // Flecha direccional - Adaptive UI basado en capacidades del dispositivo
-                if let direction = direction, let dist = distance {
-                    // Nivel 1: Dirección precisa SIMD3 disponible
-                    DirectionalArrow(direction: direction, distance: dist, isPrecise: true)
-                        .frame(width: 250, height: 250)
-                } else if let angle = horizontalAngle, let dist = distance {
-                    // Nivel 2: Camera assistance (horizontal angle) disponible
-                    CameraAssistedArrow(horizontalAngle: angle, distance: dist)
-                        .frame(width: 250, height: 250)
-                } else {
-                    // Nivel 3/4: Sin dirección - Círculo pulsante
-                    PulsingCircle()
-                        .frame(width: 200, height: 200)
+                    .padding()
                 }
 
-                // Información adicional
-                if let direction = direction, let dist = distance {
-                    // Información de dirección precisa
+                // Directional arrow
+                if let dir = direction, let dist = distance {
+                    DirectionalArrow(direction: dir, distance: dist)
+                        .frame(width: 250, height: 250)
+
+                    // Direction info
                     VStack(spacing: 8) {
                         HStack(spacing: 12) {
                             Image(systemName: "safari")
                                 .font(.title3)
-                            Text("\(Int(direction.bearing))° (\(direction.cardinalDirection))")
+                            Text("\(Int(dir.bearing))° (\(dir.cardinalDirection))")
                                 .font(.system(size: 18, weight: .semibold, design: .monospaced))
                         }
                         .foregroundColor(.green)
 
-                        Text("Dirección precisa (UWB)")
+                        Text("Dirección precisa UWB")
                             .font(.caption)
                             .foregroundColor(.green.opacity(0.8))
 
@@ -132,55 +199,167 @@ struct UWBNavigationView: View {
                                 .padding(.top, 8)
                         }
                     }
-                } else if let angle = horizontalAngle, let dist = distance {
-                    // Información de camera assistance
-                    VStack(spacing: 8) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "camera.viewfinder")
-                                .font(.title3)
-                            Text("\(Int(angle))° (aprox.)")
-                                .font(.system(size: 18, weight: .semibold, design: .monospaced))
-                        }
-                        .foregroundColor(.orange)
-
-                        Text("Dirección con asistencia de cámara")
-                            .font(.caption)
-                            .foregroundColor(.orange.opacity(0.8))
-
-                        if dist < 2.0 {
-                            Text("¡Muy cerca!")
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .foregroundColor(.yellow)
-                                .padding(.top, 8)
-                        }
-                    }
-                } else if !supportsDirectionMeasurement {
-                    // Mensaje explicativo cuando dispositivo no soporta dirección
-                    VStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.title)
-                            .foregroundColor(.yellow)
-
-                        Text("Dirección no disponible")
-                            .font(.headline)
-                            .foregroundColor(.white)
-
-                        Text("Tu dispositivo solo proporciona distancia UWB")
-                            .font(.caption)
-                            .foregroundColor(.white.opacity(0.7))
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                    }
                 }
 
                 Spacer()
 
-                // Botón de cerrar
+                // Close button
                 Button(action: onDismiss) {
                     HStack {
                         Image(systemName: "xmark.circle.fill")
                         Text("Cerrar Navegación")
+                    }
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(Color.red)
+                    .cornerRadius(12)
+                }
+                .padding(.bottom, 40)
+            }
+            .padding()
+        }
+    }
+
+    // MARK: - Level 2: GPS + Compass
+
+    private var level2GPSCompassView: some View {
+        ZStack {
+            Color.black.opacity(0.85)
+                .ignoresSafeArea()
+
+            VStack(spacing: 30) {
+                // Header
+                VStack(spacing: 8) {
+                    Text("Navegando hacia")
+                        .font(.headline)
+                        .foregroundColor(.white.opacity(0.8))
+
+                    Text(targetName)
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(.white)
+                }
+
+                // Distance
+                if let dist = distance {
+                    VStack(spacing: 4) {
+                        Text(distanceString(for: dist))
+                            .font(.system(size: 56, weight: .heavy, design: .rounded))
+                            .foregroundColor(.cyan)
+
+                        Text("distancia UWB")
+                            .font(.caption)
+                            .foregroundColor(.cyan.opacity(0.7))
+                    }
+                    .padding()
+                }
+
+                // GPS Navigation View
+                if let userLoc = userLocation,
+                   let peerLoc = peerLocation,
+                   let heading = userHeading,
+                   let dist = distance {
+                    GPSNavigationView(
+                        targetName: targetName,
+                        userLocation: userLoc,
+                        targetLocation: peerLoc,
+                        userHeading: heading,
+                        distance: dist
+                    )
+
+                    // GPS Navigation Info
+                    GPSNavigationInfo(
+                        targetName: targetName,
+                        relativeBearing: NavigationCalculator.calculateRelativeBearing(
+                            from: userLoc,
+                            to: peerLoc,
+                            userHeading: heading
+                        ),
+                        gpsDistance: userLoc.distance(to: peerLoc),
+                        uwbDistance: dist,
+                        targetAccuracy: peerLoc.accuracy,
+                        onDismiss: onDismiss
+                    )
+                }
+
+                Spacer()
+            }
+            .padding()
+        }
+    }
+
+    // MARK: - Level 3: Radar
+
+    private var level3RadarView: some View {
+        Group {
+            if let dist = distance {
+                RadarNavigationView(
+                    targetName: targetName,
+                    distance: dist,
+                    onDismiss: onDismiss,
+                    onStartTriangulation: {
+                        isTriangulationMode = true
+                    }
+                )
+            }
+        }
+    }
+
+    // MARK: - Level 4: Walking Triangulation
+
+    private var level4TriangulationView: some View {
+        WalkingTriangulationView(
+            targetName: targetName,
+            targetPeerID: targetPeerID,
+            uwbManager: uwbManager,
+            locationService: locationService,
+            onDismiss: {
+                isTriangulationMode = false
+                onDismiss()
+            },
+            onDirectionCalculated: { bearing in
+                // Direction calculated! Could transition to showing arrow
+                print("✅ Triangulation complete: \(bearing)°")
+                // For now, just exit triangulation mode
+                isTriangulationMode = false
+            }
+        )
+    }
+
+    // MARK: - Loading View
+
+    private var loadingView: some View {
+        ZStack {
+            Color.black.opacity(0.8)
+                .ignoresSafeArea()
+
+            VStack(spacing: 30) {
+                Text("Navegando hacia")
+                    .font(.headline)
+                    .foregroundColor(.white.opacity(0.8))
+
+                Text(targetName)
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundColor(.white)
+
+                Spacer()
+
+                ProgressView()
+                    .scaleEffect(2.0)
+                    .tint(.cyan)
+                    .padding()
+
+                Text("Estableciendo ranging UWB...")
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.6))
+
+                Spacer()
+
+                Button(action: onDismiss) {
+                    HStack {
+                        Image(systemName: "xmark.circle.fill")
+                        Text("Cancelar")
                     }
                     .font(.headline)
                     .foregroundColor(.white)
@@ -208,19 +387,16 @@ struct UWBNavigationView: View {
 struct DirectionalArrow: View {
     let direction: DirectionVector
     let distance: Float
-    let isPrecise: Bool
 
     @State private var isAnimating = false
 
-    init(direction: DirectionVector, distance: Float, isPrecise: Bool = true) {
+    init(direction: DirectionVector, distance: Float) {
         self.direction = direction
         self.distance = distance
-        self.isPrecise = isPrecise
 
         // 🔍 DEBUG: Log when arrow is initialized/updated
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("🎯 DIRECTIONAL ARROW UPDATE")
-        print("   Type: \(isPrecise ? "Precise UWB" : "Approximate")")
         print("   Direction: x=\(direction.x), y=\(direction.y), z=\(direction.z)")
         print("   Distance: \(distance)m")
         print("   Bearing will be: \(direction.bearing)°")
@@ -308,111 +484,6 @@ struct DirectionalArrow: View {
     }
 }
 
-/// Flecha direccional con asistencia de cámara (solo ángulo horizontal)
-struct CameraAssistedArrow: View {
-    let horizontalAngle: Float
-    let distance: Float
-
-    @State private var isAnimating = false
-
-    init(horizontalAngle: Float, distance: Float) {
-        self.horizontalAngle = horizontalAngle
-        self.distance = distance
-
-        // 🔍 DEBUG: Log when arrow is initialized/updated
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📸 CAMERA ASSISTED ARROW UPDATE")
-        print("   Horizontal Angle: \(horizontalAngle)°")
-        print("   Distance: \(distance)m")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    }
-
-    var body: some View {
-        ZStack {
-            // Círculo de fondo con color naranja para indicar aproximación
-            Circle()
-                .fill(
-                    RadialGradient(
-                        gradient: Gradient(colors: [
-                            Color.orange.opacity(0.3),
-                            Color.orange.opacity(0.1),
-                            Color.clear
-                        ]),
-                        center: .center,
-                        startRadius: 20,
-                        endRadius: 125
-                    )
-                )
-                .scaleEffect(isAnimating ? 1.1 : 1.0)
-                .animation(
-                    Animation.easeInOut(duration: 1.5)
-                        .repeatForever(autoreverses: true),
-                    value: isAnimating
-                )
-
-            // Anillo exterior
-            Circle()
-                .stroke(Color.orange.opacity(0.3), lineWidth: 2)
-                .frame(width: 220, height: 220)
-
-            // Marcadores cardinales
-            CardinalMarkers()
-
-            // Flecha con icono de cámara
-            VStack(spacing: 0) {
-                // Punta de la flecha
-                Triangle()
-                    .fill(
-                        LinearGradient(
-                            gradient: Gradient(colors: [Color.orange, Color.yellow]),
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: 40, height: 50)
-                    .shadow(color: .orange, radius: 10, x: 0, y: 0)
-
-                // Cuerpo de la flecha
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            gradient: Gradient(colors: [Color.yellow, Color.orange]),
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: 20, height: 60)
-                    .shadow(color: .orange, radius: 10, x: 0, y: 0)
-            }
-            .rotationEffect(.degrees(-Double(horizontalAngle))) // Rotar según ángulo horizontal
-            .scaleEffect(isAnimating ? 1.15 : 1.0)
-            .animation(
-                Animation.easeInOut(duration: 0.8)
-                    .repeatForever(autoreverses: true),
-                value: isAnimating
-            )
-
-            // Punto central con icono de cámara
-            ZStack {
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 24, height: 24)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.orange, lineWidth: 2)
-                    )
-
-                Image(systemName: "camera.fill")
-                    .font(.system(size: 10))
-                    .foregroundColor(.orange)
-            }
-        }
-        .onAppear {
-            isAnimating = true
-        }
-    }
-}
-
 /// Marcadores de direcciones cardinales
 struct CardinalMarkers: View {
     let markers = [
@@ -492,14 +563,20 @@ struct PulsingCircle: View {
 
 // MARK: - Preview
 #Preview {
-    // Mock UWBSessionManager for preview
-    let mockManager = UWBSessionManager()
+    // Mock managers for preview
+    let mockUWBManager = UWBSessionManager()
+    let mockLocationService = LocationService()
+    let mockPeerTracker = PeerLocationTracker()
+    let mockNetworkManager = NetworkManager()
     let mockPeer = MCPeerID(displayName: "José Guadalupe")
 
-    return UWBNavigationView(
+    UWBNavigationView(
         targetName: "José Guadalupe",
         targetPeerID: mockPeer,
-        uwbManager: mockManager,
+        uwbManager: mockUWBManager,
+        locationService: mockLocationService,
+        peerLocationTracker: mockPeerTracker,
+        networkManager: mockNetworkManager,
         onDismiss: {}
     )
 }

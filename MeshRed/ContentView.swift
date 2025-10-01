@@ -21,6 +21,8 @@ struct ContentView: View {
     @State private var navigationTarget: MCPeerID? = nil
     @State private var showUWBPermissionAlert = false
     @State private var uwbDeniedPeer: String = ""
+    @State private var showFamilyGroup = false
+    @State private var showGeofenceMap = false
 
     var body: some View {
         ZStack {
@@ -33,6 +35,9 @@ struct ContentView: View {
                         targetName: targetPeer.displayName,
                         targetPeerID: targetPeer,
                         uwbManager: uwbManager,
+                        locationService: networkManager.locationService,
+                        peerLocationTracker: networkManager.peerLocationTracker,
+                        networkManager: networkManager,
                         onDismiss: {
                             showUWBNavigation = false
                             navigationTarget = nil
@@ -63,7 +68,12 @@ struct ContentView: View {
                         locationStatusColor: locationStatusColor,
                         onRequestPermissions: networkManager.locationService.authorizationStatus == .notDetermined ? {
                             networkManager.locationService.requestPermissions()
-                        } : nil
+                        } : nil,
+                        onOpenFamilyGroup: { showFamilyGroup = true },
+                        hasFamilyGroup: networkManager.familyGroupManager.hasActiveGroup,
+                        familyMemberCount: networkManager.familyGroupManager.memberCount,
+                        onOpenGeofenceMap: { showGeofenceMap = true },
+                        hasActiveGeofence: networkManager.geofenceManager?.activeGeofence != nil
                     )
 
                     DeviceSection(
@@ -76,14 +86,23 @@ struct ContentView: View {
                         uwbSessionChecker: { peer in
                             hasUWBSession(with: peer)
                         },
+                        isFamilyMember: { peer in
+                            networkManager.familyGroupManager.isFamilyMember(peerID: peer.displayName)
+                        },
+                        reachableFamilyMembers: getReachableFamilyMembers(),
                         onRequestLocation: requestLocation,
                         onNavigate: startNavigation,
-                        onReconnectTap: networkManager.restartServicesIfNeeded
+                        onReconnectTap: networkManager.restartServicesIfNeeded,
+                        onStartChat: startChat(with:)
                     )
 
                     MessagesSection(
-                        messages: networkManager.messageStore.sortedMessages,
-                        localDeviceName: networkManager.localDeviceName
+                        messageStore: networkManager.messageStore,
+                        localDeviceName: networkManager.localDeviceName,
+                        onConversationSelected: { summary in
+                            recipientId = summary.defaultRecipientId
+                            handleRecipientSelection(summary.defaultRecipientId)
+                        }
                     )
 
                     AdvancedControlsCard(
@@ -96,10 +115,15 @@ struct ContentView: View {
                         locationStatusText: locationStatusText,
                         locationStatusColor: locationStatusColor,
                         authorizationStatus: networkManager.locationService.authorizationStatus,
+                        networkManager: networkManager,
+                        messageStore: networkManager.messageStore,
                         onRequestPermissions: {
                             networkManager.locationService.requestPermissions()
                         },
-                        onClearConnections: clearConnections
+                        onClearConnections: clearConnections,
+                        onRecipientChange: { newRecipient in
+                            handleRecipientSelection(newRecipient)
+                        }
                     )
                 }
                 .padding(.horizontal, 20)
@@ -111,11 +135,15 @@ struct ContentView: View {
                 messageText: $messageText,
                 canSend: !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !networkManager.connectedPeers.isEmpty,
                 accentColor: priorityColor(for: selectedMessageType),
-                sendAction: sendMessage
+                sendAction: sendMessage,
+                conversationTitle: networkManager.messageStore.descriptor(for: networkManager.messageStore.activeConversationId)?.title ?? "todos"
             )
             .background(inputBackgroundColor)
         }
         .background(appBackgroundColor.ignoresSafeArea())
+        .onAppear {
+            syncRecipientWithActiveConversation()
+        }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("UWBPermissionDenied"))) { notification in
             if let userInfo = notification.userInfo,
                let peerId = userInfo["peerId"] as? String {
@@ -130,6 +158,20 @@ struct ContentView: View {
             Button("Más Tarde", role: .cancel) {}
         } message: {
             Text("Para usar la navegación precisa con \(uwbDeniedPeer), autoriza Nearby Interaction en Ajustes > Privacidad y Seguridad > Nearby Interaction.")
+        }
+        .sheet(isPresented: $showFamilyGroup) {
+            FamilyGroupView(familyGroupManager: networkManager.familyGroupManager)
+                .environmentObject(networkManager)
+        }
+        .sheet(isPresented: $showGeofenceMap) {
+            if let geofenceManager = networkManager.geofenceManager {
+                FamilyGeofenceMapView(
+                    geofenceManager: geofenceManager,
+                    familyGroupManager: networkManager.familyGroupManager,
+                    locationService: networkManager.locationService,
+                    networkManager: networkManager
+                )
+            }
         }
     }
 
@@ -214,6 +256,45 @@ struct ContentView: View {
 
         print("📍 User requested location for \(peer.displayName)")
         networkManager.sendLocationRequest(to: peer.displayName)
+    }
+
+    private func startChat(with peer: MCPeerID) {
+        recipientId = peer.displayName
+        handleRecipientSelection(peer.displayName)
+    }
+
+    private func handleRecipientSelection(_ newRecipient: String) {
+        if newRecipient == "broadcast" {
+            if networkManager.messageStore.activeConversationId != ConversationIdentifier.public.rawValue {
+                networkManager.messageStore.selectConversation(ConversationIdentifier.public.rawValue)
+            }
+            return
+        }
+
+        guard networkManager.familyGroupManager.isFamilyMember(peerID: newRecipient) else {
+            if networkManager.messageStore.activeConversationId != ConversationIdentifier.public.rawValue {
+                networkManager.messageStore.selectConversation(ConversationIdentifier.public.rawValue)
+            }
+            return
+        }
+
+        let displayName = networkManager.familyGroupManager.getMember(withPeerID: newRecipient)?.displayName ?? newRecipient
+        let descriptor = MessageStore.ConversationDescriptor.familyChat(peerId: newRecipient, displayName: displayName)
+        networkManager.messageStore.ensureConversation(descriptor)
+
+        if networkManager.messageStore.activeConversationId != descriptor.id {
+            networkManager.messageStore.selectConversation(descriptor.id)
+        }
+    }
+
+    private func syncRecipientWithActiveConversation() {
+        if let descriptor = networkManager.messageStore.descriptor(for: networkManager.messageStore.activeConversationId) {
+            recipientId = descriptor.defaultRecipientId
+            handleRecipientSelection(descriptor.defaultRecipientId)
+        } else {
+            recipientId = "broadcast"
+            handleRecipientSelection("broadcast")
+        }
     }
 
     private func startNavigation(for peer: MCPeerID) {
@@ -362,6 +443,39 @@ struct ContentView: View {
         }
         return false
     }
+
+    /// Get family members that are reachable indirectly (not directly connected)
+    private func getReachableFamilyMembers() -> [(peerID: String, displayName: String, route: [String])] {
+        guard let familyGroup = networkManager.familyGroupManager.currentGroup else {
+            return []
+        }
+
+        var reachable: [(peerID: String, displayName: String, route: [String])] = []
+
+        for member in familyGroup.members {
+            // Skip self
+            if member.peerID == networkManager.localDeviceName {
+                continue
+            }
+
+            // Skip directly connected
+            if networkManager.connectedPeers.contains(where: { $0.displayName == member.peerID }) {
+                continue
+            }
+
+            // Check if reachable indirectly
+            if networkManager.routingTable.isReachable(member.peerID),
+               let nextHops = networkManager.routingTable.getNextHops(to: member.peerID) {
+                reachable.append((
+                    peerID: member.peerID,
+                    displayName: member.displayName,
+                    route: nextHops
+                ))
+            }
+        }
+
+        return reachable
+    }
 }
 
 // MARK: - Main Sections
@@ -379,6 +493,11 @@ private struct StatusOverviewCard: View {
     let locationStatusText: String
     let locationStatusColor: Color
     let onRequestPermissions: (() -> Void)?
+    let onOpenFamilyGroup: () -> Void
+    let hasFamilyGroup: Bool
+    let familyMemberCount: Int
+    let onOpenGeofenceMap: () -> Void
+    let hasActiveGeofence: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -419,6 +538,48 @@ private struct StatusOverviewCard: View {
                 Spacer(minLength: 0)
 
                 HStack(spacing: 10) {
+                    // Family Group Badge
+                    Button(action: onOpenFamilyGroup) {
+                        Label {
+                            Text(hasFamilyGroup ? "\(familyMemberCount)" : "Grupo")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        } icon: {
+                            Image(systemName: hasFamilyGroup ? "person.3.fill" : "person.3")
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(hasFamilyGroup ? Color.green.opacity(0.2) : Color.white.opacity(0.12))
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(hasFamilyGroup ? Color.green.opacity(0.7) : Color.white.opacity(0.3), lineWidth: 1)
+                        )
+                        .foregroundColor(.white)
+                    }
+                    .buttonStyle(.plain)
+
+                    // Geofence Badge
+                    Button(action: onOpenGeofenceMap) {
+                        Label {
+                            Text(hasActiveGeofence ? "Activo" : "Geofence")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        } icon: {
+                            Image(systemName: hasActiveGeofence ? "map.circle.fill" : "map.circle")
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(hasActiveGeofence ? Color.blue.opacity(0.2) : Color.white.opacity(0.12))
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(hasActiveGeofence ? Color.blue.opacity(0.7) : Color.white.opacity(0.3), lineWidth: 1)
+                        )
+                        .foregroundColor(.white)
+                    }
+                    .buttonStyle(.plain)
+
                     locationBadge
 
                     if let onRequestPermissions {
@@ -541,9 +702,12 @@ private struct DeviceSection: View {
     let connectedPeers: [MCPeerID]
     let locationResponseProvider: (String) -> LocationResponseMessage?
     let uwbSessionChecker: (MCPeerID) -> Bool
+    let isFamilyMember: (MCPeerID) -> Bool
+    let reachableFamilyMembers: [(peerID: String, displayName: String, route: [String])]
     let onRequestLocation: (MCPeerID) -> Void
     let onNavigate: (MCPeerID) -> Void
     let onReconnectTap: () -> Void
+    let onStartChat: (MCPeerID) -> Void
 
     var body: some View {
         SectionCard(
@@ -584,16 +748,61 @@ private struct DeviceSection: View {
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     } else {
                         VStack(spacing: 12) {
-                            ForEach(connectedPeers, id: \.self) { peer in
+                            ForEach(sortedConnectedPeers, id: \.self) { peer in
                                 ConnectedPeerRow(
                                     peer: peer,
                                     locationResponse: locationResponseProvider(peer.displayName),
                                     hasUWBSession: uwbSessionChecker(peer),
+                                    isFamilyMember: isFamilyMember(peer),
                                     localDeviceName: localDeviceName,
                                     onRequestLocation: onRequestLocation,
-                                    onNavigate: onNavigate
+                                    onNavigate: onNavigate,
+                                    onStartChat: onStartChat
                                 )
                             }
+                        }
+                    }
+                }
+
+                // Familia alcanzable indirectamente
+                if !reachableFamilyMembers.isEmpty {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        SectionSubtitle(text: "Familia en red (indirecta)", color: .orange)
+
+                        ForEach(reachableFamilyMembers, id: \.peerID) { member in
+                            HStack(spacing: 12) {
+                                Circle()
+                                    .stroke(Color.orange, lineWidth: 2)
+                                    .fill(Color.orange.opacity(0.2))
+                                    .frame(width: 8, height: 8)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 6) {
+                                        Text(member.displayName)
+                                            .font(.subheadline)
+                                            .fontWeight(.semibold)
+
+                                        Image(systemName: "person.3.fill")
+                                            .font(.caption)
+                                            .foregroundColor(.green)
+                                    }
+
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "arrow.triangle.branch")
+                                            .font(.caption2)
+                                        Text("Via \(member.route.joined(separator: ", "))")
+                                            .font(.caption2)
+                                    }
+                                    .foregroundColor(.orange)
+                                }
+
+                                Spacer(minLength: 0)
+                            }
+                            .padding(14)
+                            .background(Color.meshRowBackground)
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         }
                     }
                 }
@@ -620,42 +829,77 @@ private struct DeviceSection: View {
             }
         }
     }
+
+    // Sort connected peers: family members first
+    private var sortedConnectedPeers: [MCPeerID] {
+        connectedPeers.sorted { peer1, peer2 in
+            let isFamily1 = isFamilyMember(peer1)
+            let isFamily2 = isFamilyMember(peer2)
+
+            if isFamily1 && !isFamily2 {
+                return true
+            } else if !isFamily1 && isFamily2 {
+                return false
+            } else {
+                return peer1.displayName < peer2.displayName
+            }
+        }
+    }
 }
 
 private struct MessagesSection: View {
-    let messages: [Message]
+    @ObservedObject var messageStore: MessageStore
     let localDeviceName: String
+    let onConversationSelected: (MessageStore.ConversationSummary) -> Void
 
     var body: some View {
+        let messages = messageStore.messages
         SectionCard(
             title: "Mensajes",
             icon: "bubble.left.and.bubble.right",
             caption: messages.isEmpty
-                ? "Aún no hay mensajes en esta sesión."
-                : "Historial reciente de la conversación."
+                ? "Selecciona una conversación para empezar a chatear."
+                : "Historial de \(activeConversationTitle)"
         ) {
-            if messages.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "text.bubble")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
-                    Text("Cuando envíes un mensaje aparecerá aquí.")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
-            } else {
-                LazyVStack(spacing: 12) {
-                    ForEach(messages) { message in
-                        MessageBubble(
-                            message: message,
-                            isFromLocal: message.sender == localDeviceName
-                        )
+            VStack(alignment: .leading, spacing: 16) {
+                ConversationSelector(
+                    summaries: messageStore.conversationSummaries,
+                    activeConversationId: messageStore.activeConversationId,
+                    onSelect: { summary in
+                        onConversationSelected(summary)
+                    }
+                )
+
+                if messages.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "text.bubble")
+                            .font(.title3)
+                            .foregroundColor(.secondary)
+                        Text("Cuando envíes un mensaje aparecerá aquí.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+                } else {
+                    LazyVStack(spacing: 12) {
+                        ForEach(messages) { message in
+                            MessageBubble(
+                                message: message,
+                                isFromLocal: message.sender == localDeviceName
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    private var activeConversationTitle: String {
+        if let descriptor = messageStore.descriptor(for: messageStore.activeConversationId) {
+            return descriptor.title
+        }
+        return "la sala seleccionada"
     }
 }
 
@@ -670,8 +914,11 @@ private struct AdvancedControlsCard: View {
     let locationStatusText: String
     let locationStatusColor: Color
     let authorizationStatus: CLAuthorizationStatus
+    let networkManager: NetworkManager
+    let messageStore: MessageStore
     let onRequestPermissions: () -> Void
     let onClearConnections: () -> Void
+    let onRecipientChange: (String) -> Void
 
     var body: some View {
         SectionCard(
@@ -717,16 +964,79 @@ private struct AdvancedControlsCard: View {
 
                         Picker("Destinatario", selection: $recipientId) {
                             Text("Broadcast (todos)").tag("broadcast")
-                            ForEach(connectedPeers, id: \.self) { peer in
-                                Text(peer.displayName).tag(peer.displayName)
+
+                            // Family members section
+                            if networkManager.familyGroupManager.hasActiveGroup,
+                               let familyMembers = networkManager.familyGroupManager.currentGroup?.members {
+                                Section(header: Text("Familia")) {
+                                    ForEach(Array(familyMembers), id: \.peerID) { member in
+                                        if member.peerID != networkManager.localDeviceName {
+                                            HStack {
+                                                Text(member.displayName)
+                                                Spacer()
+                                                // Show network status indicator
+                                                if networkManager.connectedPeers.contains(where: { $0.displayName == member.peerID }) {
+                                                    Image(systemName: "circlebadge.fill")
+                                                        .font(.caption2)
+                                                        .foregroundColor(.green)
+                                                } else if networkManager.routingTable.isReachable(member.peerID) {
+                                                    Image(systemName: "circle.dotted")
+                                                        .font(.caption2)
+                                                        .foregroundColor(.orange)
+                                                } else {
+                                                    Image(systemName: "circle")
+                                                        .font(.caption2)
+                                                        .foregroundColor(.gray)
+                                                }
+                                            }
+                                            .tag(member.peerID)
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Other connected peers (not in family)
+                            let nonFamilyPeers = connectedPeers.filter { peer in
+                                !networkManager.familyGroupManager.isFamilyMember(peerID: peer.displayName)
+                            }
+
+                            if !nonFamilyPeers.isEmpty {
+                                Section(header: Text("Otros dispositivos")) {
+                                    ForEach(nonFamilyPeers, id: \.self) { peer in
+                                        Text(peer.displayName).tag(peer.displayName)
+                                    }
+                                }
                             }
                         }
                         .pickerStyle(.menu)
+                        .onChange(of: recipientId) { newValue in
+                            if newValue != "broadcast" && networkManager.familyGroupManager.isFamilyMember(peerID: newValue) {
+                                let displayName = networkManager.familyGroupManager.getMember(withPeerID: newValue)?.displayName ?? newValue
+                                let descriptor = MessageStore.ConversationDescriptor.familyChat(peerId: newValue, displayName: displayName)
+                                messageStore.ensureConversation(descriptor)
+                            }
+                            onRecipientChange(newValue)
+                        }
 
                         if recipientId != "broadcast" {
-                            Label("Ruta dirigida - probará multi-hop si es necesario", systemImage: "arrow.triangle.branch")
-                                .font(.caption2)
-                                .foregroundColor(.orange)
+                            let isDirectlyConnected = connectedPeers.contains(where: { $0.displayName == recipientId })
+                            let isReachableIndirectly = !isDirectlyConnected && networkManager.routingTable.isReachable(recipientId)
+
+                            if isDirectlyConnected {
+                                Label("Conexión directa", systemImage: "arrow.right.circle.fill")
+                                    .font(.caption2)
+                                    .foregroundColor(.green)
+                            } else if isReachableIndirectly {
+                                if let nextHops = networkManager.routingTable.getNextHops(to: recipientId) {
+                                    Label("Ruta multi-hop via \(nextHops.joined(separator: ", "))", systemImage: "arrow.triangle.branch")
+                                        .font(.caption2)
+                                        .foregroundColor(.orange)
+                                }
+                            } else {
+                                Label("Destinatario fuera de rango - broadcast", systemImage: "wifi.slash")
+                                    .font(.caption2)
+                                    .foregroundColor(.red)
+                            }
                         }
                     }
 
@@ -805,6 +1115,54 @@ private struct AdvancedControlsCard: View {
 }
 
 // MARK: - Subcomponents
+
+private struct ConversationSelector: View {
+    let summaries: [MessageStore.ConversationSummary]
+    let activeConversationId: String
+    let onSelect: (MessageStore.ConversationSummary) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(summaries) { summary in
+                    Button(action: {
+                        onSelect(summary)
+                    }) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: summary.isFamily ? "person.2.fill" : "megaphone.fill")
+                                    .font(.caption)
+                                    .foregroundColor(summary.isFamily ? .orange : .blue)
+
+                                Text(summary.title)
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                            }
+
+                            Text(summary.lastMessagePreview ?? "Sin mensajes todavía")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                        .frame(width: 160, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(activeConversationId == summary.id ? Color.accentColor.opacity(0.2) : Color.meshRowBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(activeConversationId == summary.id ? Color.accentColor : Color.primary.opacity(0.05), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+    }
+}
 
 private struct SectionCard<Content: View>: View {
     let title: String
@@ -893,9 +1251,11 @@ private struct ConnectedPeerRow: View {
     let peer: MCPeerID
     let locationResponse: LocationResponseMessage?
     let hasUWBSession: Bool
+    let isFamilyMember: Bool
     let localDeviceName: String
     let onRequestLocation: (MCPeerID) -> Void
     let onNavigate: (MCPeerID) -> Void
+    let onStartChat: (MCPeerID) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -905,9 +1265,17 @@ private struct ConnectedPeerRow: View {
                     .frame(width: 8, height: 8)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(peer.displayName)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                    HStack(spacing: 6) {
+                        Text(peer.displayName)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+
+                        if isFamilyMember {
+                            Image(systemName: "person.3.fill")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                        }
+                    }
 
                     Text("Conectado")
                         .font(.caption2)
@@ -916,22 +1284,9 @@ private struct ConnectedPeerRow: View {
 
                 Spacer(minLength: 0)
 
-                // Botón de navegación UWB - aparece cuando hay sesión UWB activa
-                if hasUWBSession {
-                    Button(action: { onNavigate(peer) }) {
-                        Label("Navegar", systemImage: "arrow.triangle.turn.up.right.diamond")
-                            .font(.caption.bold())
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.cyan.opacity(0.2))
-                            .foregroundColor(.cyan)
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    // Botón de ubicar (GPS)
-                    Button(action: { onRequestLocation(peer) }) {
-                        Label("Ubicar", systemImage: "location.circle")
+                HStack(spacing: 8) {
+                    Button(action: { onStartChat(peer) }) {
+                        Label("Mensaje", systemImage: "bubble.left.and.bubble.right.fill")
                             .font(.caption.bold())
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
@@ -940,6 +1295,30 @@ private struct ConnectedPeerRow: View {
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+
+                    if hasUWBSession {
+                        Button(action: { onNavigate(peer) }) {
+                            Label("Navegar", systemImage: "arrow.triangle.turn.up.right.diamond")
+                                .font(.caption.bold())
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.cyan.opacity(0.2))
+                                .foregroundColor(.cyan)
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Button(action: { onRequestLocation(peer) }) {
+                            Label("Ubicar", systemImage: "location.circle")
+                                .font(.caption.bold())
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.accentColor.opacity(0.15))
+                                .foregroundColor(.accentColor)
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
 
@@ -1029,6 +1408,7 @@ private struct MessageComposerBar: View {
     let canSend: Bool
     let accentColor: Color
     let sendAction: () -> Void
+    let conversationTitle: String
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1039,7 +1419,7 @@ private struct MessageComposerBar: View {
                     Image(systemName: "bubble.left.and.bubble.right")
                         .foregroundColor(.secondary)
 
-                    TextField("Escribe un mensaje...", text: $messageText)
+                    TextField("Mensaje para \(conversationTitle)", text: $messageText)
                         .onSubmit(sendAction)
                         .textFieldStyle(.plain)
                         #if os(iOS)

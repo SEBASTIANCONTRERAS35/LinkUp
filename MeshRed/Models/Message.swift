@@ -12,12 +12,83 @@ struct Message: Identifiable, Codable, Equatable {
     let sender: String
     let content: String
     let timestamp: Date
+    let recipientId: String?
+    let conversationId: String
+    let conversationName: String?
 
-    init(sender: String, content: String) {
+    init(
+        sender: String,
+        content: String,
+        recipientId: String? = nil,
+        conversationId: String,
+        conversationName: String? = nil
+    ) {
         self.id = UUID()
         self.sender = sender
         self.content = content
         self.timestamp = Date()
+        self.recipientId = recipientId
+        self.conversationId = conversationId
+        self.conversationName = conversationName
+    }
+
+    init(
+        id: UUID,
+        sender: String,
+        content: String,
+        timestamp: Date,
+        recipientId: String?,
+        conversationId: String,
+        conversationName: String?
+    ) {
+        self.id = id
+        self.sender = sender
+        self.content = content
+        self.timestamp = timestamp
+        self.recipientId = recipientId
+        self.conversationId = conversationId
+        self.conversationName = conversationName
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case sender
+        case content
+        case timestamp
+        case recipientId
+        case conversationId
+        case conversationName
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        self.sender = try container.decode(String.self, forKey: .sender)
+        self.content = try container.decode(String.self, forKey: .content)
+        self.timestamp = try container.decodeIfPresent(Date.self, forKey: .timestamp) ?? Date()
+        self.recipientId = try container.decodeIfPresent(String.self, forKey: .recipientId)
+
+        if let storedConversationId = try container.decodeIfPresent(String.self, forKey: .conversationId) {
+            self.conversationId = storedConversationId
+        } else {
+            // Legacy fallback: treat as public conversation
+            self.conversationId = ConversationIdentifier.public.rawValue
+        }
+
+        self.conversationName = try container.decodeIfPresent(String.self, forKey: .conversationName)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        try container.encode(id, forKey: .id)
+        try container.encode(sender, forKey: .sender)
+        try container.encode(content, forKey: .content)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encodeIfPresent(recipientId, forKey: .recipientId)
+        try container.encode(conversationId, forKey: .conversationId)
+        try container.encodeIfPresent(conversationName, forKey: .conversationName)
     }
 
     // For JSON serialization over the network

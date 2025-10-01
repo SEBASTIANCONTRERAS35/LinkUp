@@ -122,6 +122,12 @@ enum NetworkPayload: Codable {
     case locationRequest(LocationRequestMessage)
     case locationResponse(LocationResponseMessage)
     case uwbDiscoveryToken(UWBDiscoveryTokenMessage)
+    case familySync(FamilySyncMessage)
+    case familyJoinRequest(FamilyJoinRequestMessage)
+    case familyGroupInfo(FamilyGroupInfoMessage)
+    case topology(TopologyMessage)
+    case geofenceEvent(GeofenceEventMessage)
+    case geofenceShare(GeofenceShareMessage)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -154,6 +160,24 @@ enum NetworkPayload: Codable {
         case "uwbDiscoveryToken":
             let token = try container.decode(UWBDiscoveryTokenMessage.self, forKey: .payload)
             self = .uwbDiscoveryToken(token)
+        case "familySync":
+            let familySync = try container.decode(FamilySyncMessage.self, forKey: .payload)
+            self = .familySync(familySync)
+        case "familyJoinRequest":
+            let joinRequest = try container.decode(FamilyJoinRequestMessage.self, forKey: .payload)
+            self = .familyJoinRequest(joinRequest)
+        case "familyGroupInfo":
+            let groupInfo = try container.decode(FamilyGroupInfoMessage.self, forKey: .payload)
+            self = .familyGroupInfo(groupInfo)
+        case "topology":
+            let topology = try container.decode(TopologyMessage.self, forKey: .payload)
+            self = .topology(topology)
+        case "geofenceEvent":
+            let event = try container.decode(GeofenceEventMessage.self, forKey: .payload)
+            self = .geofenceEvent(event)
+        case "geofenceShare":
+            let share = try container.decode(GeofenceShareMessage.self, forKey: .payload)
+            self = .geofenceShare(share)
         default:
             throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown payload type: \(type)")
         }
@@ -184,6 +208,24 @@ enum NetworkPayload: Codable {
         case .uwbDiscoveryToken(let token):
             try container.encode("uwbDiscoveryToken", forKey: .type)
             try container.encode(token, forKey: .payload)
+        case .familySync(let familySync):
+            try container.encode("familySync", forKey: .type)
+            try container.encode(familySync, forKey: .payload)
+        case .familyJoinRequest(let joinRequest):
+            try container.encode("familyJoinRequest", forKey: .type)
+            try container.encode(joinRequest, forKey: .payload)
+        case .familyGroupInfo(let groupInfo):
+            try container.encode("familyGroupInfo", forKey: .type)
+            try container.encode(groupInfo, forKey: .payload)
+        case .topology(let topology):
+            try container.encode("topology", forKey: .type)
+            try container.encode(topology, forKey: .payload)
+        case .geofenceEvent(let event):
+            try container.encode("geofenceEvent", forKey: .type)
+            try container.encode(event, forKey: .payload)
+        case .geofenceShare(let share):
+            try container.encode("geofenceShare", forKey: .type)
+            try container.encode(share, forKey: .payload)
         }
     }
 }
