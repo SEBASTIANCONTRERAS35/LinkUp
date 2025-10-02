@@ -1,0 +1,500 @@
+//
+//  ThemeComponents.swift
+//  MeshRed - StadiumConnect Pro
+//
+//  Created for CSC 2025 - UNAM
+//  Reusable Accessible Components Library
+//
+//  ACCESSIBILITY PRINCIPLES IMPLEMENTED:
+//  1. All interactive elements ≥ 44x44pt (Apple HIG minimum)
+//  2. Full VoiceOver support with labels + hints
+//  3. Dynamic Type support (scales with user preferences)
+//  4. High contrast mode support
+//  5. Reduce Motion support
+//  6. Haptic feedback for important actions
+//  7. Semantic grouping for logical navigation
+//
+
+import SwiftUI
+
+// MARK: - Accessible Action Button
+/// Large, tappable button with full accessibility support
+struct AccessibleActionButton: View {
+    let title: String
+    let icon: String
+    let backgroundColor: Color
+    let foregroundColor: Color
+    let action: () -> Void
+
+    // Accessibility properties
+    var accessibilityLabel: String
+    var accessibilityHint: String
+    var isEmergency: Bool = false
+
+    var body: some View {
+        Button(action: {
+            // Haptic feedback
+            if isEmergency {
+                // Strong haptic for emergency
+                #if os(iOS)
+                let generator = UINotificationFeedbackGenerator()
+                generator.notificationOccurred(.warning)
+                #endif
+            } else {
+                // Light haptic for normal actions
+                #if os(iOS)
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+                #endif
+            }
+            action()
+        }) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title2) // Scales with Dynamic Type
+                    .foregroundColor(foregroundColor)
+
+                Text(title)
+                    .font(.body) // Dynamic Type enabled
+                    .fontWeight(.semibold)
+                    .foregroundColor(foregroundColor)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity, minHeight: 60) // Exceeds 44pt minimum
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background(backgroundColor)
+            .cornerRadius(16)
+            .shadow(color: backgroundColor.opacity(0.3), radius: 8, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+        // ACCESSIBILITY: VoiceOver label and hint
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint(accessibilityHint)
+        .accessibilityAddTraits(.isButton)
+        // ACCESSIBILITY: Increase importance for emergency buttons
+        .accessibilityAddTraits(isEmergency ? .isHeader : [])
+    }
+}
+
+// MARK: - Accessible Quick Action Card
+/// Card-style button for quick actions grid
+struct AccessibleQuickActionCard: View {
+    let title: String
+    let icon: String
+    let iconColor: Color
+    let backgroundColor: Color
+    let action: () -> Void
+
+    // Accessibility
+    var accessibilityLabel: String
+    var accessibilityHint: String
+
+    var body: some View {
+        Button(action: {
+            #if os(iOS)
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.impactOccurred()
+            #endif
+            action()
+        }) {
+            VStack(spacing: 12) {
+                // Icon
+                Image(systemName: icon)
+                    .font(.system(size: 36)) // Large, clear icon
+                    .foregroundColor(iconColor)
+                    .frame(height: 44) // Ensure visual balance
+
+                // Title
+                Text(title)
+                    .font(.callout) // Dynamic Type
+                    .fontWeight(.semibold)
+                    .foregroundColor(ThemeColors.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity, minHeight: 120) // Generous touch target
+            .padding(16)
+            .background(backgroundColor)
+            .cornerRadius(20)
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        // ACCESSIBILITY: VoiceOver support
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint(accessibilityHint)
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+// MARK: - Accessible Status Badge
+/// Shows network/connection status with icon + text
+struct AccessibleStatusBadge: View {
+    let statusText: String
+    let statusColor: Color
+    let icon: String
+    var isAnimated: Bool = false
+
+    // Accessibility
+    var accessibilityLabel: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Pulsing indicator for active states
+            if isAnimated {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 12, height: 12)
+                    .modifier(PulsingAnimation())
+            } else {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 12, height: 12)
+            }
+
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundColor(statusColor)
+
+            Text(statusText)
+                .font(.caption) // Dynamic Type
+                .fontWeight(.semibold)
+                .foregroundColor(statusColor)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(statusColor.opacity(0.15))
+        .cornerRadius(12)
+        // ACCESSIBILITY: Group as single element, announce combined status
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+// MARK: - Accessible Peer Row
+/// Shows connected peer with distance and actions
+struct AccessiblePeerRow: View {
+    let peerName: String
+    let distance: String?
+    let signalStrength: String // "excellent", "good", "poor"
+    let onLocate: () -> Void
+    let onMessage: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Status indicator
+            Circle()
+                .fill(ThemeColors.connected)
+                .frame(width: 10, height: 10)
+                // ACCESSIBILITY: Decorative, not announced separately
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(peerName)
+                    .font(.body) // Dynamic Type
+                    .fontWeight(.semibold)
+                    .foregroundColor(ThemeColors.textPrimary)
+
+                if let distance = distance {
+                    HStack(spacing: 4) {
+                        Image(systemName: "location.fill")
+                            .font(.caption2)
+                        Text(distance)
+                            .font(.caption) // Dynamic Type
+                    }
+                    .foregroundColor(ThemeColors.textSecondary)
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            // Action buttons
+            HStack(spacing: 8) {
+                // Locate button
+                Button(action: {
+                    #if os(iOS)
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    #endif
+                    onLocate()
+                }) {
+                    Image(systemName: "location.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(ThemeColors.primaryBlue)
+                        .frame(width: 44, height: 44) // Minimum touch target
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Locate \(peerName)")
+                .accessibilityHint("Double tap to see precise location using Ultra Wideband")
+
+                // Message button
+                Button(action: {
+                    #if os(iOS)
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    #endif
+                    onMessage()
+                }) {
+                    Image(systemName: "message.fill")
+                        .font(.title3)
+                        .foregroundColor(ThemeColors.primaryGreen)
+                        .frame(width: 44, height: 44) // Minimum touch target
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Message \(peerName)")
+                .accessibilityHint("Double tap to send a message")
+            }
+        }
+        .padding(16)
+        .background(ThemeColors.rowBackground)
+        .cornerRadius(16)
+        // ACCESSIBILITY: Announce peer info as group
+        .accessibilityElement(children: .contain)
+    }
+}
+
+// MARK: - Accessible Stats Card
+/// Shows key metric with icon
+struct AccessibleStatsCard: View {
+    let title: String
+    let value: String
+    let icon: String
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.caption)
+                    .foregroundColor(color)
+
+                Text(title.uppercased())
+                    .font(.caption2) // Dynamic Type
+                    .fontWeight(.semibold)
+                    .foregroundColor(ThemeColors.textSecondary)
+            }
+
+            Text(value)
+                .font(.title2) // Dynamic Type
+                .fontWeight(.bold)
+                .foregroundColor(ThemeColors.textPrimary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(ThemeColors.cardBackground)
+        .cornerRadius(12)
+        // ACCESSIBILITY: Announce as single stat
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title): \(value)")
+    }
+}
+
+// MARK: - Accessible Network Status Header
+/// Large status card showing mesh network status
+struct AccessibleNetworkStatusHeader: View {
+    let deviceName: String
+    let connectedPeers: Int
+    let statusText: String
+    let statusColor: Color
+    let connectionQuality: String // "Excellent", "Good", "Poor"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Device name and status
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(statusColor)
+                            .frame(width: 12, height: 12)
+                            .modifier(PulsingAnimation())
+                            .accessibilityHidden(true) // Decorative
+
+                        Text(deviceName)
+                            .font(.headline) // Dynamic Type
+                            .foregroundColor(.white)
+                    }
+
+                    Text(statusText)
+                        .font(.subheadline) // Dynamic Type
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white.opacity(0.9))
+                }
+
+                Spacer()
+
+                // Connection quality badge
+                HStack(spacing: 8) {
+                    Text(connectionQualityEmoji)
+                        .font(.title3)
+                        .accessibilityHidden(true) // Decorative
+
+                    Text(connectionQuality)
+                        .font(.caption) // Dynamic Type
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.2))
+                .cornerRadius(12)
+            }
+
+            Divider()
+                .overlay(Color.white.opacity(0.2))
+
+            // Key metrics
+            HStack(spacing: 16) {
+                NetworkMetric(
+                    title: "Conectados",
+                    value: "\(connectedPeers)",
+                    icon: "link"
+                )
+
+                NetworkMetric(
+                    title: "Señal",
+                    value: connectionQuality,
+                    icon: "antenna.radiowaves.left.and.right"
+                )
+
+                NetworkMetric(
+                    title: "Red",
+                    value: "Mesh",
+                    icon: "network"
+                )
+            }
+        }
+        .padding(20)
+        .background(ThemeColors.primaryGradient)
+        .cornerRadius(24)
+        .shadow(color: statusColor.opacity(0.3), radius: 12, x: 0, y: 6)
+        // ACCESSIBILITY: Header with complete status
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Mesh network status")
+        .accessibilityValue("\(statusText), \(connectionQuality) quality, \(connectedPeers) peers connected")
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private var connectionQualityEmoji: String {
+        switch connectionQuality.lowercased() {
+        case "excelente": return "📶"
+        case "buena": return "📡"
+        default: return "📉"
+        }
+    }
+}
+
+// MARK: - Network Metric Sub-component
+private struct NetworkMetric: View {
+    let title: String
+    let value: String
+    let icon: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.85))
+
+                Text(title.uppercased())
+                    .font(.caption2) // Dynamic Type
+                    .foregroundColor(.white.opacity(0.7))
+            }
+
+            Text(value)
+                .font(.title3) // Dynamic Type
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Pulsing Animation Modifier
+/// Subtle pulsing for active status indicators (respects reduce motion)
+struct PulsingAnimation: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @State private var isPulsing = false
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            // No animation if reduce motion is enabled
+            content
+        } else {
+            content
+                .scaleEffect(isPulsing ? 1.3 : 1.0)
+                .opacity(isPulsing ? 0.5 : 1.0)
+                .animation(
+                    Animation.easeInOut(duration: 1.5)
+                        .repeatForever(autoreverses: true),
+                    value: isPulsing
+                )
+                .onAppear {
+                    isPulsing = true
+                }
+        }
+    }
+}
+
+// MARK: - Accessibility Preview Helpers
+#if DEBUG
+struct ThemeComponents_Previews: PreviewProvider {
+    static var previews: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                AccessibleActionButton(
+                    title: "Emergencia SOS",
+                    icon: "exclamationmark.triangle.fill",
+                    backgroundColor: ThemeColors.emergency,
+                    foregroundColor: .white,
+                    action: {},
+                    accessibilityLabel: "Emergency SOS",
+                    accessibilityHint: "Double tap to alert stadium medical staff",
+                    isEmergency: true
+                )
+
+                AccessibleQuickActionCard(
+                    title: "Encontrar Familia",
+                    icon: "person.3.fill",
+                    iconColor: ThemeColors.primaryBlue,
+                    backgroundColor: ThemeColors.cardBackground,
+                    action: {},
+                    accessibilityLabel: "Find family and friends",
+                    accessibilityHint: "Double tap to use Ultra Wideband location"
+                )
+
+                AccessibleStatusBadge(
+                    statusText: "Conectado",
+                    statusColor: ThemeColors.connected,
+                    icon: "checkmark.circle.fill",
+                    isAnimated: true,
+                    accessibilityLabel: "Connected to mesh network"
+                )
+
+                AccessibleNetworkStatusHeader(
+                    deviceName: "Mi iPhone",
+                    connectedPeers: 12,
+                    statusText: "Conectado",
+                    statusColor: ThemeColors.connected,
+                    connectionQuality: "Excelente"
+                )
+
+                AccessibleStatsCard(
+                    title: "Batería",
+                    value: "87%",
+                    icon: "battery.75",
+                    color: ThemeColors.success
+                )
+            }
+            .padding()
+        }
+        .background(ThemeColors.background)
+    }
+}
+#endif

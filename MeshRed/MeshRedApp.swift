@@ -13,10 +13,10 @@ struct MeshRedApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainDashboardContainer()
                 .environmentObject(networkManager)
                 .onAppear {
-                    print("🚀 MeshRed: App started with device: \(networkManager.localDeviceName)")
+                    print("🚀 StadiumConnect Pro: App started with device: \(networkManager.localDeviceName)")
                 }
         }
     }

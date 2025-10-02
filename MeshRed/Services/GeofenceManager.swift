@@ -344,6 +344,9 @@ extension GeofenceManager: CLLocationManagerDelegate {
 
         print("✅ GeofenceManager: ENTERED '\(geofence.name)'")
 
+        // Audio announcement
+        AudioManager.shared.announceZoneTransition(entered: true, zoneName: geofence.name)
+
         // Send event to family
         sendGeofenceEvent(type: .entry, geofence: geofence)
 
@@ -362,6 +365,9 @@ extension GeofenceManager: CLLocationManagerDelegate {
         }
 
         print("⚠️ GeofenceManager: EXITED '\(geofence.name)'")
+
+        // Audio announcement
+        AudioManager.shared.announceZoneTransition(entered: false, zoneName: geofence.name)
 
         // Send event to family
         sendGeofenceEvent(type: .exit, geofence: geofence)

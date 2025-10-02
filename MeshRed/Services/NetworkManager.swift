@@ -119,6 +119,9 @@ class NetworkManager: NSObject, ObservableObject {
         startWaitingCheckTimer()
         startTopologyBroadcastTimer()
 
+        // Setup notification observers for settings actions
+        setupNotificationObservers()
+
         print("🚀 NetworkManager: Initialized with peer ID: \(localPeerID.displayName)")
     }
 
@@ -128,6 +131,7 @@ class NetworkManager: NSObject, ObservableObject {
         statsUpdateTimer?.invalidate()
         waitingCheckTimer?.invalidate()
         locationSharingTimer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
     }
 
     private var statsUpdateTimer: Timer?
@@ -158,6 +162,80 @@ class NetworkManager: NSObject, ObservableObject {
         stopBrowsing()
         session.disconnect()
         print("⏹️ NetworkManager: Stopped all services and disconnected session")
+    }
+
+    // MARK: - Settings Actions
+
+    private func setupNotificationObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleClearAllConnections),
+            name: NSNotification.Name("ClearAllConnections"),
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRestartNetworkServices),
+            name: NSNotification.Name("RestartNetworkServices"),
+            object: nil
+        )
+    }
+
+    @objc private func handleClearAllConnections() {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🧹 NetworkManager: Clearing all connections")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Disconnect all peers
+        session.disconnect()
+
+        // Clear all state
+        DispatchQueue.main.async {
+            self.connectedPeers.removeAll()
+            self.availablePeers.removeAll()
+        }
+
+        // Clear routing table (individual routes, not the table itself)
+        for peer in connectedPeers {
+            routingTable.removePeer(peer.displayName)
+        }
+
+        // Clear UWB sessions
+        if #available(iOS 14.0, *) {
+            uwbSessionManager?.stopAllSessions()
+        }
+
+        // Clear pending messages
+        messageQueue.clear()
+
+        // Clear location tracking
+        peerLocationTracker.clearAllLocations()
+
+        // Stop and restart services
+        stopServices()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.startServices()
+        }
+
+        print("✅ NetworkManager: All connections cleared and services restarted")
+    }
+
+    @objc private func handleRestartNetworkServices() {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🔄 NetworkManager: Restarting network services")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Stop services
+        stopAdvertising()
+        stopBrowsing()
+
+        // Wait a moment then restart
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.startAdvertising()
+            self?.startBrowsing()
+            print("✅ NetworkManager: Services restarted successfully")
+        }
     }
 
     // MARK: - Recovery and Error Handling
@@ -1577,6 +1655,9 @@ extension NetworkManager: MCSessionDelegate {
                 self.manageBrowsing()  // Stop browsing if configured
                 print("✅ NetworkManager: Connected to peer: \(peerID.displayName) | Total peers: \(self.connectedPeers.count)")
 
+                // ACCESSIBILITY: Announce connection
+                AudioManager.shared.announceConnectionChange(connected: true, peerName: peerID.displayName)
+
                 // Broadcast updated topology immediately
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                     self?.broadcastTopology()
@@ -1664,6 +1745,9 @@ extension NetworkManager: MCSessionDelegate {
 
                 if wasConnected {
                     print("❌ DISCONNECTION: Lost connection to peer: \(peerID.displayName)")
+
+                    // ACCESSIBILITY: Announce disconnection
+                    AudioManager.shared.announceConnectionChange(connected: false, peerName: peerID.displayName)
                     print("🔌 Disconnected from \(peerID.displayName)")
                 } else {
                     print("📵 Connection attempt failed for peer: \(peerID.displayName)")

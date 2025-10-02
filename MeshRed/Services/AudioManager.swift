@@ -1,0 +1,433 @@
+//
+//  AudioManager.swift
+//  MeshRed - StadiumConnect Pro
+//
+//  Centralized Audio Management Service
+//  Handles Text-to-Speech and Sound Effects with Accessibility Settings Integration
+//
+
+import AVFoundation
+import Combine
+import SwiftUI
+
+/// Priority levels for audio announcements
+enum AudioPriority: Int, Comparable {
+    case critical = 0   // SOS, emergencies (interrupts everything)
+    case important = 1  // Network changes, zones (interrupts normal)
+    case normal = 2     // General info (can be interrupted)
+
+    static func < (lhs: AudioPriority, rhs: AudioPriority) -> Bool {
+        return lhs.rawValue < rhs.rawValue
+    }
+}
+
+/// Types of sound effects
+enum SoundType {
+    case peerConnected
+    case peerDisconnected
+    case zoneEntered
+    case zoneExited
+    case emergency
+    case messageReceived
+    case messageSent
+}
+
+/// Centralized audio manager for TTS and sound effects
+class AudioManager: NSObject, ObservableObject {
+
+    // MARK: - Singleton
+    static let shared = AudioManager()
+
+    // MARK: - Settings
+    private var settings = AccessibilitySettingsManager.shared
+    private var cancellables = Set<AnyCancellable>()
+
+    // MARK: - Text-to-Speech
+    private let synthesizer = AVSpeechSynthesizer()
+    private var currentUtterance: AVSpeechUtterance?
+    private var currentPriority: AudioPriority = .normal
+
+    // MARK: - Message Queue
+    private struct QueuedMessage {
+        let text: String
+        let priority: AudioPriority
+        let timestamp: Date
+    }
+
+    private var messageQueue: [QueuedMessage] = []
+    private var lastAnnouncementTime: Date = Date.distantPast
+    private let minimumInterval: TimeInterval = 2.0 // Minimum 2 seconds between announcements
+
+    // MARK: - Sound Effects
+    private var soundPlayers: [String: AVAudioPlayer] = [:]
+
+    // MARK: - Initialization
+
+    private override init() {
+        super.init()
+
+        synthesizer.delegate = self
+
+        // Configure audio session
+        configureAudioSession()
+
+        // Observe settings changes
+        settings.objectWillChange
+            .sink { [weak self] _ in
+                self?.updateConfiguration()
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Audio Session Configuration
+
+    private func configureAudioSession() {
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try audioSession.setActive(true)
+        } catch {
+            print("⚠️ AudioManager: Failed to configure audio session: \(error)")
+        }
+    }
+
+    private func updateConfiguration() {
+        // Settings changed - current utterance will use new values for next announcement
+        print("🔊 AudioManager: Settings updated")
+    }
+
+    // MARK: - Text-to-Speech
+
+    /// Speak text with accessibility settings applied
+    /// - Parameters:
+    ///   - text: Text to speak
+    ///   - priority: Priority level (determines if it can interrupt current speech)
+    func speak(_ text: String, priority: AudioPriority = .normal) {
+        // Check if VoiceOver hints are enabled
+        guard settings.enableVoiceOverHints else {
+            print("🔇 AudioManager: VoiceOver hints disabled, skipping announcement")
+            return
+        }
+
+        // Check if we should announce based on detail level
+        if !shouldAnnounce(priority: priority) {
+            print("🔇 AudioManager: Announcement filtered by detail level")
+            return
+        }
+
+        // Rate limiting
+        let now = Date()
+        let timeSinceLastAnnouncement = now.timeIntervalSince(lastAnnouncementTime)
+
+        if timeSinceLastAnnouncement < minimumInterval && priority != .critical {
+            // Queue the message if not critical
+            queueMessage(text: text, priority: priority)
+            return
+        }
+
+        // Interrupt if higher priority
+        if synthesizer.isSpeaking {
+            if priority < currentPriority { // Lower value = higher priority
+                print("🔊 AudioManager: Interrupting for higher priority message")
+                synthesizer.stopSpeaking(at: .immediate)
+            } else if priority == .critical {
+                synthesizer.stopSpeaking(at: .word) // Finish current word for critical
+            } else {
+                // Queue lower priority messages
+                queueMessage(text: text, priority: priority)
+                return
+            }
+        }
+
+        // Create utterance with settings
+        let utterance = AVSpeechUtterance(string: text)
+
+        // Apply voice settings
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * Float(settings.voiceOverSpeakingRate)
+        utterance.pitchMultiplier = Float(settings.voiceOverPitch)
+        utterance.volume = Float(settings.soundEffectsVolume)
+
+        // Set voice language
+        utterance.voice = AVSpeechSynthesisVoice(language: "es-MX")
+
+        // Store current state
+        currentUtterance = utterance
+        currentPriority = priority
+        lastAnnouncementTime = now
+
+        // Speak
+        synthesizer.speak(utterance)
+
+        print("🔊 AudioManager: Speaking (\(priority)): \"\(text)\"")
+
+        // Also post to UIAccessibility for VoiceOver users
+        #if os(iOS)
+        UIAccessibility.post(notification: .announcement, argument: text)
+        #endif
+    }
+
+    private func shouldAnnounce(priority: AudioPriority) -> Bool {
+        let frequency = settings.networkAnnounceFrequency
+
+        switch frequency {
+        case "critical":
+            return priority == .critical
+        case "important":
+            return priority <= .important
+        case "all":
+            return true
+        default:
+            return priority <= .important
+        }
+    }
+
+    private func queueMessage(text: String, priority: AudioPriority) {
+        let message = QueuedMessage(text: text, priority: priority, timestamp: Date())
+        messageQueue.append(message)
+
+        // Remove old messages (older than 30 seconds)
+        messageQueue.removeAll { Date().timeIntervalSince($0.timestamp) > 30 }
+
+        // Sort by priority
+        messageQueue.sort { $0.priority < $1.priority }
+
+        print("📋 AudioManager: Message queued (\(messageQueue.count) in queue)")
+    }
+
+    private func processQueue() {
+        guard !messageQueue.isEmpty else { return }
+        guard !synthesizer.isSpeaking else { return }
+
+        // Get highest priority message
+        if let nextMessage = messageQueue.first {
+            messageQueue.removeFirst()
+            speak(nextMessage.text, priority: nextMessage.priority)
+        }
+    }
+
+    // MARK: - Sound Effects
+
+    /// Play sound effect
+    /// - Parameters:
+    ///   - type: Type of sound to play
+    ///   - customVolume: Optional custom volume (uses settings volume if nil)
+    func playSound(_ type: SoundType, customVolume: Double? = nil) {
+        let volume = customVolume ?? settings.soundEffectsVolume
+
+        guard volume > 0 else {
+            print("🔇 AudioManager: Sound effects volume is 0, skipping")
+            return
+        }
+
+        // Check if specific sound types are enabled
+        if !isSoundEnabled(type) {
+            print("🔇 AudioManager: Sound type \(type) disabled in settings")
+            return
+        }
+
+        // Use system sounds for now (no custom audio files yet)
+        playSystemSound(for: type)
+
+        print("🔊 AudioManager: Playing sound: \(type)")
+    }
+
+    private func isSoundEnabled(_ type: SoundType) -> Bool {
+        switch type {
+        case .peerConnected, .peerDisconnected:
+            return settings.peerConnectionSoundEffects
+        case .zoneEntered, .zoneExited:
+            return settings.announceGeofenceTransitions
+        case .emergency:
+            return true // Always play emergency sounds
+        case .messageReceived, .messageSent:
+            return settings.peerConnectionSoundEffects
+        }
+    }
+
+    private func playSystemSound(for type: SoundType) {
+        let soundID: SystemSoundID
+
+        switch type {
+        case .peerConnected:
+            soundID = 1007 // SMS Received (subtle, positive)
+
+        case .peerDisconnected:
+            soundID = 1053 // Tock (subtle, neutral)
+
+        case .zoneEntered:
+            soundID = 1057 // New Mail (pleasant notification)
+
+        case .zoneExited:
+            soundID = 1104 // JBL Begin (subtle exit sound)
+
+        case .emergency:
+            playEmergencySound()
+            return
+
+        case .messageReceived:
+            soundID = 1003 // Text Tone (message notification)
+
+        case .messageSent:
+            soundID = 1004 // Sent (confirmation sound)
+        }
+
+        AudioServicesPlaySystemSound(soundID)
+    }
+
+    private func playEmergencySound() {
+        let soundID: SystemSoundID
+
+        switch settings.emergencyAlertSound {
+        case "siren":
+            soundID = 1304 // Alarm (loud, attention-grabbing)
+
+        case "alert":
+            soundID = 1005 // New Voicemail (urgent but not harsh)
+
+        case "gentle":
+            soundID = 1016 // Anticipate (softer emergency tone)
+
+        default: // "default"
+            soundID = 1007 // SMS Received with vibration
+        }
+
+        AudioServicesPlayAlertSound(soundID)
+    }
+
+    // MARK: - Emergency Alerts
+
+    /// Play emergency alert with sound and speech
+    /// - Parameter message: Emergency message to announce
+    func playEmergencyAlert(message: String) {
+        // Play emergency sound
+        playSound(.emergency)
+
+        // Speak emergency message with highest priority
+        speak(message, priority: .critical)
+
+        // Vibrate if configured
+        if settings.vibrateDuringSOSCountdown {
+            #if os(iOS)
+            let generator = UINotificationFeedbackGenerator()
+            generator.notificationOccurred(.warning)
+            #endif
+        }
+    }
+
+    // MARK: - Convenience Methods
+
+    /// Announce network connection change
+    func announceConnectionChange(connected: Bool, peerName: String) {
+        guard settings.announceConnectionChanges else { return }
+
+        let message = connected
+            ? "\(peerName) conectado a la red"
+            : "\(peerName) desconectado de la red"
+
+        speak(message, priority: .normal)
+
+        // Play sound
+        playSound(connected ? .peerConnected : .peerDisconnected)
+    }
+
+    /// Announce geofence zone transition
+    func announceZoneTransition(entered: Bool, zoneName: String) {
+        guard settings.announceZoneTransitions else { return }
+
+        let message = entered
+            ? "Entraste a la zona \(zoneName)"
+            : "Saliste de la zona \(zoneName)"
+
+        speak(message, priority: .important)
+
+        // Play sound
+        playSound(entered ? .zoneEntered : .zoneExited)
+
+        // Haptic feedback if enabled
+        if settings.hapticOnGeofenceTransitions {
+            #if os(iOS)
+            let generator = UINotificationFeedbackGenerator()
+            generator.notificationOccurred(.success)
+            #endif
+        }
+    }
+
+    /// Announce network status change
+    func announceNetworkStatus(peerCount: Int) {
+        guard settings.announceNetworkChanges else { return }
+
+        let message: String
+        let priority: AudioPriority
+
+        if peerCount == 0 {
+            message = "Desconectado de la red mesh. No hay personas cercanas."
+            priority = .important // Important to know you're disconnected
+        } else if peerCount == 1 {
+            message = "Conectado a 1 persona en la red mesh."
+            priority = .normal
+        } else {
+            message = "Conectado a \(peerCount) personas en la red mesh."
+            priority = .normal
+        }
+
+        speak(message, priority: priority)
+    }
+
+    // MARK: - Control Methods
+
+    /// Stop all audio immediately
+    func stopAll() {
+        synthesizer.stopSpeaking(at: .immediate)
+        messageQueue.removeAll()
+        currentUtterance = nil
+    }
+
+    /// Pause current speech
+    func pause() {
+        if synthesizer.isSpeaking {
+            synthesizer.pauseSpeaking(at: .word)
+        }
+    }
+
+    /// Resume paused speech
+    func resume() {
+        if synthesizer.isPaused {
+            synthesizer.continueSpeaking()
+        }
+    }
+}
+
+// MARK: - AVSpeechSynthesizerDelegate
+
+extension AudioManager: AVSpeechSynthesizerDelegate {
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        print("🔊 AudioManager: Speech started")
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        print("🔊 AudioManager: Speech finished")
+
+        // Process queue after finishing
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.processQueue()
+        }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didPause utterance: AVSpeechUtterance) {
+        print("⏸️ AudioManager: Speech paused")
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didContinue utterance: AVSpeechUtterance) {
+        print("▶️ AudioManager: Speech continued")
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        print("⏹️ AudioManager: Speech cancelled")
+
+        // Process queue after cancellation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.processQueue()
+        }
+    }
+}
