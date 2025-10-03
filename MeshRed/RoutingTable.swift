@@ -2,7 +2,7 @@
 //  RoutingTable.swift
 //  MeshRed
 //
-//  Dynamic routing table for mesh network topology management
+//  Dynamic routing table for LinkMesh network topology management
 //
 
 import Foundation

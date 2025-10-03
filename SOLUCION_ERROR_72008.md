@@ -58,6 +58,6 @@ La primera vez que abras la app, iOS pedirá:
 - **Mantén Bluetooth y WiFi activados** en ambos dispositivos
 - **No necesitas internet** para que funcione
 
-## 🎉 **¡La red mesh debería funcionar perfectamente ahora!**
+## 🎉 **¡La LinkMesh debería funcionar perfectamente ahora!**
 
 Los errores -72008 han sido resueltos completamente.

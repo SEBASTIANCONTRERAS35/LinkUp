@@ -14,7 +14,7 @@ struct LocationCalculator {
     // Earth's radius in meters (for bearing/distance calculations)
     private static let earthRadiusMeters: Double = 6371000.0
 
-    /// Calculate approximate location of target using intermediary's GPS and UWB data
+    /// Calculate approximate location of target using intermediary's GPS and LinkFinder data
     /// - Parameters:
     ///   - intermediaryLocation: GPS location of intermediary (B)
     ///   - distance: Distance from intermediary to target in meters
@@ -47,7 +47,7 @@ struct LocationCalculator {
         )
 
         // Calculate combined accuracy
-        // Accuracy = intermediary GPS accuracy + UWB accuracy + calculation error
+        // Accuracy = intermediary GPS accuracy + LinkFinder accuracy + calculation error
         let combinedAccuracy = intermediaryLocation.accuracy + 0.5 + 1.0  // Conservative estimate
 
         return UserLocation(

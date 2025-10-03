@@ -1,0 +1,249 @@
+//
+//  LinkFinderPriorityManager.swift
+//  MeshRed - StadiumConnect Pro
+//
+//  Created for CSC 2025 - UNAM
+//  Manages LinkFinder session priority allocation for multi-peer radar
+//
+
+import Foundation
+import MultipeerConnectivity
+import NearbyInteraction
+import Combine
+
+/// Manages which peers get priority for limited LinkFinder direction sessions
+/// iPhone 11: 2 simultaneous sessions, iPhone 12+: 4 sessions
+@available(iOS 14.0, *)
+class LinkFinderPriorityManager: ObservableObject {
+    // MARK: - Configuration
+
+    /// Maximum LinkFinder sessions based on device capability
+    /// Conservative estimate: 2 for iPhone 11, 4 for newer models
+    private let maxUWBSessions: Int
+
+    // MARK: - Published Properties
+
+    /// Peers currently assigned LinkFinder direction tracking (limited slots)
+    @Published var prioritizedPeers: Set<String> = []
+
+    /// Peers with distance-only LinkFinder (when direction slots full)
+    @Published var distanceOnlyPeers: Set<String> = []
+
+    /// Manual priority overrides by user
+    @Published var manualPriorities: [String: Int] = [:] {
+        didSet {
+            savePriorities()
+        }
+    }
+
+    // MARK: - Private Properties
+
+    private var peerScores: [String: Double] = [:]
+    private var lastUpdateTime: [String: Date] = [:]
+    private let userDefaultsKey = "com.meshred.linkfinder.priorities"
+
+    // MARK: - Initialization
+
+    init(maxSessions: Int = 2) {
+        self.maxUWBSessions = maxSessions
+        loadPriorities()
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🎯 LinkFinder PRIORITY MANAGER INITIALIZED")
+        print("   Max LinkFinder Sessions: \(maxSessions)")
+        print("   Device: \(maxSessions == 2 ? "iPhone 11" : "iPhone 12+")")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
+
+    // MARK: - Priority Management
+
+    /// Calculate priority scores for all connected peers
+    /// - Parameters:
+    ///   - connectedPeers: All currently connected peers
+    ///   - peerDistances: GPS-based distances if available
+    ///   - userLocation: Current user location for distance calculation
+    func updatePriorities(
+        for connectedPeers: [MCPeerID],
+        peerDistances: [String: Float] = [:],
+        userLocation: UserLocation? = nil
+    ) {
+        print("🔄 LinkFinderPriorityManager: Updating priorities for \(connectedPeers.count) peers")
+
+        // Calculate scores for each peer
+        var newScores: [String: Double] = [:]
+
+        for peer in connectedPeers {
+            let peerId = peer.displayName
+            let score = calculatePriorityScore(
+                for: peerId,
+                distance: peerDistances[peerId],
+                lastUpdate: lastUpdateTime[peerId]
+            )
+            newScores[peerId] = score
+        }
+
+        peerScores = newScores
+
+        // Select top N peers for LinkFinder direction tracking
+        let sortedPeers = peerScores.sorted { $0.value > $1.value }
+        let topPeers = Array(sortedPeers.prefix(maxUWBSessions))
+
+        let newPrioritizedSet = Set(topPeers.map { $0.key })
+        let allPeerIds = Set(connectedPeers.map { $0.displayName })
+        let newDistanceOnlySet = allPeerIds.subtracting(newPrioritizedSet)
+
+        // Detect changes
+        let promoted = newPrioritizedSet.subtracting(prioritizedPeers)
+        let demoted = prioritizedPeers.subtracting(newPrioritizedSet)
+
+        if !promoted.isEmpty || !demoted.isEmpty {
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("🔀 LinkFinder PRIORITY CHANGES")
+            if !promoted.isEmpty {
+                print("   ⬆️ Promoted to LinkFinder direction: \(promoted.joined(separator: ", "))")
+            }
+            if !demoted.isEmpty {
+                print("   ⬇️ Demoted to distance only: \(demoted.joined(separator: ", "))")
+            }
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            // Apply changes
+            prioritizedPeers = newPrioritizedSet
+            distanceOnlyPeers = newDistanceOnlySet
+
+            // Notify about priority changes
+            objectWillChange.send()
+        }
+
+        // Debug: Print current priority list
+        print("📊 Current LinkFinder Priorities:")
+        for (index, (peerId, score)) in topPeers.enumerated() {
+            print("   \(index + 1). \(peerId) - Score: \(String(format: "%.2f", score))")
+        }
+    }
+
+    /// Calculate priority score for a peer
+    /// Higher score = higher priority
+    private func calculatePriorityScore(
+        for peerId: String,
+        distance: Float?,
+        lastUpdate: Date?
+    ) -> Double {
+        var score: Double = 0.0
+
+        // Factor 1: Manual priority (highest weight)
+        if let manualPriority = manualPriorities[peerId] {
+            score += Double(manualPriority) * 1000.0
+        }
+
+        // Factor 2: Distance (closer = higher priority)
+        if let distance = distance {
+            // Inverse distance score (closer is better)
+            // Max score 100 at 0m, decreases with distance
+            let distanceScore = max(0, 100.0 - Double(distance))
+            score += distanceScore
+        }
+
+        // Factor 3: Recency (recently updated = higher priority)
+        if let lastUpdate = lastUpdate {
+            let secondsSinceUpdate = Date().timeIntervalSince(lastUpdate)
+            // Decay over 60 seconds
+            let recencyScore = max(0, 50.0 - (secondsSinceUpdate / 60.0) * 50.0)
+            score += recencyScore
+        }
+
+        return score
+    }
+
+    /// Manually boost a peer's priority (e.g., user selected them)
+    func boostPriority(for peerId: String, amount: Int = 10) {
+        let currentPriority = manualPriorities[peerId] ?? 0
+        manualPriorities[peerId] = currentPriority + amount
+        lastUpdateTime[peerId] = Date()
+
+        print("⬆️ LinkFinderPriorityManager: Boosted priority for \(peerId) to \(currentPriority + amount)")
+    }
+
+    /// Remove manual priority for a peer
+    func clearPriority(for peerId: String) {
+        manualPriorities.removeValue(forKey: peerId)
+        print("🗑️ LinkFinderPriorityManager: Cleared priority for \(peerId)")
+    }
+
+    /// Reset all priorities
+    func resetAllPriorities() {
+        manualPriorities.removeAll()
+        peerScores.removeAll()
+        lastUpdateTime.removeAll()
+        prioritizedPeers.removeAll()
+        distanceOnlyPeers.removeAll()
+
+        print("🔄 LinkFinderPriorityManager: Reset all priorities")
+    }
+
+    // MARK: - Session Management
+
+    /// Check if peer should have LinkFinder direction tracking
+    func shouldTrackDirection(for peerId: String) -> Bool {
+        return prioritizedPeers.contains(peerId)
+    }
+
+    /// Check if peer should have distance-only tracking
+    func shouldTrackDistance(for peerId: String) -> Bool {
+        return distanceOnlyPeers.contains(peerId)
+    }
+
+    /// Get current priority rank for a peer (1 = highest)
+    func getPriorityRank(for peerId: String) -> Int? {
+        let sorted = peerScores.sorted { $0.value > $1.value }
+        return sorted.firstIndex(where: { $0.key == peerId }).map { $0 + 1 }
+    }
+
+    /// Record that a peer was updated (for recency scoring)
+    func markPeerUpdated(_ peerId: String) {
+        lastUpdateTime[peerId] = Date()
+    }
+
+    // MARK: - Persistence
+
+    private func savePriorities() {
+        UserDefaults.standard.set(manualPriorities, forKey: userDefaultsKey)
+    }
+
+    private func loadPriorities() {
+        if let saved = UserDefaults.standard.dictionary(forKey: userDefaultsKey) as? [String: Int] {
+            manualPriorities = saved
+            print("✅ LinkFinderPriorityManager: Loaded \(saved.count) saved priorities")
+        }
+    }
+
+    // MARK: - Cleanup
+
+    /// Clean up priorities for disconnected peer
+    func removePeer(_ peerId: String) {
+        peerScores.removeValue(forKey: peerId)
+        lastUpdateTime.removeValue(forKey: peerId)
+        prioritizedPeers.remove(peerId)
+        distanceOnlyPeers.remove(peerId)
+        // Keep manual priorities even after disconnect
+    }
+}
+
+// MARK: - Priority Criteria
+
+/// Criteria for determining LinkFinder session priority
+enum UWBPriorityCriteria {
+    case manual          // User manually selected
+    case distance        // Closest peers
+    case recency         // Recently interacted
+    case family          // Family group members
+
+    var weight: Double {
+        switch self {
+        case .manual: return 1000.0
+        case .family: return 500.0
+        case .distance: return 100.0
+        case .recency: return 50.0
+        }
+    }
+}

@@ -61,13 +61,13 @@ This document provides step-by-step VoiceOver navigation flows for all major vie
    - **Haptic:** Light impact on tap
 
 5. **Ubicaciones Feature Card** (Swipe Right)
-   - **Hears:** "Ubicaciones, Share your location with family. Button. Double tap to access location sharing and UWB navigation."
+   - **Hears:** "Ubicaciones, Share your location with family. Button. Double tap to access location sharing and LinkFinder navigation."
    - **Action:** Double tap opens location view
    - **Haptic:** Light impact on tap
 
 6. **Perimetros Feature Card** (Swipe Right)
-   - **Hears:** "Perimetros, Stadium zones and geofencing. Button. Double tap to view geofence map and zones."
-   - **Action:** Double tap opens geofence map
+   - **Hears:** "Perimetros, Stadium zones and linkfencing. Button. Double tap to view linkfence map and zones."
+   - **Action:** Double tap opens linkfence map
    - **Haptic:** Light impact on tap
 
 7. **Home Navigation Button** (Swipe Right)
@@ -178,8 +178,8 @@ This document provides step-by-step VoiceOver navigation flows for all major vie
     - **Hears:** "Ubicación, Comparte tu posición. Button. Double tap to share location."
     - **Haptic:** Light impact
 
-15. **Geofencing Card** (Swipe Right)
-    - **Hears:** "Geofencing, Zonas del estadio. Button. Double tap to view stadium zones."
+15. **LinkFencing Card** (Swipe Right)
+    - **Hears:** "LinkFencing, Zonas del estadio. Button. Double tap to view stadium zones."
     - **Haptic:** Light impact
 
 16. **Servicios Cercanos Heading** (Swipe Right)
@@ -338,7 +338,7 @@ The bottom navigation bar is **persistent across all views** and should maintain
 ### Custom Rotors for StadiumConnect
 - **Peers Rotor:** Navigate between connected devices
 - **Messages Rotor:** Navigate between conversations
-- **Zones Rotor:** Navigate between geofence zones
+- **Zones Rotor:** Navigate between linkfence zones
 - **Services Rotor:** Navigate between nearby services
 
 ### Reading Controls
@@ -355,7 +355,7 @@ The bottom navigation bar is **persistent across all views** and should maintain
 ### Setup
 - iPhone with VoiceOver enabled
 - StadiumConnect app open on Home view
-- 2-3 devices connected to mesh network
+- 2-3 devices connected to LinkLinkMesh network
 - Family group configured
 
 ### Script (Timed)
@@ -442,7 +442,7 @@ The bottom navigation bar is **persistent across all views** and should maintain
 - ✅ Family card clearly labeled
 - ✅ Member count announced
 - ✅ Location actions discoverable
-- ✅ UWB navigation explained
+- ✅ LinkFinder navigation explained
 
 ### Scenario 4: Navigate to Restroom
 **Goal:** Find nearest restroom using services

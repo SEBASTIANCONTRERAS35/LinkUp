@@ -18,7 +18,7 @@ This document outlines comprehensive accessibility testing for StadiumConnect Pr
 ### Specific Component Tests
 
 #### Network Status Header
-- [ ] Announces: "Mesh network status, Header. Connected, Excellent quality, 12 peers connected"
+- [ ] Announces: "LinkMesh network status, Header. Connected, Excellent quality, 12 peers connected"
 - [ ] Connection quality emoji is decorative (hidden from VoiceOver)
 
 #### Emergency SOS Button
@@ -811,7 +811,7 @@ Size: ___________ (Required: 44x44pt)
 
 **Avoid:**
 - "ACK" → Use "Confirmation"
-- "UWB" → Use "Precise location"
+- "LinkFinder" → Use "Precise location"
 - "Mesh" → Use "Device network"
 
 **Expected Results:**

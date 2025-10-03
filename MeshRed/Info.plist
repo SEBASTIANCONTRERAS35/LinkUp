@@ -13,18 +13,18 @@
 		<string>network-authentication</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>MeshRed necesita acceso a la red local para comunicación peer-to-peer sin infraestructura durante eventos masivos del Mundial 2026.</string>
+	<string>StadiumConnect Pro necesita acceso a la red local para comunicación peer-to-peer mediante LinkMesh sin infraestructura durante eventos masivos del Mundial 2026.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>MeshRed usa Bluetooth para descubrir dispositivos cercanos y crear redes mesh resilientes cuando las redes celulares colapsan.</string>
+	<string>StadiumConnect Pro usa Bluetooth para descubrir dispositivos cercanos y crear redes LinkMesh resilientes cuando las redes celulares colapsan.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>MeshRed necesita Bluetooth para anunciarse a otros dispositivos y permitir comunicación descentralizada.</string>
+	<string>StadiumConnect Pro necesita Bluetooth para anunciarse a otros dispositivos y permitir comunicación descentralizada mediante LinkMesh.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>StadiumConnect Pro necesita tu ubicación para ayudar a familiares a encontrarte durante eventos masivos del Mundial 2026. La ubicación solo se comparte cuando tú lo autorices.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>StadiumConnect Pro necesita acceso a tu ubicación en segundo plano para notificarte cuando familiares entren o salgan del lugar designado. Esto permite monitoreo de geofence y funciones avanzadas de localización durante eventos masivos.</string>
+	<string>StadiumConnect Pro necesita acceso a tu ubicación en segundo plano para notificarte cuando familiares entren o salgan del lugar designado. Esto permite monitoreo de LinkFence y funciones avanzadas de localización durante eventos masivos.</string>
 	<key>NSNearbyInteractionAllowOnceUsageDescription</key>
-	<string>MeshRed necesita acceso a Nearby Interaction para localizar dispositivos cercanos con precisión centimétrica usando Ultra Wideband (UWB). Esto permite navegación con flecha direccional en tiempo real.</string>
+	<string>StadiumConnect Pro necesita acceso a Nearby Interaction para localizar dispositivos cercanos con precisión centimétrica usando LinkFinder. Esto permite navegación con flecha direccional en tiempo real.</string>
 	<key>NSNearbyInteractionUsageDescription</key>
-	<string>MeshRed usa Nearby Interaction para proporcionar navegación precisa hacia otros dispositivos, mostrándote la dirección y distancia exacta con precisión de centímetros.</string>
+	<string>StadiumConnect Pro usa Nearby Interaction (LinkFinder) para proporcionar navegación precisa hacia otros dispositivos, mostrándote la dirección y distancia exacta con precisión de centímetros.</string>
 </dict>
 </plist>

@@ -20,6 +20,9 @@ import SwiftUI
 // MARK: - Accessible Action Button
 /// Large, tappable button with full accessibility support
 struct AccessibleActionButton: View {
+    @EnvironmentObject var accessibilitySettings: AccessibilitySettingsManager
+    @Environment(\.accessibleTheme) var accessibleTheme
+
     let title: String
     let icon: String
     let backgroundColor: Color
@@ -33,19 +36,11 @@ struct AccessibleActionButton: View {
 
     var body: some View {
         Button(action: {
-            // Haptic feedback
+            // Haptic feedback using centralized HapticManager
             if isEmergency {
-                // Strong haptic for emergency
-                #if os(iOS)
-                let generator = UINotificationFeedbackGenerator()
-                generator.notificationOccurred(.warning)
-                #endif
+                HapticManager.shared.play(.warning, priority: .emergency)
             } else {
-                // Light haptic for normal actions
-                #if os(iOS)
-                let generator = UIImpactFeedbackGenerator(style: .light)
-                generator.impactOccurred()
-                #endif
+                HapticManager.shared.play(.light, priority: .ui)
             }
             action()
         }) {
@@ -56,18 +51,23 @@ struct AccessibleActionButton: View {
 
                 Text(title)
                     .font(.body) // Dynamic Type enabled
-                    .fontWeight(.semibold)
+                    .fontWeight(accessibilitySettings.preferBoldText ? .bold : .semibold)
                     .foregroundColor(foregroundColor)
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
             }
-            .frame(maxWidth: .infinity, minHeight: 60) // Exceeds 44pt minimum
+            .frame(
+                maxWidth: .infinity,
+                minHeight: 60 * accessibilitySettings.buttonSizeMultiplier // ✅ Adapts to size multiplier
+            )
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
             .background(backgroundColor)
             .cornerRadius(16)
-            .shadow(color: backgroundColor.opacity(0.3), radius: 8, x: 0, y: 4)
+            .accessibleShadow(color: backgroundColor, radius: 8) // ✅ Adaptive shadow
         }
+        .scaleEffect(accessibilitySettings.buttonSizeMultiplier) // ✅ Scale entire button
+        .animation(.easeInOut(duration: 0.2), value: accessibilitySettings.buttonSizeMultiplier)
         .buttonStyle(.plain)
         // ACCESSIBILITY: VoiceOver label and hint
         .accessibilityLabel(accessibilityLabel)
@@ -81,6 +81,9 @@ struct AccessibleActionButton: View {
 // MARK: - Accessible Quick Action Card
 /// Card-style button for quick actions grid
 struct AccessibleQuickActionCard: View {
+    @EnvironmentObject var accessibilitySettings: AccessibilitySettingsManager
+    @Environment(\.accessibleTheme) var accessibleTheme
+
     let title: String
     let icon: String
     let iconColor: Color
@@ -93,37 +96,43 @@ struct AccessibleQuickActionCard: View {
 
     var body: some View {
         Button(action: {
-            #if os(iOS)
-            let generator = UIImpactFeedbackGenerator(style: .medium)
-            generator.impactOccurred()
-            #endif
+            // Haptic feedback using centralized HapticManager
+            HapticManager.shared.play(.medium, priority: .ui)
             action()
         }) {
             VStack(spacing: 12) {
                 // Icon
                 Image(systemName: icon)
-                    .font(.system(size: 36)) // Large, clear icon
+                    .font(.system(size: 36 * accessibilitySettings.buttonSizeMultiplier)) // ✅ Adaptive icon size
                     .foregroundColor(iconColor)
                     .frame(height: 44) // Ensure visual balance
 
                 // Title
                 Text(title)
                     .font(.callout) // Dynamic Type
-                    .fontWeight(.semibold)
-                    .foregroundColor(ThemeColors.textPrimary)
+                    .fontWeight(accessibilitySettings.preferBoldText ? .bold : .semibold) // ✅ Adaptive bold
+                    .foregroundColor(accessibleTheme.textPrimary) // ✅ Uses accessible theme
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
             }
-            .frame(maxWidth: .infinity, minHeight: 120) // Generous touch target
+            .frame(
+                maxWidth: .infinity,
+                minHeight: 120 * accessibilitySettings.buttonSizeMultiplier // ✅ Adaptive height
+            )
             .padding(16)
-            .background(backgroundColor)
+            .accessibleBackground(backgroundColor, opacity: 1.0) // ✅ Respects reduceTransparency
             .cornerRadius(20)
             .overlay(
                 RoundedRectangle(cornerRadius: 20)
-                    .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+                    .stroke(
+                        Color.primary.opacity(accessibilitySettings.enableHighContrast ? 0.15 : 0.05),
+                        lineWidth: accessibilitySettings.enableHighContrast ? 2 : 1 // ✅ Stronger border for high contrast
+                    )
             )
         }
+        .scaleEffect(accessibilitySettings.buttonSizeMultiplier) // ✅ Scale entire card
+        .animation(.easeInOut(duration: 0.2), value: accessibilitySettings.buttonSizeMultiplier)
         .buttonStyle(.plain)
         // ACCESSIBILITY: VoiceOver support
         .accessibilityLabel(accessibilityLabel)
@@ -295,7 +304,7 @@ struct AccessibleStatsCard: View {
 }
 
 // MARK: - Accessible Network Status Header
-/// Large status card showing mesh network status
+/// Large status card showing LinkMesh network status
 struct AccessibleNetworkStatusHeader: View {
     let deviceName: String
     let connectedPeers: Int
@@ -474,7 +483,7 @@ struct ThemeComponents_Previews: PreviewProvider {
                     statusColor: ThemeColors.connected,
                     icon: "checkmark.circle.fill",
                     isAnimated: true,
-                    accessibilityLabel: "Connected to mesh network"
+                    accessibilityLabel: "Connected to LinkMesh network"
                 )
 
                 AccessibleNetworkStatusHeader(

@@ -8,7 +8,7 @@
 import Foundation
 import CoreLocation
 
-/// Advanced navigation calculations for hybrid GPS + UWB navigation
+/// Advanced navigation calculations for hybrid GPS + LinkFinder navigation
 struct NavigationCalculator {
 
     // MARK: - Relative Bearing Calculation
@@ -74,7 +74,7 @@ struct NavigationCalculator {
     /// Represents a single triangulation reading (position + distance)
     struct TriangulationReading {
         let userLocation: UserLocation      // GPS position when reading was taken
-        let distanceToTarget: Float         // UWB distance to target at this position
+        let distanceToTarget: Float         // LinkFinder distance to target at this position
         let timestamp: Date
 
         var coordinateString: String {
@@ -261,12 +261,12 @@ struct NavigationCalculator {
     ) -> Double {
         // Accuracy depends on:
         // 1. GPS accuracy of both readings
-        // 2. UWB accuracy (typically ±0.5m)
+        // 2. LinkFinder accuracy (typically ±0.5m)
         // 3. Geometry (angle between readings - better if closer to 90°)
 
         let gpsAccuracy1 = reading1.userLocation.accuracy
         let gpsAccuracy2 = reading2.userLocation.accuracy
-        let uwbAccuracy = 0.5  // UWB typical accuracy
+        let uwbAccuracy = 0.5  // LinkFinder typical accuracy
 
         // Combined accuracy (conservative estimate)
         let combinedAccuracy = max(gpsAccuracy1, gpsAccuracy2) + uwbAccuracy + 2.0

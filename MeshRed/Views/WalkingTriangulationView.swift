@@ -11,11 +11,11 @@ import MultipeerConnectivity
 
 /// Interactive walking triangulation wizard (Nivel 4)
 /// Guides user through taking two distance readings to calculate precise direction
-/// Uses circle-circle intersection geometry with UWB distance measurements
+/// Uses circle-circle intersection geometry with LinkFinder distance measurements
 struct WalkingTriangulationView: View {
     let targetName: String
     let targetPeerID: MCPeerID
-    @ObservedObject var uwbManager: UWBSessionManager
+    @ObservedObject var uwbManager: LinkFinderSessionManager
     @ObservedObject var locationService: LocationService
 
     let onDismiss: () -> Void
@@ -221,7 +221,7 @@ struct WalkingTriangulationView: View {
             if !canTakeReading {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                    Text("Esperando GPS y UWB...")
+                    Text("Esperando GPS y LinkFinder...")
                 }
                 .foregroundColor(.yellow)
             }
@@ -669,7 +669,7 @@ struct InstructionRow: View {
     WalkingTriangulationView(
         targetName: "Mamá",
         targetPeerID: MCPeerID(displayName: "test-peer"),
-        uwbManager: UWBSessionManager(),
+        uwbManager: LinkFinderSessionManager(),
         locationService: LocationService(),
         onDismiss: {},
         onDirectionCalculated: { bearing in

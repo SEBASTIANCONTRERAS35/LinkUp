@@ -26,7 +26,7 @@ Este archivo proporciona contexto completo del proyecto StadiumConnect Pro desar
 ## Proyecto Base - MeshRed
 
 ### Tecnología Existente
-MeshRed es una aplicación de chat P2P mesh networking desarrollada con:
+MeshRed es una aplicación de chat P2P LinkLinkMesh networking desarrollada con:
 - **Tecnología**: SwiftUI + MultipeerConnectivity
 - **Plataformas**: iOS, macOS, visionOS 26.0+
 - **Arquitectura**: NetworkManager, MessageQueue, AckManager, PeerHealthMonitor
@@ -53,17 +53,17 @@ Durante eventos masivos como el Mundial FIFA 2026:
 
 ### Solución Tecnológica
 
-#### 1. Red Mesh Bluetooth
+#### 1. LinkMesh Bluetooth
 - Comunicación P2P sin dependencia de infraestructura
 - Routing inteligente entre dispositivos cercanos
 - Alcance extendido mediante retransmisión de mensajes
 
-#### 2. Ultra Wideband (UWB) - Localización Precisa
+#### 2. LinkFinder (LinkFinder) - Localización Precisa
 - Precisión centimétrica para encontrar familiares
 - Integración con NearbyInteraction framework
 - Navegación indoor en estadios complejos
 
-#### 3. Geofencing Inteligente
+#### 3. LinkFencing Inteligente
 - Zonas virtuales del estadio (entradas, baños, concesiones)
 - Alertas automáticas de entrada/salida de zonas
 - Notificaciones contextuales por ubicación
@@ -78,9 +78,9 @@ Durante eventos masivos como el Mundial FIFA 2026:
 
 #### Frameworks iOS Utilizados
 ```swift
-import MultipeerConnectivity  // Red mesh P2P
-import NearbyInteraction      // UWB localización precisa
-import CoreLocation          // GPS y geofencing
+import MultipeerConnectivity  // LinkMesh P2P
+import NearbyInteraction      // LinkFinder localización precisa
+import CoreLocation          // GPS y linkfencing
 import HealthKit            // Monitoreo biométrico
 import AVFoundation         // Análisis de audio
 import SwiftUI              // Interfaz de usuario
@@ -89,8 +89,8 @@ import Accessibility        // Soporte para discapacidades
 
 #### Componentes Principales
 - **MeshNetworkManager**: Coordinador de comunicación P2P
-- **UWBLocationService**: Servicio de localización UWB
-- **GeofenceManager**: Gestión de zonas virtuales
+- **UWBLocationService**: Servicio de localización LinkFinder
+- **LinkFenceManager**: Gestión de zonas virtuales
 - **EmergencyDetector**: Sistema multi-sensor de emergencias
 - **AccessibilityManager**: Adaptaciones para inclusión
 
@@ -137,24 +137,24 @@ import Accessibility        // Soporte para discapacidades
 
 #### Equipo Frontend/UI-UX (2 personas)
 - Semana 1: Interfaces principales + sistema de accesibilidad
-- Semana 2: Geofencing UI + testing con usuarios
+- Semana 2: LinkFencing UI + testing con usuarios
 
 #### Equipo Backend/Lógica (2 personas)
-- Semana 1: Integración UWB + sistema de emergencias
+- Semana 1: Integración LinkFinder + sistema de emergencias
 - Semana 2: Optimización mesh + testing de rendimiento
 
 ### Estrategia de Presentación (10 minutos)
 
 #### Estructura del Pitch
 1. **Hook** (1 min): Problema real - saturación de red en estadios
-2. **Solución** (3 min): Demo live de localización UWB + mesh
+2. **Solución** (3 min): Demo live de localización LinkFinder + mesh
 3. **Diferenciación** (2 min): Único combo tecnológico + inclusión
 4. **Impacto** (2 min): Casos de uso reales del Mundial 2026
 5. **Viabilidad** (1 min): Arquitectura basada en MeshRed existente
 6. **Cierre** (1 min): Call to action - imaginar implementación real
 
 #### Demo Técnico Preparado
-- Localización UWB en tiempo real entre 2 iPhones
+- Localización LinkFinder en tiempo real entre 2 iPhones
 - Comunicación mesh sin WiFi/cellular
 - Sistema de emergencias con validación humana
 - Navegación completa con VoiceOver activado
@@ -379,6 +379,6 @@ Uses Swift Testing framework (`import Testing`) with `@Test` attribute instead o
 
 ## Notas para Claude Code
 
-Este proyecto extiende MeshRed hacia StadiumConnect Pro para el CSC 2025. La propuesta combina tecnología P2P existente con nuevas capacidades de localización UWB y detección de emergencias, todo enfocado en inclusión y accesibilidad para el Mundial FIFA 2026.
+Este proyecto extiende MeshRed hacia StadiumConnect Pro para el CSC 2025. La propuesta combina tecnología P2P existente con nuevas capacidades de localización LinkFinder y detección de emergencias, todo enfocado en inclusión y accesibilidad para el Mundial FIFA 2026.
 
 **Enfoque clave**: No es solo una app técnicamente impresionante, sino una solución que genuinamente mejora la experiencia de personas con discapacidades en eventos masivos.

@@ -101,9 +101,9 @@ Complete accessible home view for CSC 2025 "Inclusive App" category.
 5. Demonstrate peer connection announcement
 
 ### Key Differentiators
-- **Only mesh networking app** with full VoiceOver support
+- **Only LinkLinkMesh networking app** with full VoiceOver support
 - **Custom accessibility rotors** for peer navigation
-- **Dynamic announcements** unique to mesh networking
+- **Dynamic announcements** unique to LinkLinkMesh networking
 - **Haptic-differentiated** emergency vs. normal actions
 - **WCAG AA verified** color contrast
 
@@ -555,7 +555,7 @@ Circle()
 3. **Real-World Stadium Use Case**
    - Stadiums are chaotic, loud, crowded environments
    - Accessibility is CRITICAL, not optional
-   - Our mesh network works when cellular fails (accessibility for everyone)
+   - Our LinkLinkMesh network works when cellular fails (accessibility for everyone)
 
 4. **Technical Excellence**
    - WCAG 2.1 Level AA compliance (most apps only do A)

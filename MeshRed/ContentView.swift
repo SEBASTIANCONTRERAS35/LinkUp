@@ -28,10 +28,10 @@ struct ContentView: View {
         ZStack {
             mainContent
 
-            // Vista de navegación UWB overlay
+            // Vista de navegación LinkFinder overlay
             if showUWBNavigation, let targetPeer = navigationTarget {
                 if #available(iOS 14.0, *), let uwbManager = networkManager.uwbSessionManager {
-                    UWBNavigationView(
+                    LinkFinderNavigationView(
                         targetName: targetPeer.displayName,
                         targetPeerID: targetPeer,
                         uwbManager: uwbManager,
@@ -73,7 +73,7 @@ struct ContentView: View {
                         hasFamilyGroup: networkManager.familyGroupManager.hasActiveGroup,
                         familyMemberCount: networkManager.familyGroupManager.memberCount,
                         onOpenGeofenceMap: { showGeofenceMap = true },
-                        hasActiveGeofence: networkManager.geofenceManager?.activeGeofence != nil
+                        hasActiveGeofence: networkManager.linkfenceManager?.activeGeofence != nil
                     )
 
                     DeviceSection(
@@ -164,9 +164,9 @@ struct ContentView: View {
                 .environmentObject(networkManager)
         }
         .sheet(isPresented: $showGeofenceMap) {
-            if let geofenceManager = networkManager.geofenceManager {
-                FamilyGeofenceMapView(
-                    geofenceManager: geofenceManager,
+            if let linkfenceManager = networkManager.linkfenceManager {
+                FamilyLinkFenceMapView(
+                    linkfenceManager: linkfenceManager,
                     familyGroupManager: networkManager.familyGroupManager,
                     locationService: networkManager.locationService,
                     networkManager: networkManager
@@ -298,7 +298,7 @@ struct ContentView: View {
     }
 
     private func startNavigation(for peer: MCPeerID) {
-        // Check if we have an active UWB session
+        // Check if we have an active LinkFinder session
         if #available(iOS 14.0, *) {
             if let uwbManager = networkManager.uwbSessionManager,
                uwbManager.hasActiveSession(with: peer) {
@@ -308,13 +308,13 @@ struct ContentView: View {
                 withAnimation {
                     showUWBNavigation = true
                 }
-                print("🧭 Starting UWB navigation to \(peer.displayName)")
+                print("🧭 Starting LinkFinder navigation to \(peer.displayName)")
                 return
             }
         }
 
-        // Si no hay sesión UWB activa, solicitar ubicación primero
-        print("⚠️ No active UWB session for \(peer.displayName), requesting location first")
+        // Si no hay sesión LinkFinder activa, solicitar ubicación primero
+        print("⚠️ No active LinkFinder session for \(peer.displayName), requesting location first")
         requestLocation(for: peer)
     }
 
@@ -427,19 +427,19 @@ struct ContentView: View {
 
                 // Log detailed status every check when session exists but no ranging
                 if hasSession && distance == nil {
-                    print("⚠️ UWB Session exists but no ranging data yet for \(peer.displayName)")
+                    print("⚠️ LinkFinder Session exists but no ranging data yet for \(peer.displayName)")
                     // Print detailed status for debugging
                     print(uwbManager.getUWBStatus(for: peer))
                 }
 
-                print("🔍 UWB Check for \(peer.displayName): Session=\(hasSession), Distance=\(distance?.description ?? "nil")")
+                print("🔍 LinkFinder Check for \(peer.displayName): Session=\(hasSession), Distance=\(distance?.description ?? "nil")")
 
                 return hasSession && distance != nil
             } else {
-                print("🔍 UWB Check: uwbSessionManager is nil")
+                print("🔍 LinkFinder Check: uwbSessionManager is nil")
             }
         } else {
-            print("🔍 UWB Check: iOS < 14.0")
+            print("🔍 LinkFinder Check: iOS < 14.0")
         }
         return false
     }
@@ -559,10 +559,10 @@ private struct StatusOverviewCard: View {
                     }
                     .buttonStyle(.plain)
 
-                    // Geofence Badge
+                    // LinkFence Badge
                     Button(action: onOpenGeofenceMap) {
                         Label {
-                            Text(hasActiveGeofence ? "Activo" : "Geofence")
+                            Text(hasActiveGeofence ? "Activo" : "LinkFence")
                                 .font(.caption)
                                 .fontWeight(.semibold)
                         } icon: {
@@ -1479,13 +1479,13 @@ struct LocationResponseView: View {
         VStack(alignment: .leading, spacing: 4) {
             switch response.responseType {
             case .uwbDirect:
-                // UWB direct response - highest precision
+                // LinkFinder direct response - highest precision
                 if let relative = response.relativeLocation {
                     HStack(spacing: 4) {
                         Image(systemName: "location.north.circle.fill")
                             .font(.caption2)
                             .foregroundColor(.green)
-                        Text("Ubicación UWB Precisa:")
+                        Text("Ubicación LinkFinder Precisa:")
                             .font(.caption)
                             .fontWeight(.semibold)
                             .foregroundColor(.green)
@@ -1508,7 +1508,7 @@ struct LocationResponseView: View {
                         }
                     }
 
-                    Text("Precisión: ±\(String(format: "%.1f", relative.accuracy))m (UWB)")
+                    Text("Precisión: ±\(String(format: "%.1f", relative.accuracy))m (LinkFinder)")
                         .font(.caption2)
                         .foregroundColor(.green.opacity(0.8))
                 }

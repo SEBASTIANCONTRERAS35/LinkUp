@@ -26,7 +26,11 @@ class NetworkManager: NSObject, ObservableObject {
     private let serviceType = "meshred-chat"
     private let localPeerID: MCPeerID = {
         let deviceName = ProcessInfo.processInfo.hostName
-        return MCPeerID(displayName: deviceName)
+        // Use public name from UserDisplayNameManager
+        let displayNameManager = UserDisplayNameManager.shared
+        let publicName = displayNameManager.getCurrentPublicName(deviceName: deviceName)
+        print("📡 [NetworkManager] Creating MCPeerID with public name: '\(publicName)'")
+        return MCPeerID(displayName: publicName)
     }()
     private var session: MCSession
     private var advertiser: MCNearbyServiceAdvertiser?
@@ -38,8 +42,11 @@ class NetworkManager: NSObject, ObservableObject {
     // MARK: - Family Group Manager
     let familyGroupManager = FamilyGroupManager()
 
-    // MARK: - Geofence Manager
-    var geofenceManager: GeofenceManager?
+    // MARK: - LinkFence Manager
+    var linkfenceManager: LinkFenceManager?
+
+    // MARK: - Connection Manager
+    let connectionManager = ConnectionManager()
 
     // MARK: - Routing Table
     private(set) var routingTable: RoutingTable!
@@ -49,14 +56,14 @@ class NetworkManager: NSObject, ObservableObject {
     private let messageCache = MessageCache()
     private let ackManager = AckManager()
     private let sessionManager = SessionManager()
-    private let healthMonitor = PeerHealthMonitor()
+    let healthMonitor = PeerHealthMonitor()
     private let connectionMutex = ConnectionMutex()
 
     // MARK: - Location Components
     let locationService = LocationService()
     let locationRequestManager = LocationRequestManager()
     let peerLocationTracker = PeerLocationTracker()
-    var uwbSessionManager: UWBSessionManager?
+    var uwbSessionManager: LinkFinderSessionManager?
 
     // GPS Location Sharing for Navigation
     private var locationSharingTimer: Timer?
@@ -73,7 +80,7 @@ class NetworkManager: NSObject, ObservableObject {
     private var peerEventTimes: [String: (found: Date?, lost: Date?)] = [:]
     private let eventDeduplicationWindow: TimeInterval = 10.0  // Increased from 3.0
 
-    // UWB retry management
+    // LinkFinder retry management
     private var uwbRetryCount: [String: Int] = [:]
     private let maxUWBRetries = 3
 
@@ -94,20 +101,20 @@ class NetworkManager: NSObject, ObservableObject {
         // Initialize routing table
         self.routingTable = RoutingTable(localPeerID: localPeerID.displayName)
 
-        // Initialize geofence manager
-        self.geofenceManager = GeofenceManager(
+        // Initialize linkfence manager
+        self.linkfenceManager = LinkFenceManager(
             locationService: locationService,
             familyGroupManager: familyGroupManager
         )
-        self.geofenceManager?.setNetworkManager(self)
+        self.linkfenceManager?.setNetworkManager(self)
 
         session.delegate = self
         ackManager.delegate = self
         healthMonitor.delegate = self
 
-        // Initialize UWB if supported
+        // Initialize LinkFinder if supported
         if #available(iOS 14.0, *) {
-            let uwbManager = UWBSessionManager()
+            let uwbManager = LinkFinderSessionManager()
             uwbManager.delegate = self
             self.uwbSessionManager = uwbManager
         }
@@ -201,7 +208,7 @@ class NetworkManager: NSObject, ObservableObject {
             routingTable.removePeer(peer.displayName)
         }
 
-        // Clear UWB sessions
+        // Clear LinkFinder sessions
         if #available(iOS 14.0, *) {
             uwbSessionManager?.stopAllSessions()
         }
@@ -576,6 +583,12 @@ class NetworkManager: NSObject, ObservableObject {
             return
         }
 
+        // Check if peer is manually blocked
+        if connectionManager.isPeerBlocked(peerID.displayName) {
+            print("🚫 NetworkManager: Peer \(peerID.displayName) is manually blocked - skipping connection")
+            return
+        }
+
         // Check conflict resolution (unless forcing)
         if !forceIgnoreConflictResolution {
             guard ConnectionConflictResolver.shouldInitiateConnection(localPeer: localPeerID, remotePeer: peerID) else {
@@ -799,7 +812,7 @@ class NetworkManager: NSObject, ObservableObject {
                 print("   Payload Type: Location Response")
                 handleLocationResponse(locationResponse, from: peerID)
             case .uwbDiscoveryToken(let tokenMessage):
-                print("   Payload Type: UWB Discovery Token")
+                print("   Payload Type: LinkFinder Discovery Token")
                 handleUWBDiscoveryToken(tokenMessage, from: peerID)
             case .familySync(let familySyncMessage):
                 print("   Payload Type: Family Sync")
@@ -813,12 +826,12 @@ class NetworkManager: NSObject, ObservableObject {
             case .topology(var topologyMessage):
                 print("   Payload Type: Topology")
                 handleTopologyMessage(&topologyMessage, from: peerID)
-            case .geofenceEvent(let geofenceEvent):
-                print("   Payload Type: Geofence Event")
-                handleGeofenceEvent(geofenceEvent, from: peerID)
-            case .geofenceShare(let geofenceShare):
-                print("   Payload Type: Geofence Share")
-                handleGeofenceShare(geofenceShare, from: peerID)
+            case .linkfenceEvent(let linkfenceEvent):
+                print("   Payload Type: LinkFence Event")
+                handleGeofenceEvent(linkfenceEvent, from: peerID)
+            case .linkfenceShare(let linkfenceShare):
+                print("   Payload Type: LinkFence Share")
+                handleGeofenceShare(linkfenceShare, from: peerID)
             }
         } catch {
             guard let message = Message.fromData(data) else {
@@ -951,14 +964,14 @@ class NetworkManager: NSObject, ObservableObject {
     private func handleLocationRequest(_ request: LocationRequestMessage, from peerID: MCPeerID) {
         print("📍 NetworkManager: Received location request from \(request.requesterId) for \(request.targetId)")
 
-        // Case 1: Request is for me - respond with my location (UWB or GPS)
+        // Case 1: Request is for me - respond with my location (LinkFinder or GPS)
         if request.targetId == localPeerID.displayName {
             handleLocationRequestForMe(request)
             return
         }
 
         // Case 2: Relay the request (normal multi-hop routing)
-        // Intermediaries do NOT respond with their own UWB data
+        // Intermediaries do NOT respond with their own LinkFinder data
         print("📍 NetworkManager: Relaying location request for \(request.targetId)")
         let payload = NetworkPayload.locationRequest(request)
 
@@ -986,24 +999,24 @@ class NetworkManager: NSObject, ObservableObject {
             return
         }
 
-        // Check if requester is a connected peer and we have UWB session with them
-        print("📍 NetworkManager: Checking UWB availability with requester \(request.requesterId)...")
+        // Check if requester is a connected peer and we have LinkFinder session with them
+        print("📍 NetworkManager: Checking LinkFinder availability with requester \(request.requesterId)...")
 
         if #available(iOS 14.0, *) {
             if let uwbManager = uwbSessionManager {
-                print("   ✓ UWBSessionManager available")
+                print("   ✓ LinkFinderSessionManager available")
 
                 if let requesterPeer = connectedPeers.first(where: { $0.displayName == request.requesterId }) {
                     print("   ✓ Requester found in connected peers")
 
                     let hasSession = uwbManager.hasActiveSession(with: requesterPeer)
-                    print("   UWB session active: \(hasSession ? "✓ YES" : "✗ NO")")
+                    print("   LinkFinder session active: \(hasSession ? "✓ YES" : "✗ NO")")
 
                     if hasSession {
                         if let distance = uwbManager.getDistance(to: requesterPeer) {
-                            print("   ✓ UWB distance available: \(String(format: "%.2f", distance))m")
+                            print("   ✓ LinkFinder distance available: \(String(format: "%.2f", distance))m")
 
-                            // We have UWB with the requester! Send precise UWB response
+                            // We have LinkFinder with the requester! Send precise LinkFinder response
                             let direction = uwbManager.getDirection(to: requesterPeer).map { DirectionVector(from: $0) }
 
                             let response = LocationResponseMessage.uwbDirectResponse(
@@ -1011,29 +1024,29 @@ class NetworkManager: NSObject, ObservableObject {
                                 targetId: localPeerID.displayName,
                                 distance: distance,
                                 direction: direction,
-                                accuracy: 0.5  // UWB typical accuracy
+                                accuracy: 0.5  // LinkFinder typical accuracy
                             )
 
                             sendLocationResponse(response)
-                            print("✅ NetworkManager: Sent UWB direct response - \(String(format: "%.2f", distance))m \(direction?.cardinalDirection ?? "no direction")")
+                            print("✅ NetworkManager: Sent LinkFinder direct response - \(String(format: "%.2f", distance))m \(direction?.cardinalDirection ?? "no direction")")
                             return
                         } else {
-                            print("   ✗ UWB session exists but no distance data yet")
+                            print("   ✗ LinkFinder session exists but no distance data yet")
                         }
                     }
                 } else {
                     print("   ✗ Requester \(request.requesterId) not in connected peers list")
                 }
             } else {
-                print("   ✗ UWBSessionManager is nil")
+                print("   ✗ LinkFinderSessionManager is nil")
             }
         } else {
-            print("   ✗ iOS 14.0+ required for UWB")
+            print("   ✗ iOS 14.0+ required for LinkFinder")
         }
 
-        print("📍 NetworkManager: Falling back to GPS (UWB not available)")
+        print("📍 NetworkManager: Falling back to GPS (LinkFinder not available)")
 
-        // Fallback: No UWB available, send GPS location
+        // Fallback: No LinkFinder available, send GPS location
         Task {
             do {
                 guard let location = try await locationService.getCurrentLocation() else {
@@ -1072,7 +1085,7 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     // REMOVED: Intermediary triangulation no longer supported
-    // Only direct requester-target UWB is used
+    // Only direct requester-target LinkFinder is used
 
     private func sendLocationResponse(_ response: LocationResponseMessage) {
         let payload = NetworkPayload.locationResponse(response)
@@ -1187,23 +1200,23 @@ class NetworkManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - UWB Discovery Token Exchange
+    // MARK: - LinkFinder Discovery Token Exchange
 
     private func sendUWBDiscoveryToken(to peerID: MCPeerID) {
-        print("📡 NetworkManager: Attempting to send UWB token to \(peerID.displayName)...")
+        print("📡 NetworkManager: Attempting to send LinkFinder token to \(peerID.displayName)...")
 
         guard #available(iOS 14.0, *) else {
-            print("   ✗ iOS 14.0+ required for UWB - skipping token exchange")
+            print("   ✗ iOS 14.0+ required for LinkFinder - skipping token exchange")
             return
         }
 
         guard let uwbManager = uwbSessionManager else {
-            print("   ✗ UWBSessionManager is nil - skipping token exchange")
+            print("   ✗ LinkFinderSessionManager is nil - skipping token exchange")
             return
         }
 
-        guard uwbManager.isUWBSupported else {
-            print("   ✗ UWB not supported on this device (requires iPhone 11+ with U1/U2 chip)")
+        guard uwbManager.isLinkFinderSupported else {
+            print("   ✗ LinkFinder not supported on this device (requires iPhone 11+ with U1/U2 chip)")
             return
         }
 
@@ -1215,28 +1228,28 @@ class NetworkManager: NSObject, ObservableObject {
 
         do {
             let tokenData = try NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true)
-            let message = UWBDiscoveryTokenMessage(senderId: localPeerID.displayName, tokenData: tokenData)
+            let message = LinkFinderDiscoveryTokenMessage(senderId: localPeerID.displayName, tokenData: tokenData)
             let payload = NetworkPayload.uwbDiscoveryToken(message)
 
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
             try session.send(data, toPeers: [peerID], with: .reliable)
 
-            print("✅ NetworkManager: Sent UWB discovery token to \(peerID.displayName)")
+            print("✅ NetworkManager: Sent LinkFinder discovery token to \(peerID.displayName)")
             print("   Session prepared and ready to run when we receive peer's token")
         } catch {
-            print("❌ NetworkManager: Failed to send UWB token: \(error.localizedDescription)")
+            print("❌ NetworkManager: Failed to send LinkFinder token: \(error.localizedDescription)")
         }
     }
 
-    // Coordinate a bidirectional UWB restart with a peer by resetting local state
+    // Coordinate a bidirectional LinkFinder restart with a peer by resetting local state
     // and re-initiating the token exchange. This avoids introducing a new payload
     // type and leverages the existing discovery-token flow to re-establish ranging.
     private func sendUWBResetRequest(to peer: MCPeerID) {
-        print("📡 NetworkManager: UWB reset requested for \(peer.displayName) — resetting local session and re-initiating token exchange")
+        print("📡 NetworkManager: LinkFinder reset requested for \(peer.displayName) — resetting local session and re-initiating token exchange")
 
         guard #available(iOS 14.0, *), let uwbManager = uwbSessionManager else {
-            print("   ✗ UWB not available — cannot perform reset")
+            print("   ✗ LinkFinder not available — cannot perform reset")
             return
         }
 
@@ -1252,13 +1265,13 @@ class NetworkManager: NSObject, ObservableObject {
             guard let self = self else { return }
 
             // Mark that we're initiating a fresh exchange and send our token
-            print("📤 NetworkManager: Re-initiating UWB token exchange with \(peer.displayName) after reset")
+            print("📤 NetworkManager: Re-initiating LinkFinder token exchange with \(peer.displayName) after reset")
             self.uwbTokenExchangeState[peer.displayName] = .sentToken
             self.sendUWBDiscoveryToken(to: peer)
         }
     }
 
-    // Track UWB token exchange state
+    // Track LinkFinder token exchange state
     private var uwbTokenExchangeState: [String: TokenExchangeState] = [:]  // PeerID -> Exchange state
     private var uwbSessionRole: [String: String] = [:]  // PeerID -> "master" or "slave"
 
@@ -1272,16 +1285,16 @@ class NetworkManager: NSObject, ObservableObject {
         case exchangeComplete     // Both tokens exchanged, both sessions running
     }
 
-    private func handleUWBDiscoveryToken(_ tokenMessage: UWBDiscoveryTokenMessage, from peerID: MCPeerID) {
+    private func handleUWBDiscoveryToken(_ tokenMessage: LinkFinderDiscoveryTokenMessage, from peerID: MCPeerID) {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📥 UWB TOKEN RECEIVED")
+        print("📥 LinkFinder TOKEN RECEIVED")
         print("   From: \(peerID.displayName)")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         guard #available(iOS 14.0, *),
               let uwbManager = uwbSessionManager,
-              uwbManager.isUWBSupported else {
-            print("   ✗ UWB not supported on this device")
+              uwbManager.isLinkFinderSupported else {
+            print("   ✗ LinkFinder not supported on this device")
             return
         }
 
@@ -1290,7 +1303,7 @@ class NetworkManager: NSObject, ObservableObject {
                 ofClass: NIDiscoveryToken.self,
                 from: tokenMessage.tokenData
             ) else {
-                print("❌ NetworkManager: Failed to unarchive UWB token")
+                print("❌ NetworkManager: Failed to unarchive LinkFinder token")
                 return
             }
 
@@ -1300,7 +1313,7 @@ class NetworkManager: NSObject, ObservableObject {
             let isMaster = localPeerID.displayName > peerID.displayName
             uwbSessionRole[peerID.displayName] = isMaster ? "master" : "slave"
 
-            print("   🎭 UWB Role: \(isMaster ? "MASTER" : "SLAVE") for session with \(peerID.displayName)")
+            print("   🎭 LinkFinder Role: \(isMaster ? "MASTER" : "SLAVE") for session with \(peerID.displayName)")
             print("   📊 Comparison: '\(localPeerID.displayName)' \(isMaster ? ">" : "<") '\(peerID.displayName)'")
 
             if isMaster {
@@ -1338,7 +1351,7 @@ class NetworkManager: NSObject, ObservableObject {
                     // Manually encode and send (can't use sendUWBDiscoveryToken since session is already prepared)
                     do {
                         let tokenData = try NSKeyedArchiver.archivedData(withRootObject: myToken, requiringSecureCoding: true)
-                        let message = UWBDiscoveryTokenMessage(senderId: self.localPeerID.displayName, tokenData: tokenData)
+                        let message = LinkFinderDiscoveryTokenMessage(senderId: self.localPeerID.displayName, tokenData: tokenData)
                         let payload = NetworkPayload.uwbDiscoveryToken(message)
 
                         let encoder = JSONEncoder()
@@ -1354,7 +1367,7 @@ class NetworkManager: NSObject, ObservableObject {
             }
 
         } catch {
-            print("❌ NetworkManager: Error handling UWB token: \(error.localizedDescription)")
+            print("❌ NetworkManager: Error handling LinkFinder token: \(error.localizedDescription)")
         }
     }
 
@@ -1401,58 +1414,58 @@ class NetworkManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Geofence Handling
+    // MARK: - LinkFence Handling
 
-    /// Handle received geofence event from a family member
-    private func handleGeofenceEvent(_ event: GeofenceEventMessage, from peerID: MCPeerID) {
-        // Forward to GeofenceManager if available
-        geofenceManager?.handleGeofenceEvent(event)
+    /// Handle received linkfence event from a family member
+    private func handleGeofenceEvent(_ event: LinkFenceEventMessage, from peerID: MCPeerID) {
+        // Forward to LinkFenceManager if available
+        linkfenceManager?.handleGeofenceEvent(event)
     }
 
-    /// Handle received geofence share from a family member
-    private func handleGeofenceShare(_ share: GeofenceShareMessage, from peerID: MCPeerID) {
-        // Forward to GeofenceManager if available
-        geofenceManager?.handleGeofenceShare(share)
+    /// Handle received linkfence share from a family member
+    private func handleGeofenceShare(_ share: LinkFenceShareMessage, from peerID: MCPeerID) {
+        // Forward to LinkFenceManager if available
+        linkfenceManager?.handleGeofenceShare(share)
     }
 
-    /// Send geofence event to family members via mesh
-    func sendGeofenceEvent(_ event: GeofenceEventMessage) {
+    /// Send linkfence event to family members via mesh
+    func sendGeofenceEvent(_ event: LinkFenceEventMessage) {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("📤 SENDING GEOFENCE EVENT")
         print("   Type: \(event.eventType.rawValue)")
-        print("   Place: \(event.geofenceName)")
+        print("   Place: \(event.linkfenceName)")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-        let payload = NetworkPayload.geofenceEvent(event)
+        let payload = NetworkPayload.linkfenceEvent(event)
 
         do {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
             // Send to all connected peers (family will filter by code)
             try session.send(data, toPeers: connectedPeers, with: .reliable)
-            print("✅ NetworkManager: Sent geofence event to \(connectedPeers.count) peers")
+            print("✅ NetworkManager: Sent linkfence event to \(connectedPeers.count) peers")
         } catch {
-            print("❌ NetworkManager: Failed to send geofence event: \(error.localizedDescription)")
+            print("❌ NetworkManager: Failed to send linkfence event: \(error.localizedDescription)")
         }
     }
 
-    /// Send geofence share to family members via mesh
-    func sendGeofenceShare(_ share: GeofenceShareMessage) {
+    /// Send linkfence share to family members via mesh
+    func sendGeofenceShare(_ share: LinkFenceShareMessage) {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("📤 SENDING GEOFENCE SHARE")
-        print("   Geofence: \(share.geofence.name)")
+        print("   LinkFence: \(share.linkfence.name)")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-        let payload = NetworkPayload.geofenceShare(share)
+        let payload = NetworkPayload.linkfenceShare(share)
 
         do {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
             // Send to all connected peers (family will filter by code)
             try session.send(data, toPeers: connectedPeers, with: .reliable)
-            print("✅ NetworkManager: Sent geofence share to \(connectedPeers.count) peers")
+            print("✅ NetworkManager: Sent linkfence share to \(connectedPeers.count) peers")
         } catch {
-            print("❌ NetworkManager: Failed to send geofence share: \(error.localizedDescription)")
+            print("❌ NetworkManager: Failed to send linkfence share: \(error.localizedDescription)")
         }
     }
 
@@ -1655,8 +1668,9 @@ extension NetworkManager: MCSessionDelegate {
                 self.manageBrowsing()  // Stop browsing if configured
                 print("✅ NetworkManager: Connected to peer: \(peerID.displayName) | Total peers: \(self.connectedPeers.count)")
 
-                // ACCESSIBILITY: Announce connection
+                // ACCESSIBILITY: Announce connection + haptic feedback
                 AudioManager.shared.announceConnectionChange(connected: true, peerName: peerID.displayName)
+                HapticManager.shared.playPattern(.peerConnected, priority: .notification)
 
                 // Broadcast updated topology immediately
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -1671,12 +1685,12 @@ extension NetworkManager: MCSessionDelegate {
                     }
                 }
 
-                // Reset UWB retry count and token exchange state for this peer
+                // Reset LinkFinder retry count and token exchange state for this peer
                 self.uwbRetryCount[peerID.displayName] = 0
                 self.uwbTokenExchangeState[peerID.displayName] = .idle
                 self.uwbSessionRole.removeValue(forKey: peerID.displayName)
 
-                // Determine who should initiate UWB token exchange based on peer ID
+                // Determine who should initiate LinkFinder token exchange based on peer ID
                 let shouldInitiate = self.localPeerID.displayName > peerID.displayName
 
                 if shouldInitiate {
@@ -1684,7 +1698,7 @@ extension NetworkManager: MCSessionDelegate {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                         guard let self = self else { return }
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                        print("🎯 UWB TOKEN EXCHANGE INITIATOR")
+                        print("🎯 LinkFinder TOKEN EXCHANGE INITIATOR")
                         print("   Local: \(self.localPeerID.displayName)")
                         print("   Remote: \(peerID.displayName)")
                         print("   Role: MASTER (initiating)")
@@ -1695,7 +1709,7 @@ extension NetworkManager: MCSessionDelegate {
                 } else {
                     // Wait for the other peer to initiate (slave role)
                     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    print("⏳ UWB TOKEN EXCHANGE WAITER")
+                    print("⏳ LinkFinder TOKEN EXCHANGE WAITER")
                     print("   Local: \(self.localPeerID.displayName)")
                     print("   Remote: \(peerID.displayName)")
                     print("   Role: SLAVE (waiting for token)")
@@ -1731,7 +1745,7 @@ extension NetworkManager: MCSessionDelegate {
                 // Immediately broadcast updated topology to reflect disconnection
                 self.broadcastTopology()
 
-                // Stop UWB session and clear token exchange state
+                // Stop LinkFinder session and clear token exchange state
                 if #available(iOS 14.0, *) {
                     self.uwbSessionManager?.stopSession(with: peerID)
                     self.uwbTokenExchangeState[peerID.displayName] = .idle
@@ -1746,8 +1760,9 @@ extension NetworkManager: MCSessionDelegate {
                 if wasConnected {
                     print("❌ DISCONNECTION: Lost connection to peer: \(peerID.displayName)")
 
-                    // ACCESSIBILITY: Announce disconnection
+                    // ACCESSIBILITY: Announce disconnection + haptic feedback
                     AudioManager.shared.announceConnectionChange(connected: false, peerName: peerID.displayName)
+                    HapticManager.shared.playPattern(.peerDisconnected, priority: .notification)
                     print("🔌 Disconnected from \(peerID.displayName)")
                 } else {
                     print("📵 Connection attempt failed for peer: \(peerID.displayName)")
@@ -1817,6 +1832,14 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
             print("🧪 TEST MODE: Declining invitation from \(peerID.displayName) - blocked by TestingConfig")
             invitationHandler(false, nil)
             sessionManager.recordConnectionDeclined(to: peerID, reason: "blocked by TestingConfig")
+            return
+        }
+
+        // Check if peer is manually blocked
+        if connectionManager.isPeerBlocked(peerID.displayName) {
+            print("🚫 NetworkManager: Declining invitation from \(peerID.displayName) - peer is manually blocked")
+            invitationHandler(false, nil)
+            sessionManager.recordConnectionDeclined(to: peerID, reason: "manually blocked")
             return
         }
 
@@ -2102,10 +2125,10 @@ extension NetworkManager {
         diag += locationService.getDetailedStatus()
         diag += "\n"
 
-        // UWB Status
+        // LinkFinder Status
         if #available(iOS 14.0, *), let uwbManager = uwbSessionManager {
-            diag += "UWB Status:\n"
-            diag += "  Supported: \(uwbManager.isUWBSupported)\n"
+            diag += "LinkFinder Status:\n"
+            diag += "  Supported: \(uwbManager.isLinkFinderSupported)\n"
             diag += "  Active Sessions: \(uwbManager.activeSessions.count)\n"
 
             if !uwbManager.activeSessions.isEmpty {
@@ -2117,7 +2140,7 @@ extension NetworkManager {
                 }
             }
         } else {
-            diag += "UWB: Not available\n"
+            diag += "LinkFinder: Not available\n"
         }
 
         diag += "============================\n"
@@ -2162,25 +2185,25 @@ extension NetworkManager: PeerHealthMonitorDelegate {
     }
 }
 
-// MARK: - UWBSessionManagerDelegate
+// MARK: - LinkFinderSessionManagerDelegate
 
 @available(iOS 14.0, *)
-extension NetworkManager: UWBSessionManagerDelegate {
-    func uwbSessionManager(_ manager: UWBSessionManager, didUpdateDistanceTo peerId: String, distance: Float?, direction: SIMD3<Float>?) {
-        // UWB distance/direction updated - handled automatically by UWBSessionManager
+extension NetworkManager: LinkFinderSessionManagerDelegate {
+    func uwbSessionManager(_ manager: LinkFinderSessionManager, didUpdateDistanceTo peerId: String, distance: Float?, direction: SIMD3<Float>?) {
+        // LinkFinder distance/direction updated - handled automatically by LinkFinderSessionManager
         // We can use this for additional UI feedback if needed
     }
 
-    func uwbSessionManager(_ manager: UWBSessionManager, didLoseTrackingOf peerId: String, reason: NINearbyObject.RemovalReason) {
-        print("⚠️ NetworkManager: Lost UWB tracking of \(peerId) - Reason: \(reason.description)")
+    func uwbSessionManager(_ manager: LinkFinderSessionManager, didLoseTrackingOf peerId: String, reason: NINearbyObject.RemovalReason) {
+        print("⚠️ NetworkManager: Lost LinkFinder tracking of \(peerId) - Reason: \(reason.description)")
     }
 
-    func uwbSessionManager(_ manager: UWBSessionManager, sessionInvalidatedFor peerId: String, error: Error) {
-        print("❌ NetworkManager: UWB session invalidated for \(peerId): \(error.localizedDescription)")
+    func uwbSessionManager(_ manager: LinkFinderSessionManager, sessionInvalidatedFor peerId: String, error: Error) {
+        print("❌ NetworkManager: LinkFinder session invalidated for \(peerId): \(error.localizedDescription)")
 
         // Check if it's a permission denied error
         if error.localizedDescription.contains("USER_DID_NOT_ALLOW") {
-            print("⚠️ NetworkManager: UWB permission denied by user for \(peerId)")
+            print("⚠️ NetworkManager: LinkFinder permission denied by user for \(peerId)")
             // Reset retry count but don't retry - user needs to grant permission
             uwbRetryCount[peerId] = 0
 
@@ -2202,33 +2225,33 @@ extension NetworkManager: UWBSessionManagerDelegate {
         if let peer = connectedPeers.first(where: { $0.displayName == peerId }) {
             if retries < maxUWBRetries {
                 uwbRetryCount[peerId] = retries + 1
-                print("🔄 NetworkManager: Attempting to restart UWB session with \(peerId) (retry \(retries + 1)/\(maxUWBRetries))")
+                print("🔄 NetworkManager: Attempting to restart LinkFinder session with \(peerId) (retry \(retries + 1)/\(maxUWBRetries))")
 
                 // Add a delay before retrying
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                     self?.sendUWBDiscoveryToken(to: peer)
                 }
             } else {
-                print("❌ NetworkManager: Max UWB retries reached for \(peerId)")
+                print("❌ NetworkManager: Max LinkFinder retries reached for \(peerId)")
                 uwbRetryCount[peerId] = 0
             }
         }
     }
 
-    func uwbSessionManager(_ manager: UWBSessionManager, requestsRestartFor peerId: String) {
+    func uwbSessionManager(_ manager: LinkFinderSessionManager, requestsRestartFor peerId: String) {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔄 UWB RESTART REQUESTED")
+        print("🔄 LinkFinder RESTART REQUESTED")
         print("   Peer: \(peerId)")
         print("   Action: Coordinating bidirectional restart")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-        // Send UWB_RESET_REQUEST to peer
+        // Send LinkFinder_RESET_REQUEST to peer
         if let peer = connectedPeers.first(where: { $0.displayName == peerId }) {
             sendUWBResetRequest(to: peer)
         }
     }
 
-    func uwbSessionManager(_ manager: UWBSessionManager, needsFreshTokenFor peerId: String) {
+    func uwbSessionManager(_ manager: LinkFinderSessionManager, needsFreshTokenFor peerId: String) {
         print("🔄 NetworkManager: Restarting token exchange for \(peerId)")
 
         guard #available(iOS 14.0, *) else {
@@ -2246,7 +2269,7 @@ extension NetworkManager: UWBSessionManagerDelegate {
             if isMaster {
                 // MASTER re-initiates
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    print("📤 NetworkManager: MASTER re-sending UWB token to \(peerId)")
+                    print("📤 NetworkManager: MASTER re-sending LinkFinder token to \(peerId)")
                     self?.uwbTokenExchangeState[peerId] = .sentToken
                     self?.sendUWBDiscoveryToken(to: peer)
                 }

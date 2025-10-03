@@ -1,5 +1,5 @@
 //
-//  GeofenceEventMessage.swift
+//  LinkFenceEventMessage.swift
 //  MeshRed
 //
 //  Created by Claude for StadiumConnect Pro - Geofencing System
@@ -7,14 +7,14 @@
 
 import Foundation
 
-/// Represents a geofence entry/exit event sent to family members via mesh
-struct GeofenceEventMessage: Codable, Identifiable {
+/// Represents a linkfence entry/exit event sent to family members via mesh
+struct LinkFenceEventMessage: Codable, Identifiable {
     let id: UUID
     let senderId: String                     // PeerID of device that crossed boundary
     let senderNickname: String?              // Display name: "Mamá", "Papá"
-    let geofenceId: UUID                     // Which geofence was crossed
-    let geofenceName: String                 // Name of the place: "Estadio Azteca"
-    let eventType: GeofenceEventType         // Entry or exit
+    let linkfenceId: UUID                     // Which linkfence was crossed
+    let linkfenceName: String                 // Name of the place: "Estadio Azteca"
+    let eventType: LinkFenceEventType         // Entry or exit
     let timestamp: Date
     let location: UserLocation               // Current GPS location
     let familyGroupCode: FamilyGroupCode     // Only family members can see this
@@ -22,18 +22,18 @@ struct GeofenceEventMessage: Codable, Identifiable {
     init(
         senderId: String,
         senderNickname: String?,
-        geofence: CustomGeofence,
-        eventType: GeofenceEventType,
+        linkfence: CustomLinkFence,
+        eventType: LinkFenceEventType,
         location: UserLocation,
         familyGroupCode: FamilyGroupCode
     ) {
         self.id = UUID()
         self.senderId = senderId
         self.senderNickname = senderNickname
-        self.geofenceId = geofence.id
-        self.geofenceName = geofence.name
+        self.linkfenceId = linkfence.id
+        self.linkfenceName = linkfence.name
         self.eventType = eventType
-        self.timestamp = Date()
+        self.timestamp = location.timestamp  // Use location's timestamp, not current time
         self.location = location
         self.familyGroupCode = familyGroupCode
     }
@@ -42,7 +42,7 @@ struct GeofenceEventMessage: Codable, Identifiable {
     var displayText: String {
         let action = eventType == .entry ? "entró a" : "salió de"
         let name = senderNickname ?? senderId
-        return "\(name) \(action) \(geofenceName)"
+        return "\(name) \(action) \(linkfenceName)"
     }
 
     /// Emoji for notification
@@ -51,7 +51,7 @@ struct GeofenceEventMessage: Codable, Identifiable {
     }
 }
 
-enum GeofenceEventType: String, Codable {
+enum LinkFenceEventType: String, Codable {
     case entry = "entry"
     case exit = "exit"
 

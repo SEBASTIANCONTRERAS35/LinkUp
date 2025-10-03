@@ -10,20 +10,19 @@ import SwiftUI
 
 struct AccessibilitySettingsView: View {
     @Environment(\.dismiss) var dismiss
-    @StateObject private var settings = AccessibilitySettingsManager.shared
+    @EnvironmentObject var settings: AccessibilitySettingsManager
+    @Environment(\.accessibleTheme) var accessibleTheme
 
     @State private var showingResetAlert = false
     @State private var showingPresetPicker = false
     @State private var selectedPreset: AccessibilitySettingsManager.AccessibilityPreset?
     @State private var showTestingPanel = false
+    @State private var showDisplayNameSettings = false
 
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 24) {
-                    // Accessibility Score Card
-                    accessibilityScoreCard
-
                     // Quick Presets
                     quickPresetsSection
 
@@ -51,7 +50,7 @@ struct AccessibilitySettingsView: View {
                 }
                 .padding(.top, 20)
             }
-            .background(ThemeColors.background.ignoresSafeArea())
+            .background(accessibleTheme.background.ignoresSafeArea())
             .navigationTitle("Accesibilidad")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
@@ -74,100 +73,6 @@ struct AccessibilitySettingsView: View {
         }
     }
 
-    // MARK: - Accessibility Score Card
-
-    private var accessibilityScoreCard: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 16) {
-                // Score Circle
-                ZStack {
-                    Circle()
-                        .stroke(ThemeColors.textTertiary.opacity(0.3), lineWidth: 8)
-
-                    Circle()
-                        .trim(from: 0, to: CGFloat(settings.accessibilityScore) / 100)
-                        .stroke(scoreColor, lineWidth: 8)
-                        .rotationEffect(.degrees(-90))
-
-                    VStack(spacing: 4) {
-                        Text("\(settings.accessibilityScore)")
-                            .font(.system(size: 36, weight: .bold))
-                            .foregroundColor(scoreColor)
-
-                        Text("%")
-                            .font(.caption)
-                            .foregroundColor(ThemeColors.textSecondary)
-                    }
-                }
-                .frame(width: 100, height: 100)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Puntuación de accesibilidad: \(settings.accessibilityScore) por ciento")
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Tu Configuración")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(ThemeColors.textPrimary)
-
-                    Text(scoreMessage)
-                        .font(.subheadline)
-                        .foregroundColor(ThemeColors.textSecondary)
-
-                    if let suggestion = scoreSuggestion {
-                        HStack(spacing: 6) {
-                            Image(systemName: "lightbulb.fill")
-                                .font(.caption)
-                                .foregroundColor(ThemeColors.warning)
-
-                            Text(suggestion)
-                                .font(.caption)
-                                .foregroundColor(ThemeColors.warning)
-                        }
-                    }
-                }
-
-                Spacer()
-            }
-            .padding(20)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(ThemeColors.cardBackground)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(scoreColor.opacity(0.3), lineWidth: 2)
-            )
-        }
-        .padding(.horizontal, 20)
-    }
-
-    private var scoreColor: Color {
-        let score = settings.accessibilityScore
-        if score >= 80 { return ThemeColors.success }
-        if score >= 50 { return ThemeColors.warning }
-        return ThemeColors.error
-    }
-
-    private var scoreMessage: String {
-        let score = settings.accessibilityScore
-        if score >= 80 { return "¡Excelente configuración!" }
-        if score >= 50 { return "Buena configuración" }
-        return "Considera activar más funciones"
-    }
-
-    private var scoreSuggestion: String? {
-        if !settings.hapticsEnabled {
-            return "💡 Activa Haptic Feedback para mejor experiencia táctil"
-        }
-        if !settings.announceNetworkChanges {
-            return "💡 Activa anuncios de red para mayor información"
-        }
-        if settings.buttonSizeMultiplier < 1.2 {
-            return "💡 Aumenta el tamaño de botones para facilitar el toque"
-        }
-        return nil
-    }
-
     // MARK: - Quick Presets
 
     private var quickPresetsSection: some View {
@@ -175,7 +80,7 @@ struct AccessibilitySettingsView: View {
             Text("Configuraciones Rápidas")
                 .font(.headline)
                 .fontWeight(.semibold)
-                .foregroundColor(ThemeColors.textPrimary)
+                .foregroundColor(accessibleTheme.textPrimary)
                 .padding(.horizontal, 20)
                 .accessibilityAddTraits(.isHeader)
 
@@ -185,7 +90,7 @@ struct AccessibilitySettingsView: View {
                         icon: "person.crop.circle",
                         title: "Adulto Mayor",
                         description: "Texto grande + VoiceOver",
-                        color: ThemeColors.primaryBlue
+                        color: accessibleTheme.primaryBlue
                     ) {
                         applyPreset(.adultoMayor)
                     }
@@ -194,7 +99,7 @@ struct AccessibilitySettingsView: View {
                         icon: "eye.slash",
                         title: "Discapacidad Visual",
                         description: "VoiceOver máximo",
-                        color: ThemeColors.primaryGreen
+                        color: accessibleTheme.primaryGreen
                     ) {
                         applyPreset(.discapacidadVisual)
                     }
@@ -203,7 +108,7 @@ struct AccessibilitySettingsView: View {
                         icon: "ear.badge.waveform",
                         title: "Discapacidad Auditiva",
                         description: "Haptics + Visual",
-                        color: ThemeColors.warning
+                        color: accessibleTheme.warning
                     ) {
                         applyPreset(.discapacidadAuditiva)
                     }
@@ -212,7 +117,7 @@ struct AccessibilitySettingsView: View {
                         icon: "brain.head.profile",
                         title: "Discapacidad Cognitiva",
                         description: "Simple + Sin movimiento",
-                        color: ThemeColors.info
+                        color: accessibleTheme.info
                     ) {
                         applyPreset(.discapacidadCognitiva)
                     }
@@ -221,7 +126,7 @@ struct AccessibilitySettingsView: View {
                         icon: "bolt.fill",
                         title: "Rendimiento",
                         description: "Batería optimizada",
-                        color: ThemeColors.error
+                        color: accessibleTheme.error
                     ) {
                         applyPreset(.maximoRendimiento)
                     }
@@ -238,7 +143,7 @@ struct AccessibilitySettingsView: View {
             icon: "speaker.wave.3",
             title: "VoiceOver y Audio",
             description: "Configuración de voz y sonidos",
-            iconColor: ThemeColors.primaryBlue
+            iconColor: accessibleTheme.primaryBlue
         ) {
             AccessibleSettingToggle(
                 title: "Mostrar hints de VoiceOver",
@@ -290,16 +195,18 @@ struct AccessibilitySettingsView: View {
             icon: "textformat.size",
             title: "Visual y Texto",
             description: "Configuración de tamaño y contraste",
-            iconColor: ThemeColors.primaryGreen
+            iconColor: accessibleTheme.primaryGreen
         ) {
-            AccessibleSettingSlider(
-                title: "Multiplicador de botones",
-                description: "Tamaño de todos los botones",
+            AccessibleSettingPicker(
+                title: "Tamaño de botones",
+                description: "Tamaño de todos los botones e interacciones",
                 icon: "circle.fill",
-                value: $settings.buttonSizeMultiplier,
-                range: 0.8...1.5,
-                step: 0.1,
-                valueFormatter: { "\(Int($0 * 100))%" }
+                selection: Binding(
+                    get: { settings.buttonSize.rawValue },
+                    set: { settings.buttonSize = ButtonSize(rawValue: $0) ?? .normal }
+                ),
+                options: ButtonSize.allCases.map { $0.rawValue },
+                displayNames: Dictionary(uniqueKeysWithValues: ButtonSize.allCases.map { ($0.rawValue, $0.displayName) })
             )
 
             AccessibleSettingToggle(
@@ -339,7 +246,7 @@ struct AccessibilitySettingsView: View {
             icon: "hand.point.up.braille",
             title: "Retroalimentación Háptica",
             description: "Vibraciones táctiles",
-            iconColor: ThemeColors.warning
+            iconColor: accessibleTheme.warning
         ) {
             AccessibleSettingToggle(
                 title: "Activar haptics",
@@ -389,7 +296,7 @@ struct AccessibilitySettingsView: View {
             icon: "figure.walk.motion",
             title: "Movimiento y Animaciones",
             description: "Control de efectos de movimiento",
-            iconColor: ThemeColors.info
+            iconColor: accessibleTheme.info
         ) {
             AccessibleSettingPicker(
                 title: "Reducir movimiento",
@@ -433,7 +340,7 @@ struct AccessibilitySettingsView: View {
             icon: "exclamationmark.triangle.fill",
             title: "Configuración de Emergencias",
             description: "Opciones de SOS",
-            iconColor: ThemeColors.emergency
+            iconColor: accessibleTheme.emergency
         ) {
             AccessibleSettingToggle(
                 title: "Requerir confirmación",
@@ -477,7 +384,7 @@ struct AccessibilitySettingsView: View {
             icon: "network",
             title: "Anuncios de Red",
             description: "Notificaciones de conexión",
-            iconColor: ThemeColors.connected
+            iconColor: accessibleTheme.connected
         ) {
             AccessibleSettingToggle(
                 title: "Anunciar conexiones",
@@ -511,7 +418,7 @@ struct AccessibilitySettingsView: View {
             icon: "antenna.radiowaves.left.and.right",
             title: "Gestión de Conexiones",
             description: "Administrar conexiones mesh",
-            iconColor: ThemeColors.primaryBlue
+            iconColor: accessibleTheme.primaryBlue
         ) {
             // Connection stats
             ConnectionStatsRow()
@@ -528,7 +435,7 @@ struct AccessibilitySettingsView: View {
                     Spacer()
                 }
                 .padding()
-                .background(ThemeColors.error)
+                .background(accessibleTheme.error)
                 .foregroundColor(.white)
                 .cornerRadius(12)
             }
@@ -541,18 +448,18 @@ struct AccessibilitySettingsView: View {
             } label: {
                 HStack {
                     Image(systemName: "arrow.clockwise")
-                        .foregroundColor(ThemeColors.primaryBlue)
+                        .foregroundColor(accessibleTheme.primaryBlue)
                     Text("Reiniciar Servicios de Red")
                         .fontWeight(.medium)
                     Spacer()
                 }
                 .padding()
-                .background(ThemeColors.cardBackground)
-                .foregroundColor(ThemeColors.textPrimary)
+                .background(accessibleTheme.cardBackground)
+                .foregroundColor(accessibleTheme.textPrimary)
                 .cornerRadius(12)
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(ThemeColors.primaryBlue, lineWidth: 2)
+                        .strokeBorder(accessibleTheme.primaryBlue, lineWidth: 2)
                 )
             }
             .accessibilityLabel("Reiniciar servicios de red")
@@ -567,7 +474,7 @@ struct AccessibilitySettingsView: View {
             icon: "location.fill",
             title: "Ubicación y Navegación",
             description: "Configuración de GPS y zonas",
-            iconColor: ThemeColors.primaryGreen
+            iconColor: accessibleTheme.primaryGreen
         ) {
             AccessibleSettingToggle(
                 title: "Anunciar cambios de zona",
@@ -608,7 +515,7 @@ struct AccessibilitySettingsView: View {
             icon: "paintbrush.fill",
             title: "Tema y Apariencia",
             description: "Colores e iconos",
-            iconColor: ThemeColors.primaryRed
+            iconColor: accessibleTheme.primaryRed
         ) {
             AccessibleSettingPicker(
                 title: "Esquema de color",
@@ -644,8 +551,40 @@ struct AccessibilitySettingsView: View {
             icon: "lock.shield",
             title: "Privacidad",
             description: "Control de datos personales",
-            iconColor: ThemeColors.textSecondary
+            iconColor: accessibleTheme.textSecondary
         ) {
+            // Display Name Configuration Button
+            Button(action: { showDisplayNameSettings = true }) {
+                HStack(spacing: 12) {
+                    Image(systemName: "person.text.rectangle")
+                        .font(.title2)
+                        .foregroundColor(accessibleTheme.primaryGreen)
+                        .frame(width: 40)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Configurar Nombres")
+                            .font(.body)
+                            .fontWeight(settings.preferBoldText ? .bold : .semibold)
+                            .foregroundColor(accessibleTheme.textPrimary)
+
+                        Text("Nombre público y nombre para familia")
+                            .font(.caption)
+                            .foregroundColor(accessibleTheme.textSecondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .foregroundColor(accessibleTheme.textSecondary)
+                }
+                .padding()
+                .background(accessibleTheme.cardBackground)
+                .cornerRadius(12)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Configurar nombres de usuario")
+            .accessibilityHint("Toca para elegir cómo te verán los demás usuarios")
+
             AccessibleSettingToggle(
                 title: "Compartir ubicación con peers",
                 description: "Otros usuarios pueden ver tu ubicación",
@@ -660,6 +599,9 @@ struct AccessibilitySettingsView: View {
                 isOn: $settings.anonymousMode
             )
         }
+        .sheet(isPresented: $showDisplayNameSettings) {
+            UserDisplayNameSettingsView()
+        }
     }
 
     // MARK: - Performance Section
@@ -669,7 +611,7 @@ struct AccessibilitySettingsView: View {
             icon: "bolt.fill",
             title: "Rendimiento",
             description: "Optimización de batería",
-            iconColor: ThemeColors.warning
+            iconColor: accessibleTheme.warning
         ) {
             AccessibleSettingToggle(
                 title: "Modo ahorro de batería",
@@ -706,7 +648,7 @@ struct AccessibilitySettingsView: View {
             Text("Panel de Pruebas")
                 .font(.headline)
                 .fontWeight(.semibold)
-                .foregroundColor(ThemeColors.textPrimary)
+                .foregroundColor(accessibleTheme.textPrimary)
                 .padding(.horizontal, 20)
                 .accessibilityAddTraits(.isHeader)
 
@@ -721,7 +663,7 @@ struct AccessibilitySettingsView: View {
                         Image(systemName: "play.fill")
                     }
                     .padding()
-                    .background(ThemeColors.cardBackground)
+                    .background(accessibleTheme.cardBackground)
                     .cornerRadius(12)
                 }
                 .accessibilityLabel("Probar VoiceOver")
@@ -737,7 +679,7 @@ struct AccessibilitySettingsView: View {
                         Image(systemName: "hand.tap")
                     }
                     .padding()
-                    .background(ThemeColors.cardBackground)
+                    .background(accessibleTheme.cardBackground)
                     .cornerRadius(12)
                 }
                 .accessibilityLabel("Probar vibración")
@@ -753,14 +695,14 @@ struct AccessibilitySettingsView: View {
                         Image(systemName: "eye")
                     }
                     .padding()
-                    .background(ThemeColors.cardBackground)
+                    .background(accessibleTheme.cardBackground)
                     .cornerRadius(12)
                 }
                 .accessibilityLabel("Probar tamaño de texto")
                 .accessibilityHint("Ver muestra de texto con tu configuración actual")
             }
             .buttonStyle(.plain)
-            .foregroundColor(ThemeColors.textPrimary)
+            .foregroundColor(accessibleTheme.textPrimary)
             .padding(.horizontal, 20)
         }
     }
@@ -780,7 +722,7 @@ struct AccessibilitySettingsView: View {
             .foregroundColor(.white)
             .frame(maxWidth: .infinity)
             .padding()
-            .background(ThemeColors.error)
+            .background(accessibleTheme.error)
             .cornerRadius(12)
         }
         .padding(.horizontal, 20)
@@ -819,25 +761,13 @@ struct AccessibilitySettingsView: View {
     }
 
     private func testHaptics() {
-        #if os(iOS)
-        switch settings.hapticIntensity {
-        case "light":
-            let generator = UIImpactFeedbackGenerator(style: .light)
-            generator.impactOccurred()
-        case "strong":
-            let generator = UIImpactFeedbackGenerator(style: .heavy)
-            generator.impactOccurred()
-        default:
-            let generator = UIImpactFeedbackGenerator(style: .medium)
-            generator.impactOccurred()
-        }
-        #endif
-
+        // Use centralized HapticManager
+        HapticManager.shared.play(.medium, priority: .ui)
         announceChange("Vibración de intensidad \(settings.hapticIntensity)")
     }
 
     private func testTextSize() {
-        announceChange("Tu multiplicador de botones está en \(Int(settings.buttonSizeMultiplier * 100)) por ciento")
+        announceChange("Tu tamaño de botones está configurado como \(settings.buttonSize.displayName)")
     }
 
     private func announceChange(_ message: String) {
@@ -877,6 +807,7 @@ struct AccessibilitySettingsView: View {
 
 struct ConnectionStatsRow: View {
     @EnvironmentObject var networkManager: NetworkManager
+    @Environment(\.accessibleTheme) var accessibleTheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -886,7 +817,7 @@ struct ConnectionStatsRow: View {
                     icon: "person.2.fill",
                     label: "Conectados",
                     value: "\(networkManager.connectedPeers.count)",
-                    color: ThemeColors.connected
+                    color: accessibleTheme.connected
                 )
 
                 Divider()
@@ -897,7 +828,7 @@ struct ConnectionStatsRow: View {
                     icon: "antenna.radiowaves.left.and.right",
                     label: "Disponibles",
                     value: "\(networkManager.availablePeers.count)",
-                    color: ThemeColors.info
+                    color: accessibleTheme.info
                 )
 
                 Divider()
@@ -908,21 +839,23 @@ struct ConnectionStatsRow: View {
                     icon: "envelope.fill",
                     label: "Pendientes",
                     value: "\(networkManager.pendingAcksCount)",
-                    color: ThemeColors.warning
+                    color: accessibleTheme.warning
                 )
             }
             .padding()
-            .background(ThemeColors.cardBackground)
+            .background(accessibleTheme.cardBackground)
             .cornerRadius(12)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(ThemeColors.textSecondary.opacity(0.2), lineWidth: 1)
+                    .strokeBorder(accessibleTheme.textSecondary.opacity(0.2), lineWidth: 1)
             )
         }
     }
 }
 
 struct StatItem: View {
+    @Environment(\.accessibleTheme) var accessibleTheme
+
     let icon: String
     let label: String
     let value: String
@@ -937,11 +870,11 @@ struct StatItem: View {
             Text(value)
                 .font(.title2)
                 .fontWeight(.bold)
-                .foregroundColor(ThemeColors.textPrimary)
+                .foregroundColor(accessibleTheme.textPrimary)
 
             Text(label)
                 .font(.caption)
-                .foregroundColor(ThemeColors.textSecondary)
+                .foregroundColor(accessibleTheme.textSecondary)
         }
         .frame(maxWidth: .infinity)
     }
@@ -950,6 +883,8 @@ struct StatItem: View {
 // MARK: - Preset Card Component
 
 struct PresetCard: View {
+    @Environment(\.accessibleTheme) var accessibleTheme
+
     let icon: String
     let title: String
     let description: String
@@ -973,18 +908,18 @@ struct PresetCard: View {
                 Text(title)
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(ThemeColors.textPrimary)
+                    .foregroundColor(accessibleTheme.textPrimary)
                     .multilineTextAlignment(.center)
 
                 Text(description)
                     .font(.caption)
-                    .foregroundColor(ThemeColors.textSecondary)
+                    .foregroundColor(accessibleTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
             }
             .frame(width: 140, height: 140)
             .padding()
-            .background(ThemeColors.cardBackground)
+            .background(accessibleTheme.cardBackground)
             .cornerRadius(16)
             .overlay(
                 RoundedRectangle(cornerRadius: 16)

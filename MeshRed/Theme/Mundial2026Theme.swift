@@ -12,7 +12,7 @@ import SwiftUI
 struct Mundial2026Colors {
     // Primary Colors - Official FIFA World Cup 2026
     static let verde = Color(hex: "006847")      // 🇲🇽 Mexico Green
-    static let azul = Color(hex: "3C3B6E")       // 🇺🇸 USA Blue
+    static let azul = Color(hex: "2853A1")       // 🇺🇸 USA Blue
     static let rojo = Color(hex: "CE1126")       // 🇨🇦 Canada Red
 
     // Secondary/Support Colors

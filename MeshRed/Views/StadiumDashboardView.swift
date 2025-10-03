@@ -8,9 +8,16 @@
 import SwiftUI
 
 struct StadiumDashboardView: View {
+    // MARK: - Environment
+    @EnvironmentObject var networkManager: NetworkManager
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     // MARK: - State
     @State private var showSettings = false
     @State private var selectedTab: DashboardTab = .home
+    @State private var showGeofenceList = false
+    @State private var showSimulationControl = false
+    @StateObject private var mockGroupsManager = MockFamilyGroupsManager.shared
 
     // MARK: - Mock Data (will be replaced with real data)
     @State private var stadiumName = "Estadio Azteca"
@@ -57,6 +64,22 @@ struct StadiumDashboardView: View {
         .sheet(isPresented: $showSettings) {
             SettingsPlaceholderView()
         }
+        .sheet(isPresented: $showGeofenceList) {
+            if let linkfenceManager = networkManager.linkfenceManager {
+                LinkFenceListView(
+                    linkfenceManager: linkfenceManager,
+                    locationService: networkManager.locationService
+                )
+            } else {
+                Text("Geofencing no disponible")
+                    .font(.title3)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .sheet(isPresented: $showSimulationControl) {
+            SimulationControlPanelView()
+                .environmentObject(networkManager)
+        }
     }
 
     // MARK: - Header
@@ -86,73 +109,225 @@ struct StadiumDashboardView: View {
 
     // MARK: - Match Score Card
     private var matchScoreCard: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 20) {
-                // Home team
-                VStack(spacing: 12) {
-                    Text("🇲🇽")
-                        .font(.system(size: 48))
-                    Text(homeTeam)
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                }
-                .frame(maxWidth: .infinity)
+        let matchProgress = min(max(Double(matchMinute) / 90.0, 0), 1)
 
-                // Score
-                HStack(spacing: 12) {
-                    Text("\(homeScore)")
-                        .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(.white)
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Partido en curso".uppercased())
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white.opacity(0.9))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.15))
+                    .clipShape(Capsule())
 
-                    Text("-")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.7))
+                Spacer()
 
-                    Text("\(awayScore)")
-                        .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(.white)
-                }
-
-                // Away team
-                VStack(spacing: 12) {
-                    Text("🇨🇦")
-                        .font(.system(size: 48))
-                    Text(awayTeam)
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                }
-                .frame(maxWidth: .infinity)
+                Label("\(matchMinute) Min", systemImage: "clock.fill")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.2))
+                    .clipShape(Capsule())
             }
 
-            // Match time
-            Text("\(matchMinute) Min")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .background(Color.white.opacity(0.2))
-                .clipShape(Capsule())
+            HStack(spacing: 16) {
+                matchTeamColumn(flag: "🇲🇽", name: homeTeam, role: "Local")
+
+                matchScoreStack
+
+                matchTeamColumn(flag: "🇨🇦", name: awayTeam, role: "Visitante")
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.18))
+                            .frame(height: 6)
+
+                        Capsule()
+                            .fill(Color.white.opacity(0.85))
+                            .frame(width: geometry.size.width * matchProgress, height: 6)
+                    }
+                }
+                .frame(height: 6)
+
+                HStack {
+                    Text("Minuto \(matchMinute) de 90")
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .foregroundColor(.white.opacity(0.8))
+
+                    Spacer()
+
+                    Text("\(Int(matchProgress * 100))% del partido")
+                        .font(.caption2)
+                        .foregroundColor(.white.opacity(0.6))
+                }
+            }
+
+            HStack(spacing: 12) {
+                Label(stadiumName, systemImage: "sportscourt.fill")
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.85))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Capsule())
+
+                Label(sectionNumber, systemImage: "mappin.and.ellipse")
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.85))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Capsule())
+
+                Spacer()
+            }
         }
-        .padding(.vertical, 24)
+        .padding(.vertical, 20)
         .padding(.horizontal, 20)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color.blue, Color.blue.opacity(0.8)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(matchCardColor)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                .stroke(Color.white.opacity(0.15), lineWidth: 1)
         )
-        .shadow(color: Color.blue.opacity(0.3), radius: 12, x: 0, y: 6)
+        .shadow(color: Mundial2026Colors.verde.opacity(0.2), radius: 12, x: 0, y: 8)
+    }
+
+    private var matchScoreStack: some View {
+        let spacing = scaled(10, min: 6, max: 20)
+        let vsPaddingH = scaled(8, min: 6, max: 18)
+        let vsPaddingV = scaled(4, min: 3, max: 12)
+        let vsSpacing = scaled(2, min: 1, max: 6)
+        let vsFontSize = scaled(11, min: 9, max: 20)
+        let minuteFontSize = scaled(10, min: 8, max: 18)
+
+        return HStack(spacing: spacing) {
+            scoreBadge(value: homeScore, label: "Local")
+
+            VStack(spacing: vsSpacing) {
+                Text("VS")
+                    .font(.system(size: vsFontSize, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white.opacity(0.85))
+
+                Text("\(matchMinute)' Min")
+                    .font(.system(size: minuteFontSize, weight: .medium, design: .rounded))
+                    .foregroundColor(.white.opacity(0.65))
+            }
+            .padding(.horizontal, vsPaddingH)
+            .padding(.vertical, vsPaddingV)
+            .background(Color.white.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: scaled(10, min: 8, max: 16), style: .continuous))
+            .accessibilityHidden(true)
+
+            scoreBadge(value: awayScore, label: "Visita")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, scaled(8, min: 6, max: 18))
+        .padding(.vertical, scaled(6, min: 4, max: 14))
+    }
+
+    private func scoreBadge(value: Int, label: String) -> some View {
+        let badgeFontSize = scaled(32, min: 26, max: 80)
+        let badgeWidth = scaled(48, min: 40, max: 96)
+        let badgeHeight = scaled(40, min: 32, max: 76)
+        let badgeCorner = scaled(10, min: 8, max: 18)
+        let labelFontSize = scaled(11, min: 9, max: 18)
+        let stackSpacing = scaled(4, min: 3, max: 10)
+        let shadowRadius = scaled(2, min: 1, max: 5)
+
+        return VStack(spacing: stackSpacing) {
+            Text("\(value)")
+                .font(.system(size: badgeFontSize, weight: .black, design: .rounded))
+                .foregroundColor(matchCardColor)
+                .frame(width: badgeWidth, height: badgeHeight)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: badgeCorner, style: .continuous))
+                .shadow(color: Color.black.opacity(0.1), radius: shadowRadius, x: 0, y: 1)
+
+            Text(label.uppercased())
+                .font(.system(size: labelFontSize, weight: .semibold, design: .rounded))
+                .foregroundColor(.white.opacity(0.85))
+                .minimumScaleFactor(0.7)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label == "Local" ? "Equipo local" : "Equipo visitante") \(value) goles")
+    }
+
+    private func matchTeamColumn(flag: String, name: String, role: String) -> some View {
+        let circleSize = scaled(56, min: 44, max: 96)
+        let flagFontSize = scaled(28, min: 22, max: 44)
+        let nameFontSize = scaled(12, min: 10, max: 20)
+        let roleFontSize = scaled(11, min: 9, max: 18)
+        let columnSpacing = scaled(8, min: 6, max: 14)
+
+        return VStack(spacing: columnSpacing) {
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.18))
+                    .frame(width: circleSize, height: circleSize)
+
+                Text(flag)
+                    .font(.system(size: flagFontSize))
+            }
+
+            VStack(spacing: scaled(3, min: 2, max: 6)) {
+                Text(name.uppercased())
+                    .font(.system(size: nameFontSize, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+
+                Text(role.uppercased())
+                    .font(.system(size: roleFontSize, weight: .medium, design: .rounded))
+                    .foregroundColor(.white.opacity(0.65))
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var matchCardColor: Color {
+        Color(hex: "2853A1")
+    }
+
+    private func scaled(_ base: CGFloat, min minValue: CGFloat, max maxValue: CGFloat) -> CGFloat {
+        var value = base * dynamicScaleFactor
+        value = max(minValue, value)
+        value = min(maxValue, value)
+        return value
+    }
+
+    private func scaled(_ base: CGFloat, min minValue: CGFloat) -> CGFloat {
+        max(minValue, base * dynamicScaleFactor)
+    }
+
+    private func scaled(_ base: CGFloat) -> CGFloat {
+        base * dynamicScaleFactor
+    }
+
+    private var dynamicScaleFactor: CGFloat {
+        switch dynamicTypeSize {
+        case .xSmall: return 0.85
+        case .small: return 0.9
+        case .medium: return 0.98
+        case .xLarge: return 1.16
+        case .xxLarge: return 1.26
+        case .xxxLarge: return 1.36
+        case .accessibility1: return 1.55
+        case .accessibility2: return 1.7
+        case .accessibility3: return 1.9
+        case .accessibility4: return 2.1
+        case .accessibility5: return 2.3
+        @unknown default: return 1.0
+        }
     }
 
     // MARK: - Feature Grid
@@ -165,7 +340,7 @@ struct StadiumDashboardView: View {
             FeatureCard(
                 title: "Tu red",
                 icon: "person.3.fill",
-                iconColor: .blue,
+                iconColor: Mundial2026Colors.verde,
                 backgroundColor: Color(red: 0.9, green: 0.95, blue: 1.0)
             ) {
                 // Action for network
@@ -191,7 +366,7 @@ struct StadiumDashboardView: View {
                 iconColor: .blue,
                 backgroundColor: Color(red: 0.9, green: 0.95, blue: 1.0)
             ) {
-                print("Perimetros tapped")
+                showGeofenceList = true
             }
         }
     }
@@ -370,4 +545,5 @@ struct SettingsPlaceholderView: View {
 // MARK: - Preview
 #Preview {
     StadiumDashboardView()
+        .environmentObject(NetworkManager())
 }

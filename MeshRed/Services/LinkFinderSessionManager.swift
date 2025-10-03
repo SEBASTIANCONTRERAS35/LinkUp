@@ -1,5 +1,5 @@
 //
-//  UWBSessionManager.swift
+//  LinkFinderSessionManager.swift
 //  MeshRed
 //
 //  Created by Emilio Contreras on 29/09/25.
@@ -10,17 +10,17 @@ import NearbyInteraction
 import MultipeerConnectivity
 import Combine
 
-/// Manages UWB (Ultra Wideband) ranging sessions with peers using NearbyInteraction framework
+/// Manages LinkFinder (Ultra Wideband) ranging sessions with peers using NearbyInteraction framework
 /// Provides centimeter-level precision for distance and direction measurements
 @available(iOS 14.0, *)
-class UWBSessionManager: NSObject, ObservableObject {
+class LinkFinderSessionManager: NSObject, ObservableObject {
     // MARK: - Session State
     enum SessionState: CustomStringConvertible {
         case preparing       // Session created, token extracted, not running yet
         case tokenReady      // Waiting for remote peer's token
         case running         // .run() called, waiting for ranging to establish
         case ranging         // didUpdate received, ranging active
-        case suspended       // System suspended UWB
+        case suspended       // System suspended LinkFinder
         case disconnected    // Session invalidated
 
         var description: String {
@@ -38,20 +38,20 @@ class UWBSessionManager: NSObject, ObservableObject {
     // MARK: - Published Properties
     @Published var activeSessions: [String: NISession] = [:]  // PeerID -> Session
     @Published var nearbyObjects: [String: NINearbyObject] = [:]  // PeerID -> Object
-    @Published var isUWBSupported: Bool = false
+    @Published var isLinkFinderSupported: Bool = false
     @Published var sessionStates: [String: SessionState] = [:]  // PeerID -> State
     @Published var supportsDirectionMeasurement: Bool = false
 
     // MARK: - Private Properties
     private var discoveryTokens: [String: NIDiscoveryToken] = [:]  // PeerID -> Remote peer's token
     private var localTokens: [String: NIDiscoveryToken] = [:]  // PeerID -> Our token for this peer
-    private let queue = DispatchQueue(label: "com.meshred.uwb", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "com.meshred.linkfinder", qos: .userInitiated)
     private var sessionHealthTimers: [String: Timer] = [:]  // PeerID -> Health check timer
     private var sessionRetryCount: [String: Int] = [:]  // PeerID -> Retry attempt count
     private var lastRestartTime: [String: Date] = [:]  // PeerID -> Last restart timestamp
 
     // MARK: - Delegates
-    weak var delegate: UWBSessionManagerDelegate?
+    weak var delegate: LinkFinderSessionManagerDelegate?
 
     // MARK: - Initialization
     override init() {
@@ -61,18 +61,18 @@ class UWBSessionManager: NSObject, ObservableObject {
 
     // MARK: - Public Methods
 
-    /// Check if device supports UWB (NearbyInteraction)
+    /// Check if device supports LinkFinder (NearbyInteraction)
     private func checkUWBSupport() {
         #if targetEnvironment(simulator)
-        isUWBSupported = false
+        isLinkFinderSupported = false
         supportsDirectionMeasurement = false
-        print("⚠️ UWBSessionManager: UWB not available in simulator")
+        print("⚠️ LinkFinderSessionManager: LinkFinder not available in simulator")
         #else
-        isUWBSupported = NISession.deviceCapabilities.supportsPreciseDistanceMeasurement
+        isLinkFinderSupported = NISession.deviceCapabilities.supportsPreciseDistanceMeasurement
 
-        if isUWBSupported {
+        if isLinkFinderSupported {
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("📡 UWB DEVICE CAPABILITIES")
+            print("📡 LinkFinder DEVICE CAPABILITIES")
             print("   Distance measurement: ✅")
 
             // Check direction measurement capability
@@ -86,7 +86,7 @@ class UWBSessionManager: NSObject, ObservableObject {
             }
         } else {
             supportsDirectionMeasurement = false
-            print("⚠️ UWBSessionManager: UWB not supported (requires iPhone 11+ with U1/U2 chip)")
+            print("⚠️ LinkFinderSessionManager: LinkFinder not supported (requires iPhone 11+ with U1/U2 chip)")
         }
         #endif
     }
@@ -97,15 +97,15 @@ class UWBSessionManager: NSObject, ObservableObject {
         // Note: iOS doesn't provide a direct way to check Nearby Interaction permission status
         // The permission dialog will be shown automatically when starting a session
         // We can only detect permission issues when a session fails
-        print("📡 UWBSessionManager: Nearby Interaction permission will be requested when needed")
+        print("📡 LinkFinderSessionManager: Nearby Interaction permission will be requested when needed")
     }
 
-    /// Prepare a UWB session for a specific peer (step 1 of token exchange)
+    /// Prepare a LinkFinder session for a specific peer (step 1 of token exchange)
     /// Creates the session, extracts token, but does NOT run it yet
     /// Returns the token to send to the remote peer
     func prepareSession(for peerID: MCPeerID) -> NIDiscoveryToken? {
-        guard isUWBSupported else {
-            print("❌ UWBSessionManager: Cannot prepare session - UWB not supported")
+        guard isLinkFinderSupported else {
+            print("❌ LinkFinderSessionManager: Cannot prepare session - LinkFinder not supported")
             return nil
         }
 
@@ -116,18 +116,18 @@ class UWBSessionManager: NSObject, ObservableObject {
            let existingToken = localTokens[peerId],
            let state = sessionStates[peerId],
            state == .preparing || state == .tokenReady {
-            print("✅ UWBSessionManager: Session already prepared for \(peerId)")
+            print("✅ LinkFinderSessionManager: Session already prepared for \(peerId)")
             return existingToken
         }
 
         // Clean up any stale session
         if let oldSession = activeSessions[peerId] {
-            print("🧹 UWBSessionManager: Cleaning up old session for \(peerId)")
+            print("🧹 LinkFinderSessionManager: Cleaning up old session for \(peerId)")
             oldSession.invalidate()
         }
 
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔧 UWB SESSION PREPARATION")
+        print("🔧 LinkFinder SESSION PREPARATION")
         print("   Peer: \(peerId)")
         print("   Creating session WITHOUT running it")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -139,7 +139,7 @@ class UWBSessionManager: NSObject, ObservableObject {
 
         // Extract token from THIS session (not running yet)
         guard let token = session.discoveryToken else {
-            print("❌ UWBSessionManager: Failed to get discovery token from session")
+            print("❌ LinkFinderSessionManager: Failed to get discovery token from session")
             return nil
         }
 
@@ -151,7 +151,7 @@ class UWBSessionManager: NSObject, ObservableObject {
             self.sessionRetryCount[peerId] = 0
         }
 
-        print("✅ UWBSessionManager: Session prepared for \(peerId)")
+        print("✅ LinkFinderSessionManager: Session prepared for \(peerId)")
         print("   Token extracted: \(String(describing: token).prefix(40))...")
         print("   State: preparing")
         print("   Ready to send token to peer")
@@ -159,12 +159,12 @@ class UWBSessionManager: NSObject, ObservableObject {
         return token
     }
 
-    /// Start UWB ranging session with a peer (step 2 of token exchange)
+    /// Start LinkFinder ranging session with a peer (step 2 of token exchange)
     /// Requires that prepareSession() was called first
     /// Now runs the session with the remote peer's token
     func startSession(with peerID: MCPeerID, remotePeerToken: NIDiscoveryToken) {
-        guard isUWBSupported else {
-            print("❌ UWBSessionManager: Cannot start session - UWB not supported")
+        guard isLinkFinderSupported else {
+            print("❌ LinkFinderSessionManager: Cannot start session - LinkFinder not supported")
             return
         }
 
@@ -175,7 +175,7 @@ class UWBSessionManager: NSObject, ObservableObject {
 
             // Verify we have a prepared session
             guard let session = self.activeSessions[peerId] else {
-                print("❌ UWBSessionManager: No prepared session found for \(peerId)")
+                print("❌ LinkFinderSessionManager: No prepared session found for \(peerId)")
                 print("   Call prepareSession() first before startSession()")
                 return
             }
@@ -184,17 +184,17 @@ class UWBSessionManager: NSObject, ObservableObject {
 
             // Check if already running or ranging
             if currentState == .running || currentState == .ranging {
-                print("✅ UWBSessionManager: Session already running for \(peerId) (state: \(currentState))")
+                print("✅ LinkFinderSessionManager: Session already running for \(peerId) (state: \(currentState))")
                 return
             }
 
             // Verify we're in preparing or tokenReady state
             if currentState != .preparing && currentState != .tokenReady {
-                print("⚠️ UWBSessionManager: Invalid state \(currentState) for \(peerId), expected .preparing or .tokenReady")
+                print("⚠️ LinkFinderSessionManager: Invalid state \(currentState) for \(peerId), expected .preparing or .tokenReady")
             }
 
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("🚀 UWB SESSION START")
+            print("🚀 LinkFinder SESSION START")
             print("   Peer: \(peerId)")
             print("   Remote token: \(String(describing: remotePeerToken).prefix(40))...")
             print("   Our token: \(String(describing: self.localTokens[peerId]).prefix(40))...")
@@ -211,7 +211,7 @@ class UWBSessionManager: NSObject, ObservableObject {
 
             DispatchQueue.main.async {
                 self.sessionStates[peerId] = .running
-                print("📡 UWBSessionManager: Session RUNNING for \(peerId)")
+                print("📡 LinkFinderSessionManager: Session RUNNING for \(peerId)")
                 print("   State: preparing → running")
                 print("   Total active sessions: \(self.activeSessions.count)")
                 print("   Waiting for ranging to establish...")
@@ -222,7 +222,7 @@ class UWBSessionManager: NSObject, ObservableObject {
         }
     }
 
-    /// Stop UWB ranging session with a peer
+    /// Stop LinkFinder ranging session with a peer
     func stopSession(with peerID: MCPeerID) {
         let peerId = peerID.displayName
 
@@ -243,7 +243,7 @@ class UWBSessionManager: NSObject, ObservableObject {
                     self.lastRestartTime.removeValue(forKey: peerId)
                 }
 
-                print("📡 UWBSessionManager: Stopped session with \(peerId)")
+                print("📡 LinkFinderSessionManager: Stopped session with \(peerId)")
             }
         }
     }
@@ -280,14 +280,14 @@ class UWBSessionManager: NSObject, ObservableObject {
         let state = sessionStates[peerId] ?? .disconnected
         let hasObject = nearbyObjects[peerId] != nil
 
-        print("🏥 UWB Health Check for \(peerId): State=\(state), HasObject=\(hasObject)")
+        print("🏥 LinkFinder Health Check for \(peerId): State=\(state), HasObject=\(hasObject)")
 
         // Only check health if we're in .running state (not .preparing or .tokenReady)
         // If we're .running but haven't received any objects for a while, try to restart
         if state == .running && !hasObject {
             let retryCount = sessionRetryCount[peerId] ?? 0
 
-            print("⚠️ UWBSessionManager: Session connected but no ranging data for \(peerId) (retry: \(retryCount)/3)")
+            print("⚠️ LinkFinderSessionManager: Session connected but no ranging data for \(peerId) (retry: \(retryCount)/3)")
 
             // Check backoff: Don't retry too frequently
             if let lastRestart = lastRestartTime[peerId] {
@@ -295,7 +295,7 @@ class UWBSessionManager: NSObject, ObservableObject {
                 let timeSinceLastRestart = Date().timeIntervalSince(lastRestart)
 
                 if timeSinceLastRestart < backoffDelay {
-                    print("⏳ UWBSessionManager: Backoff in effect for \(peerId) - waiting \(String(format: "%.1f", backoffDelay - timeSinceLastRestart))s more")
+                    print("⏳ LinkFinderSessionManager: Backoff in effect for \(peerId) - waiting \(String(format: "%.1f", backoffDelay - timeSinceLastRestart))s more")
                     return
                 }
             }
@@ -303,7 +303,7 @@ class UWBSessionManager: NSObject, ObservableObject {
             // Check if we should restart (limit retries)
             if retryCount < 3 {
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("🔄 UWB SESSION RESTART REQUIRED")
+                print("🔄 LinkFinder SESSION RESTART REQUIRED")
                 print("   Peer: \(peerId)")
                 print("   Reason: No ranging data received")
                 print("   Retry: \(retryCount + 1)/3")
@@ -322,8 +322,8 @@ class UWBSessionManager: NSObject, ObservableObject {
                     performLocalSessionRestart(for: peerId)
                 }
             } else {
-                print("❌ UWBSessionManager: Max restart attempts (3) reached for \(peerId)")
-                print("   UWB ranging may not be working on this device pair")
+                print("❌ LinkFinderSessionManager: Max restart attempts (3) reached for \(peerId)")
+                print("   LinkFinder ranging may not be working on this device pair")
                 stopHealthCheck(for: peerId)
             }
         }
@@ -339,7 +339,7 @@ class UWBSessionManager: NSObject, ObservableObject {
     func performLocalSessionRestart(for peerId: String) {
         guard let session = activeSessions[peerId] else { return }
 
-        print("🔄 UWBSessionManager: Performing local session restart for \(peerId)")
+        print("🔄 LinkFinderSessionManager: Performing local session restart for \(peerId)")
 
         // Invalidate current session
         session.invalidate()
@@ -361,7 +361,7 @@ class UWBSessionManager: NSObject, ObservableObject {
             for (peerId, session) in self.activeSessions {
                 session.invalidate()
                 self.stopHealthCheck(for: peerId)
-                print("📡 UWBSessionManager: Stopped session with \(peerId)")
+                print("📡 LinkFinderSessionManager: Stopped session with \(peerId)")
             }
 
             DispatchQueue.main.async {
@@ -394,12 +394,12 @@ class UWBSessionManager: NSObject, ObservableObject {
         return nearbyObjects[peerId]?.direction
     }
 
-    /// Check if we have an active UWB session with a peer
+    /// Check if we have an active LinkFinder session with a peer
     func hasActiveSession(with peerID: MCPeerID) -> Bool {
         return activeSessions[peerID.displayName] != nil
     }
 
-    /// Get detailed UWB status for debugging
+    /// Get detailed LinkFinder status for debugging
     func getUWBStatus(for peerID: MCPeerID) -> String {
         let peerId = peerID.displayName
         let hasSession = activeSessions[peerId] != nil
@@ -407,7 +407,7 @@ class UWBSessionManager: NSObject, ObservableObject {
         let hasObject = nearbyObjects[peerId] != nil
         let distance = nearbyObjects[peerId]?.distance
 
-        var status = "UWB Status for \(peerId):\n"
+        var status = "LinkFinder Status for \(peerId):\n"
         status += "  • Session: \(hasSession ? "✅" : "❌")\n"
         status += "  • State: \(state)\n"
         status += "  • Ranging: \(hasObject ? "✅" : "❌")\n"
@@ -424,7 +424,7 @@ class UWBSessionManager: NSObject, ObservableObject {
     func forceRestartSession(with peerID: MCPeerID) {
         let peerId = peerID.displayName
 
-        print("⚡ UWBSessionManager: Force restarting session with \(peerId)")
+        print("⚡ LinkFinderSessionManager: Force restarting session with \(peerId)")
 
         // Stop existing session
         if let session = activeSessions[peerId] {
@@ -458,8 +458,8 @@ class UWBSessionManager: NSObject, ObservableObject {
 
         let direction = nearbyObject.direction.map { DirectionVector(from: $0) }
 
-        // Determine accuracy based on UWB quality
-        // UWB is typically accurate to ±0.1-0.5 meters
+        // Determine accuracy based on LinkFinder quality
+        // LinkFinder is typically accurate to ±0.1-0.5 meters
         let accuracy: Float = 0.5
 
         return RelativeLocation(
@@ -474,15 +474,15 @@ class UWBSessionManager: NSObject, ObservableObject {
 
 // MARK: - NISessionDelegate
 @available(iOS 14.0, *)
-extension UWBSessionManager: NISessionDelegate {
+extension LinkFinderSessionManager: NISessionDelegate {
     func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
         // Find which peer this session belongs to
         guard let peerId = activeSessions.first(where: { $0.value === session })?.key else {
-            print("⚠️ UWBSessionManager: didUpdate called but no matching session found")
+            print("⚠️ LinkFinderSessionManager: didUpdate called but no matching session found")
             return
         }
 
-        print("🎯 UWBSessionManager: didUpdate called for \(peerId) with \(nearbyObjects.count) objects")
+        print("🎯 LinkFinderSessionManager: didUpdate called for \(peerId) with \(nearbyObjects.count) objects")
 
         // Track if this is first update
         let isFirstUpdate = self.nearbyObjects[peerId] == nil
@@ -491,7 +491,7 @@ extension UWBSessionManager: NISessionDelegate {
         // Update nearby object for this peer
         if let object = nearbyObjects.first {
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("📊 UWB UPDATE DETAILS")
+            print("📊 LinkFinder UPDATE DETAILS")
             print("   Peer: \(peerId)")
             print("   Distance: \(object.distance?.description ?? "nil")")
             if let dir = object.direction {
@@ -518,24 +518,27 @@ extension UWBSessionManager: NISessionDelegate {
 
             if isFirstUpdate {
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("🎉 UWB RANGING ESTABLISHED")
+                print("🎉 LinkFinder RANGING ESTABLISHED")
                 print("   Peer: \(peerId)")
                 print("   State transition: \(previousState) → ranging")
                 print("   First ranging data received!")
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                // Haptic feedback: ranging established
+                HapticManager.shared.play(.success, priority: .navigation)
             }
 
             if let distance = object.distance {
                 let directionString = object.direction != nil ? "with direction" : "no direction"
-                print("📡 UWB: \(peerId) - \(String(format: "%.2f", distance))m (\(directionString))")
+                print("📡 LinkFinder: \(peerId) - \(String(format: "%.2f", distance))m (\(directionString))")
             } else {
-                print("⚠️ UWBSessionManager: Object detected but no distance for \(peerId)")
+                print("⚠️ LinkFinderSessionManager: Object detected but no distance for \(peerId)")
             }
 
             // Notify delegate
             delegate?.uwbSessionManager(self, didUpdateDistanceTo: peerId, distance: object.distance, direction: object.direction)
         } else {
-            print("⚠️ UWBSessionManager: didUpdate called but no objects in array for \(peerId)")
+            print("⚠️ LinkFinderSessionManager: didUpdate called but no objects in array for \(peerId)")
         }
     }
 
@@ -550,7 +553,10 @@ extension UWBSessionManager: NISessionDelegate {
             self.sessionStates[peerId] = .running  // Still running but not ranging
         }
 
-        print("⚠️ UWBSessionManager: Lost tracking of \(peerId) - Reason: \(reason.description)")
+        print("⚠️ LinkFinderSessionManager: Lost tracking of \(peerId) - Reason: \(reason.description)")
+
+        // Haptic feedback: lost tracking
+        HapticManager.shared.play(.warning, priority: .navigation)
 
         // Notify delegate
         delegate?.uwbSessionManager(self, didLoseTrackingOf: peerId, reason: reason)
@@ -565,8 +571,8 @@ extension UWBSessionManager: NISessionDelegate {
             self.sessionStates[peerId] = .suspended
         }
 
-        print("⏸️ UWBSessionManager: Session suspended for \(peerId)")
-        print("   Suspension reason: System suspended UWB ranging (app backgrounded, device locked, or low power)")
+        print("⏸️ LinkFinderSessionManager: Session suspended for \(peerId)")
+        print("   Suspension reason: System suspended LinkFinder ranging (app backgrounded, device locked, or low power)")
     }
 
     func sessionSuspensionEnded(_ session: NISession) {
@@ -574,7 +580,7 @@ extension UWBSessionManager: NISessionDelegate {
             return
         }
 
-        print("▶️ UWBSessionManager: Session resumed for \(peerId)")
+        print("▶️ LinkFinderSessionManager: Session resumed for \(peerId)")
         print("   Session ready to continue ranging")
 
         DispatchQueue.main.async {
@@ -595,7 +601,7 @@ extension UWBSessionManager: NISessionDelegate {
             return
         }
 
-        print("❌ UWBSessionManager: Session invalidated for \(peerId): \(error.localizedDescription)")
+        print("❌ LinkFinderSessionManager: Session invalidated for \(peerId): \(error.localizedDescription)")
 
         // Check for specific error types
         if isPermissionError(error) {
@@ -629,14 +635,14 @@ extension UWBSessionManager: NISessionDelegate {
     }
 }
 
-// MARK: - UWBSessionManagerDelegate
+// MARK: - LinkFinderSessionManagerDelegate
 @available(iOS 14.0, *)
-protocol UWBSessionManagerDelegate: AnyObject {
-    func uwbSessionManager(_ manager: UWBSessionManager, didUpdateDistanceTo peerId: String, distance: Float?, direction: SIMD3<Float>?)
-    func uwbSessionManager(_ manager: UWBSessionManager, didLoseTrackingOf peerId: String, reason: NINearbyObject.RemovalReason)
-    func uwbSessionManager(_ manager: UWBSessionManager, sessionInvalidatedFor peerId: String, error: Error)
-    func uwbSessionManager(_ manager: UWBSessionManager, requestsRestartFor peerId: String)
-    func uwbSessionManager(_ manager: UWBSessionManager, needsFreshTokenFor peerId: String)
+protocol LinkFinderSessionManagerDelegate: AnyObject {
+    func uwbSessionManager(_ manager: LinkFinderSessionManager, didUpdateDistanceTo peerId: String, distance: Float?, direction: SIMD3<Float>?)
+    func uwbSessionManager(_ manager: LinkFinderSessionManager, didLoseTrackingOf peerId: String, reason: NINearbyObject.RemovalReason)
+    func uwbSessionManager(_ manager: LinkFinderSessionManager, sessionInvalidatedFor peerId: String, error: Error)
+    func uwbSessionManager(_ manager: LinkFinderSessionManager, requestsRestartFor peerId: String)
+    func uwbSessionManager(_ manager: LinkFinderSessionManager, needsFreshTokenFor peerId: String)
 }
 
 // MARK: - NINearbyObject.RemovalReason Extension

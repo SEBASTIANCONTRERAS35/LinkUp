@@ -23,13 +23,17 @@ import CoreLocation
 struct ImprovedHomeView: View {
     // MARK: - Environment
     @EnvironmentObject var networkManager: NetworkManager
+    @EnvironmentObject var accessibilitySettings: AccessibilitySettingsManager
     @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.accessibleTheme) var accessibleTheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     // MARK: - State
     @State private var showSOSView = false
     @State private var showMessaging = false
     @State private var showFamilyGroups = false
     @State private var showGeofenceMap = false
+    @State private var showNetworkManagement = false
     @State private var showSettings = false
     @State private var batteryLevel: Float = 0.87 // Will be replaced with real data
     @State private var currentGeofenceZone: String? = nil
@@ -85,16 +89,15 @@ struct ImprovedHomeView: View {
             MessagingViewPlaceholder()
         }
         .sheet(isPresented: $showFamilyGroups) {
-            FamilyGroupEmptyStateView(
-                familyGroupManager: networkManager.familyGroupManager,
-                localPeerID: networkManager.localDeviceName
+            FamilyGroupView(
+                familyGroupManager: networkManager.familyGroupManager
             )
             .environmentObject(networkManager)
         }
         .sheet(isPresented: $showGeofenceMap) {
-            if let geofenceManager = networkManager.geofenceManager {
-                FamilyGeofenceMapView(
-                    geofenceManager: geofenceManager,
+            if let linkfenceManager = networkManager.linkfenceManager {
+                FamilyLinkFenceMapView(
+                    linkfenceManager: linkfenceManager,
                     familyGroupManager: networkManager.familyGroupManager,
                     locationService: networkManager.locationService,
                     networkManager: networkManager
@@ -104,6 +107,10 @@ struct ImprovedHomeView: View {
                     .font(.title3)
                     .foregroundColor(.secondary)
             }
+        }
+        .fullScreenCover(isPresented: $showNetworkManagement) {
+            NetworkHubView()
+                .environmentObject(networkManager)
         }
         .sheet(isPresented: $showSettings) {
             AccessibilitySettingsView()
@@ -125,11 +132,13 @@ struct ImprovedHomeView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(stadiumName)
                     .font(.headline) // Dynamic Type
-                    .fontWeight(.semibold)
-                    .foregroundColor(ThemeColors.textPrimary)
+                    .fontWeight(accessibilitySettings.preferBoldText ? .bold : .semibold)
+                    .foregroundColor(accessibleTheme.textPrimary)
+                    .accessibleText() // ✅ Applies size multiplier + bold + contrast
                 Text(sectionNumber)
                     .font(.subheadline) // Dynamic Type
-                    .foregroundColor(ThemeColors.textSecondary)
+                    .foregroundColor(accessibleTheme.textSecondary)
+                    .accessibleText() // ✅ Applies size multiplier + bold + contrast
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(stadiumName), \(sectionNumber)")
@@ -140,16 +149,17 @@ struct ImprovedHomeView: View {
             Button(action: { showSettings = true }) {
                 Image(systemName: "gearshape.fill")
                     .font(.title2)
-                    .foregroundColor(ThemeColors.primaryBlue)
+                    .foregroundColor(accessibleTheme.primaryBlue)
                     .frame(width: 44, height: 44) // Minimum touch target
             }
+            .accessibleButton(minTouchTarget: 44) // ✅ Applies size scaling
             .accessibilityLabel("Settings")
             .accessibilityHint("Opens app settings")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(Color.white.opacity(0.95))
-        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+        .accessibleBackground(Color.white, opacity: 0.95) // ✅ Respects reduceTransparency
+        .shadow(color: Color.black.opacity(accessibleTheme.shadowOpacity), radius: 2, x: 0, y: 1)
     }
 
     // MARK: - Battery & Network Status Bar
@@ -166,12 +176,12 @@ struct ImprovedHomeView: View {
 
                 Image(systemName: networkManager.connectedPeers.count > 0 ? "person.2.fill" : "person.2.slash")
                     .font(.caption2)
-                    .foregroundColor(networkManager.connectedPeers.count > 0 ? ThemeColors.connected : ThemeColors.disconnected)
+                    .foregroundColor(networkManager.connectedPeers.count > 0 ? accessibleTheme.connected : accessibleTheme.disconnected)
 
                 Text("\(networkManager.connectedPeers.count)")
                     .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(ThemeColors.textPrimary)
+                    .fontWeight(accessibilitySettings.preferBoldText ? .bold : .semibold)
+                    .foregroundColor(Color(hex: "2853A1"))
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(networkManager.connectedPeers.count) conectados")
@@ -229,88 +239,276 @@ struct ImprovedHomeView: View {
 
     // MARK: - Match Score Card
     private var matchScoreCard: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 20) {
-                // Home team
-                VStack(spacing: 12) {
-                    Text("🇲🇽")
-                        .font(.system(size: 48))
-                        .accessibilityHidden(true)
-                    Text(homeTeam)
-                        .font(.caption) // Dynamic Type
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
+        let gradientStops: [Gradient.Stop] = (accessibilitySettings.enableGradients && !accessibilitySettings.reduceTransparency)
+            ? [
+                .init(color: Color(hex: "2853A1"), location: 0.0),
+                .init(color: Color(hex: "1E7A8C"), location: 0.45),
+                .init(color: Color(hex: "006847"), location: 1.0)
+            ]
+            : [
+                .init(color: Color(hex: "006847"), location: 0.0),
+                .init(color: Color(hex: "006847"), location: 1.0)
+            ]
+
+        let capsuleBackground = Color.white.opacity(accessibilitySettings.reduceTransparency ? 0.3 : 0.18)
+        let matchProgress = min(max(Double(matchMinute) / 90.0, 0), 1)
+
+        return VStack(alignment: .leading, spacing: scaled(10, min: 8, max: 14)) {
+            // Header compacto
+            HStack(spacing: scaled(8, min: 6, max: 12)) {
+                Text("PARTIDO EN CURSO")
+                    .font(.system(size: scaled(10, min: 9, max: 16), weight: accessibilitySettings.preferBoldText ? .heavy : .bold, design: .rounded))
+                    .foregroundColor(.white.opacity(0.9))
+
+                Spacer()
+
+                HStack(spacing: scaled(4, min: 3, max: 8)) {
+                    Image(systemName: "clock.fill")
+                        .font(.system(size: scaled(10, min: 9, max: 16)))
+                    Text("\(matchMinute)'")
+                        .font(.system(size: scaled(11, min: 10, max: 17), weight: .semibold, design: .rounded))
                 }
-                .frame(maxWidth: .infinity)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(homeTeam), home team")
+                .foregroundColor(.white)
+                .accessibilityLabel("Minuto \(matchMinute)")
+            }
+
+            // Marcador principal compacto
+            HStack(spacing: scaled(12, min: 10, max: 18)) {
+                // México
+                HStack(spacing: scaled(8, min: 6, max: 12)) {
+                    Text("🇲🇽")
+                        .font(.system(size: scaled(24, min: 20, max: 32)))
+                    VStack(alignment: .leading, spacing: scaled(2, min: 1, max: 4)) {
+                        Text(homeTeam)
+                            .font(.system(size: scaled(11, min: 10, max: 17), weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                        Text("Local")
+                            .font(.system(size: scaled(9, min: 8, max: 14), weight: .regular, design: .rounded))
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                }
+
+                Spacer()
 
                 // Score
-                HStack(spacing: 12) {
+                HStack(spacing: scaled(8, min: 6, max: 12)) {
                     Text("\(homeScore)")
-                        .font(.system(size: 36, weight: .bold))
+                        .font(.system(size: scaled(28, min: 24, max: 40), weight: accessibilitySettings.preferBoldText ? .heavy : .bold, design: .rounded))
                         .foregroundColor(.white)
 
-                    Text("-")
-                        .font(.system(size: 24, weight: .semibold))
+                    Text("–")
+                        .font(.system(size: scaled(18, min: 16, max: 26), weight: .medium, design: .rounded))
                         .foregroundColor(.white.opacity(0.7))
 
                     Text("\(awayScore)")
-                        .font(.system(size: 36, weight: .bold))
+                        .font(.system(size: scaled(28, min: 24, max: 40), weight: accessibilitySettings.preferBoldText ? .heavy : .bold, design: .rounded))
                         .foregroundColor(.white)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("Score: \(homeTeam) \(homeScore), \(awayTeam) \(awayScore)")
-                .accessibilityValue("\(homeTeam) is \(homeScore > awayScore ? "winning" : (homeScore < awayScore ? "losing" : "tied"))")
+                .accessibilityLabel("Marcador: \(homeTeam) \(homeScore), \(awayTeam) \(awayScore)")
 
-                // Away team
-                VStack(spacing: 12) {
+                Spacer()
+
+                // Canadá
+                HStack(spacing: scaled(8, min: 6, max: 12)) {
+                    VStack(alignment: .trailing, spacing: scaled(2, min: 1, max: 4)) {
+                        Text(awayTeam)
+                            .font(.system(size: scaled(11, min: 10, max: 17), weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                        Text("Visitante")
+                            .font(.system(size: scaled(9, min: 8, max: 14), weight: .regular, design: .rounded))
+                            .foregroundColor(.white.opacity(0.7))
+                    }
                     Text("🇨🇦")
-                        .font(.system(size: 48))
-                        .accessibilityHidden(true)
-                    Text(awayTeam)
-                        .font(.caption) // Dynamic Type
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
+                        .font(.system(size: scaled(24, min: 20, max: 32)))
                 }
-                .frame(maxWidth: .infinity)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(awayTeam), away team")
             }
 
-            // Match time
-            Text("\(matchMinute) Min")
-                .font(.caption) // Dynamic Type
-                .fontWeight(.semibold)
-                .foregroundColor(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .background(Color.white.opacity(0.2))
-                .clipShape(Capsule())
-                .accessibilityLabel("Match minute \(matchMinute)")
+            // Progress bar y ubicación
+            VStack(alignment: .leading, spacing: scaled(4, min: 3, max: 8)) {
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.2))
+                            .frame(height: scaled(4, min: 3, max: 8))
+
+                        Capsule()
+                            .fill(Color.white.opacity(0.85))
+                            .frame(width: geometry.size.width * matchProgress, height: scaled(4, min: 3, max: 8))
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Progreso del partido")
+                    .accessibilityValue("\(Int(matchProgress * 100)) por ciento completado")
+                }
+                .frame(height: scaled(4, min: 3, max: 8))
+
+                HStack(spacing: scaled(8, min: 6, max: 12)) {
+                    Image(systemName: "sportscourt.fill")
+                        .font(.system(size: scaled(10, min: 9, max: 15)))
+                    Text(stadiumName)
+                        .font(.system(size: scaled(10, min: 9, max: 16), weight: .medium, design: .rounded))
+
+                    Text("•")
+                        .font(.system(size: scaled(10, min: 9, max: 16)))
+
+                    Image(systemName: "mappin.circle.fill")
+                        .font(.system(size: scaled(10, min: 9, max: 15)))
+                    Text(sectionNumber)
+                        .font(.system(size: scaled(10, min: 9, max: 16), weight: .medium, design: .rounded))
+                }
+                .foregroundColor(.white.opacity(0.8))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(stadiumName), \(sectionNumber)")
+            }
         }
-        .padding(.vertical, 24)
-        .padding(.horizontal, 20)
+        .padding(.vertical, scaled(14, min: 12, max: 20))
+        .padding(.horizontal, scaled(16, min: 14, max: 22))
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [ThemeColors.primaryGreen, ThemeColors.primaryBlue],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
+            RoundedRectangle(cornerRadius: scaled(16, min: 14, max: 22), style: .continuous)
+                .fill(matchCardColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+            RoundedRectangle(cornerRadius: scaled(16, min: 14, max: 22), style: .continuous)
+                .stroke(Color.white.opacity(accessibilitySettings.reduceTransparency ? 0.4 : 0.18), lineWidth: 1)
         )
-        .shadow(color: ThemeColors.primaryGreen.opacity(0.3), radius: 12, x: 0, y: 6)
+        .accessibleShadow(color: accessibleTheme.primaryGreen, radius: scaled(8, min: 6, max: 14))
         // ACCESSIBILITY: Group entire match score as one element
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Match score")
-        .accessibilityValue("\(homeTeam) \(homeScore), \(awayTeam) \(awayScore), minute \(matchMinute). \(homeTeam) is \(homeScore > awayScore ? "winning" : (homeScore < awayScore ? "losing" : "tied"))")
+        .accessibilityValue("\(homeTeam) \(homeScore), \(awayTeam) \(awayScore), minuto \(matchMinute). \(homeTeam) \(homeScore > awayScore ? "gana" : (homeScore < awayScore ? "pierde" : "empata"))")
         .accessibilityAddTraits(.updatesFrequently)
+    }
+
+    private var accessibleMatchScoreStack: some View {
+        let spacing = scaled(10, min: 6, max: 20)
+        let vsPaddingH = scaled(8, min: 6, max: 18)
+        let vsPaddingV = scaled(4, min: 3, max: 12)
+        let vsSpacing = scaled(2, min: 1, max: 6)
+        let vsFontSize = scaled(11, min: 9, max: 20)
+        let minuteFontSize = scaled(10, min: 8, max: 18)
+
+        return HStack(spacing: spacing) {
+            accessibleScoreBadge(value: homeScore, label: "Local")
+
+            VStack(spacing: vsSpacing) {
+                Text("VS")
+                    .font(.system(size: vsFontSize, weight: accessibilitySettings.preferBoldText ? .bold : .semibold, design: .rounded))
+                    .foregroundColor(.white.opacity(0.85))
+
+                Text("\(matchMinute)' Min")
+                    .font(.system(size: minuteFontSize, weight: accessibilitySettings.preferBoldText ? .medium : .regular, design: .rounded))
+                    .foregroundColor(.white.opacity(0.65))
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, vsPaddingH)
+            .padding(.vertical, vsPaddingV)
+            .background(Color.white.opacity(accessibilitySettings.reduceTransparency ? 0.22 : 0.08))
+            .clipShape(RoundedRectangle(cornerRadius: scaled(10, min: 8, max: 16), style: .continuous))
+            .accessibilityHidden(true)
+
+            accessibleScoreBadge(value: awayScore, label: "Visita")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, scaled(8, min: 6, max: 18))
+        .padding(.vertical, scaled(6, min: 4, max: 14))
+    }
+
+    private func accessibleScoreBadge(value: Int, label: String) -> some View {
+        let fontSize = scaled(32, min: 26, max: 80)
+        let width = scaled(48, min: 40, max: 96)
+        let height = scaled(40, min: 32, max: 76)
+        let corner = scaled(10, min: 8, max: 18)
+        let labelSize = scaled(11, min: 9, max: 18)
+        let spacing = scaled(4, min: 3, max: 10)
+        let shadowRadius = scaled(2, min: 1, max: 5)
+
+        return VStack(spacing: spacing) {
+            Text("\(value)")
+                .font(.system(size: fontSize, weight: accessibilitySettings.preferBoldText ? .black : .heavy, design: .rounded))
+                .foregroundColor(matchCardColor)
+                .frame(width: width, height: height)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+                .shadow(color: Color.black.opacity(0.1), radius: shadowRadius, x: 0, y: 1)
+
+            Text(label.uppercased())
+                .font(.system(size: labelSize, weight: accessibilitySettings.preferBoldText ? .semibold : .medium, design: .rounded))
+                .foregroundColor(.white.opacity(0.85))
+                .minimumScaleFactor(0.7)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label == "Local" ? "Equipo local" : "Equipo visitante") \(value) goles")
+    }
+
+    private func accessibleMatchTeamColumn(flag: String, name: String, role: String) -> some View {
+        let circleSize = scaled(56, min: 44, max: 96)
+        let flagFontSize = scaled(28, min: 22, max: 44)
+        let nameFontSize = scaled(12, min: 10, max: 20)
+        let roleFontSize = scaled(11, min: 9, max: 18)
+        let columnSpacing = scaled(8, min: 6, max: 14)
+
+        return VStack(spacing: columnSpacing) {
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(accessibilitySettings.reduceTransparency ? 0.28 : 0.18))
+                    .frame(width: circleSize, height: circleSize)
+
+                Text(flag)
+                    .font(.system(size: flagFontSize))
+                    .accessibilityHidden(true)
+            }
+
+            VStack(spacing: scaled(3, min: 2, max: 6)) {
+                Text(name.uppercased())
+                    .font(.system(size: nameFontSize, weight: accessibilitySettings.preferBoldText ? .heavy : .semibold, design: .rounded))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+
+                Text(role.uppercased())
+                    .font(.system(size: roleFontSize, weight: .medium, design: .rounded))
+                    .foregroundColor(.white.opacity(0.65))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(name), \(role)")
+    }
+
+    private var matchCardColor: Color {
+        Color(hex: "2853A1")
+    }
+
+    private func scaled(_ base: CGFloat, min minValue: CGFloat, max maxValue: CGFloat) -> CGFloat {
+        var value = base * dynamicScaleFactor
+        value = max(minValue, value)
+        value = min(maxValue, value)
+        return value
+    }
+
+    private func scaled(_ base: CGFloat, min minValue: CGFloat) -> CGFloat {
+        max(minValue, base * dynamicScaleFactor)
+    }
+
+    private func scaled(_ base: CGFloat) -> CGFloat {
+        base * dynamicScaleFactor
+    }
+
+    private var dynamicScaleFactor: CGFloat {
+        switch dynamicTypeSize {
+        case .xSmall: return 0.85
+        case .small: return 0.9
+        case .medium: return 0.98
+        case .large: return 1.06
+        case .xLarge: return 1.16
+        case .xxLarge: return 1.26
+        case .xxxLarge: return 1.36
+        case .accessibility1: return 1.55
+        case .accessibility2: return 1.7
+        case .accessibility3: return 1.9
+        case .accessibility4: return 2.1
+        case .accessibility5: return 2.3
+        @unknown default: return 1.0
+        }
     }
 
     // MARK: - Network Status Header
@@ -353,7 +551,7 @@ struct ImprovedHomeView: View {
                 AccessibleQuickActionCard(
                     title: "Tus Grupos",
                     icon: "person.3.fill",
-                    iconColor: ThemeColors.primaryBlue,
+                    iconColor: ThemeColors.primaryGreen,
                     backgroundColor: ThemeColors.cardBackground,
                     action: {
                         showFamilyGroups = true
@@ -369,7 +567,7 @@ struct ImprovedHomeView: View {
             HStack(spacing: 16) {
                 // Geofencing / Zones
                 AccessibleQuickActionCard(
-                    title: "Zonas y Perímetros",
+                    title: "LinkFence",
                     icon: "location.circle.fill",
                     iconColor: ThemeColors.primaryRed,
                     backgroundColor: ThemeColors.cardBackground,
@@ -377,20 +575,20 @@ struct ImprovedHomeView: View {
                         showGeofenceMap = true
                     },
                     accessibilityLabel: "Zones and perimeters",
-                    accessibilityHint: "Double tap to view stadium zones and set up geofence alerts for specific areas."
+                    accessibilityHint: "Double tap to view stadium zones and set up linkfence alerts for specific areas."
                 )
 
                 // Network Settings
                 AccessibleQuickActionCard(
-                    title: "Mi Red",
+                    title: "LinkMesh",
                     icon: "network",
-                    iconColor: ThemeColors.info,
+                    iconColor: Color(hex: "2853A1"),
                     backgroundColor: ThemeColors.cardBackground,
                     action: {
-                        // Navigate to network settings
+                        showNetworkManagement = true
                     },
-                    accessibilityLabel: "Network settings",
-                    accessibilityHint: "Double tap to manage mesh network connections and view network health."
+                    accessibilityLabel: "Network management",
+                    accessibilityHint: "Double tap to manage your LinkMesh network connections. Maximum 5 connections."
                 )
             }
         }
@@ -399,7 +597,7 @@ struct ImprovedHomeView: View {
     }
 
     // MARK: - Current Location Card
-    /// Shows current geofence zone (e.g., "Section 101")
+    /// Shows current linkfence zone (e.g., "Section 101")
     private func currentLocationCard(zone: String) -> some View {
         HStack(spacing: 16) {
             Image(systemName: "mappin.circle.fill")
@@ -444,7 +642,7 @@ struct ImprovedHomeView: View {
     }
 
     // MARK: - Nearby Peers List
-    /// Shows connected peers with distance (UWB if available)
+    /// Shows connected peers with distance (LinkFinder if available)
     private var nearbyPeersList: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Section header
@@ -619,7 +817,7 @@ struct ImprovedHomeView: View {
     // MARK: - Helper Methods
 
     private func getDistance(for peer: MCPeerID) -> String? {
-        // Check if UWB distance is available
+        // Check if LinkFinder distance is available
         if #available(iOS 14.0, *),
            let uwbManager = networkManager.uwbSessionManager,
            let distance = uwbManager.getDistance(to: peer) {
@@ -654,9 +852,9 @@ struct ImprovedHomeView: View {
     }
 
     private func updateGeofenceZone() {
-        // Get current geofence from manager
-        if let geofence = networkManager.geofenceManager?.activeGeofence {
-            currentGeofenceZone = geofence.name
+        // Get current linkfence from manager
+        if let linkfence = networkManager.linkfenceManager?.activeGeofence {
+            currentGeofenceZone = linkfence.name
         } else {
             // Demo data
             currentGeofenceZone = "Sección 4B, Nivel Inferior"
@@ -683,11 +881,11 @@ struct ImprovedHomeView: View {
         #if os(iOS)
         let message: String
         if peerCount == 0 {
-            message = "Desconectado de la red mesh. No hay personas cercanas."
+            message = "Desconectado de la LinkMesh. No hay personas cercanas."
         } else if peerCount == 1 {
-            message = "Conectado a 1 persona en la red mesh."
+            message = "Conectado a 1 persona en la LinkMesh."
         } else {
-            message = "Conectado a \(peerCount) personas en la red mesh."
+            message = "Conectado a \(peerCount) personas en la LinkMesh."
         }
 
         UIAccessibility.post(notification: .announcement, argument: message)

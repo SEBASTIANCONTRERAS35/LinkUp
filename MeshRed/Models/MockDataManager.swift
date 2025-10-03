@@ -13,8 +13,69 @@ import MultipeerConnectivity
 class MockDataManager {
     static let shared = MockDataManager()
 
-    // MARK: - Mock Family Groups
-    static let mockFamilyGroups: [MockFamilyGroup] = [
+    // Reference to simulated family groups manager
+    private let mockGroupsManager = MockFamilyGroupsManager.shared
+
+    // MARK: - Mock Connected Peers (for Network Hub)
+    // Realistic MultipeerConnectivity ranges:
+    // - Excellent (<5m): Apple's recommended reliable range
+    // - Good (5-15m): Indoor stadium range with obstacles
+    // - Fair (15-25m): Near maximum indoor range
+    // - Poor (25-30m): Pushing MC limits, outdoor/line-of-sight only
+    static let mockConnectedPeers: [MockPeer] = [
+        MockPeer(
+            displayName: "María García",
+            distance: 3.2,  // Close range - same section
+            signalQuality: .excellent,
+            dataSource: .uwbPrecise
+        ),
+        MockPeer(
+            displayName: "Carlos López",
+            distance: 9.8,  // Medium range - nearby sections
+            signalQuality: .good,
+            dataSource: .uwbDistance
+        ),
+        MockPeer(
+            displayName: "Ana Martínez",
+            distance: 18.5,  // Far range - different area of stadium
+            signalQuality: .fair,
+            dataSource: .gps
+        )
+    ]
+
+    // MARK: - Mock Available Peers (for Network Hub)
+    static let mockAvailablePeers: [MockPeer] = [
+        MockPeer(
+            displayName: "Roberto Sánchez",
+            distance: nil,
+            signalQuality: .unknown,
+            dataSource: .none
+        ),
+        MockPeer(
+            displayName: "Sofia Torres",
+            distance: nil,
+            signalQuality: .unknown,
+            dataSource: .none
+        )
+    ]
+
+    // MARK: - Mock Family Groups (Enhanced with Simulations)
+
+    /// Get family groups - returns simulated groups if active, otherwise returns default mocks
+    static func getMockFamilyGroups() -> [MockFamilyGroup] {
+        let mockManager = MockFamilyGroupsManager.shared
+
+        // If simulation is active, convert active group to MockFamilyGroup
+        if mockManager.isSimulationActive, let activeGroup = mockManager.activeGroupData {
+            return [convertToMockFamilyGroup(activeGroup)]
+        }
+
+        // Otherwise return default mock groups
+        return defaultMockFamilyGroups
+    }
+
+    /// Default mock family groups (legacy)
+    static let defaultMockFamilyGroups: [MockFamilyGroup] = [
         MockFamilyGroup(
             id: UUID().uuidString,
             name: "Familia González",
@@ -43,6 +104,63 @@ class MockDataManager {
             unreadCount: 5
         )
     ]
+
+    /// Legacy property for backwards compatibility
+    static var mockFamilyGroups: [MockFamilyGroup] {
+        return getMockFamilyGroups()
+    }
+
+    /// Convert MockFamilyGroupData to MockFamilyGroup for display
+    private static func convertToMockFamilyGroup(_ groupData: MockFamilyGroupData) -> MockFamilyGroup {
+        let mockMembers = groupData.members.map { member in
+            let status: UserStatus = {
+                switch member.connectionStatus {
+                case .online: return .online
+                case .away: return .away
+                case .indirect, .offline: return .offline
+                }
+            }()
+            return MockMember(name: member.nickname, status: status)
+        }
+
+        // Get last message from any member
+        let lastMessage = groupData.members
+            .filter { !$0.recentMessages.isEmpty }
+            .compactMap { $0.recentMessages.first?.content }
+            .first ?? "Sin mensajes"
+
+        // Calculate last message time (most recent member activity)
+        let mostRecentMessageTime = groupData.members
+            .compactMap { $0.recentMessages.first?.timestamp }
+            .max() ?? Date().addingTimeInterval(-300)
+
+        // Calculate unread count using MessageReadStateManager
+        let readStateManager = MessageReadStateManager.shared
+        var memberMessages: [String: [SimulatedMessage]] = [:]
+        for member in groupData.members {
+            if !member.recentMessages.isEmpty {
+                memberMessages[member.peerID] = member.recentMessages
+            }
+        }
+        let unreadCount = readStateManager.getTotalUnreadCount(
+            groupId: groupData.id,
+            memberMessages: memberMessages
+        )
+
+        #if DEBUG
+        print("📊 [MockDataManager] Converting group '\(groupData.name)' - unreadCount: \(unreadCount)")
+        #endif
+
+        return MockFamilyGroup(
+            id: groupData.id.uuidString,
+            name: groupData.name,
+            memberCount: groupData.members.count,
+            members: mockMembers,
+            lastMessage: lastMessage,
+            lastMessageTime: mostRecentMessageTime,
+            unreadCount: unreadCount
+        )
+    }
 
     // MARK: - Mock Individual Chats
     static let mockIndividualChats: [MockChatItem] = [
@@ -232,5 +350,45 @@ enum UserStatus {
         case .away: return "orange"
         case .offline: return "gray"
         }
+    }
+}
+
+// MARK: - Mock Peer (for Network Hub)
+struct MockPeer: Identifiable, Hashable, Codable {
+    let id: UUID
+    let displayName: String
+    var distance: Float?
+    var signalQuality: SignalQuality
+    var dataSource: PeerDataSource
+
+    init(id: UUID = UUID(), displayName: String, distance: Float?, signalQuality: SignalQuality, dataSource: PeerDataSource) {
+        self.id = id
+        self.displayName = displayName
+        self.distance = distance
+        self.signalQuality = signalQuality
+        self.dataSource = dataSource
+    }
+
+    enum SignalQuality: Codable {
+        case excellent
+        case good
+        case fair
+        case poor
+        case unknown
+    }
+
+    enum PeerDataSource: Codable {
+        case uwbPrecise
+        case uwbDistance
+        case gps
+        case none
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+
+    static func == (lhs: MockPeer, rhs: MockPeer) -> Bool {
+        lhs.id == rhs.id
     }
 }

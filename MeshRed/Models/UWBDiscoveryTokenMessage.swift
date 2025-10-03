@@ -1,5 +1,5 @@
 //
-//  UWBDiscoveryTokenMessage.swift
+//  LinkFinderDiscoveryTokenMessage.swift
 //  MeshRed
 //
 //  Created by Emilio Contreras on 29/09/25.
@@ -7,9 +7,9 @@
 
 import Foundation
 
-/// Message containing NearbyInteraction discovery token for UWB ranging session establishment
+/// Message containing NearbyInteraction discovery token for LinkFinder ranging session establishment
 /// Exchanged automatically when two peers connect via MultipeerConnectivity
-struct UWBDiscoveryTokenMessage: Codable {
+struct LinkFinderDiscoveryTokenMessage: Codable {
     let senderId: String
     let tokenData: Data  // Serialized NIDiscoveryToken
     let timestamp: Date

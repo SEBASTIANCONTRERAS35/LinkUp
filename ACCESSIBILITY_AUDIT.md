@@ -310,7 +310,7 @@ VStack { /* score content */ }
 1. **Error states:** No visual feedback for failed actions
 2. **Loading states:** Some missing (e.g., location requests)
 3. **Success confirmation:** Brief, could be missed
-4. **Language:** Mix of technical terms ("ACK", "UWB") - needs glossary
+4. **Language:** Mix of technical terms ("ACK", "LinkFinder") - needs glossary
 
 ---
 
@@ -349,9 +349,9 @@ VStack { /* score content */ }
 
 ### Competitive Advantages to Highlight:
 - **Multi-sensor SOS:** Audio + haptic + visual = triple redundancy
-- **Stadium-specific:** Geofencing accessible via audio descriptions
+- **Stadium-specific:** LinkFencing accessible via audio descriptions
 - **Family-centric:** Accessible location sharing for all ages
-- **Offline-first:** Mesh network works when cellular is saturated
+- **Offline-first:** LinkMesh network works when cellular is saturated
 
 ---
 
@@ -398,7 +398,7 @@ StadiumConnect Pro has a **solid foundation** but requires **significant accessi
 - Current state: 40% chance of winning
 - After fixes: 85% chance of winning
 
-The app's **unique value proposition** (mesh networking for accessibility) combined with **proper implementation** will make it unbeatable in the inclusive category.
+The app's **unique value proposition** (LinkLinkMesh networking for accessibility) combined with **proper implementation** will make it unbeatable in the inclusive category.
 
 ---
 

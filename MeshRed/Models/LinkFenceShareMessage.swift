@@ -1,5 +1,5 @@
 //
-//  GeofenceShareMessage.swift
+//  LinkFenceShareMessage.swift
 //  MeshRed
 //
 //  Created by Claude for StadiumConnect Pro - Geofencing System
@@ -7,24 +7,24 @@
 
 import Foundation
 
-/// Represents a geofence being shared with family members via mesh
-struct GeofenceShareMessage: Codable {
+/// Represents a linkfence being shared with family members via mesh
+struct LinkFenceShareMessage: Codable {
     let id: UUID
     let senderId: String                     // Who is sharing
-    let geofence: CustomGeofence             // Complete geofence data
+    let linkfence: CustomLinkFence             // Complete linkfence data
     let familyGroupCode: FamilyGroupCode     // Only family members receive this
     let timestamp: Date
     let message: String?                     // Optional message: "Nos vemos aquí"
 
     init(
         senderId: String,
-        geofence: CustomGeofence,
+        linkfence: CustomLinkFence,
         familyGroupCode: FamilyGroupCode,
         message: String? = nil
     ) {
         self.id = UUID()
         self.senderId = senderId
-        self.geofence = geofence
+        self.linkfence = linkfence
         self.familyGroupCode = familyGroupCode
         self.timestamp = Date()
         self.message = message
@@ -32,6 +32,6 @@ struct GeofenceShareMessage: Codable {
 
     /// Display text for notifications
     var displayText: String {
-        return "\(senderId) compartió '\(geofence.name)'"
+        return "\(senderId) compartió '\(linkfence.name)'"
     }
 }

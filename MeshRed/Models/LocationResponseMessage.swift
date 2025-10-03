@@ -58,7 +58,7 @@ struct LocationResponseMessage: Codable, Identifiable {
         )
     }
 
-    /// Create a UWB direct response (target responds with UWB distance/direction to requester)
+    /// Create a LinkFinder direct response (target responds with LinkFinder distance/direction to requester)
     static func uwbDirectResponse(
         requestId: UUID,
         targetId: String,
@@ -118,8 +118,8 @@ struct LocationResponseMessage: Codable, Identifiable {
 
     enum ResponseType: String, Codable {
         case direct = "direct"              // Target responded with their GPS
-        case uwbDirect = "uwbDirect"        // Target responded with UWB distance/direction to requester
-        case triangulated = "triangulated"  // Intermediary responded with UWB-based relative position (deprecated)
+        case uwbDirect = "uwbDirect"        // Target responded with LinkFinder distance/direction to requester
+        case triangulated = "triangulated"  // Intermediary responded with LinkFinder-based relative position (deprecated)
         case unavailable = "unavailable"    // Location unavailable (permission denied, GPS off, etc.)
     }
 
@@ -134,9 +134,9 @@ struct LocationResponseMessage: Codable, Identifiable {
 
         case .uwbDirect:
             if let rel = relativeLocation {
-                return "Ubicación UWB: \(rel.distanceString) \(rel.directionString ?? "sin dirección") (±\(String(format: "%.1f", rel.accuracy))m)"
+                return "Ubicación LinkFinder: \(rel.distanceString) \(rel.directionString ?? "sin dirección") (±\(String(format: "%.1f", rel.accuracy))m)"
             }
-            return "Ubicación UWB (sin datos)"
+            return "Ubicación LinkFinder (sin datos)"
 
         case .triangulated:
             if let rel = relativeLocation {

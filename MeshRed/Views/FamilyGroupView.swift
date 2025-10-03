@@ -15,6 +15,7 @@ struct FamilyGroupView: View {
     @State private var showCreateGroup = false
     @State private var showJoinGroup = false
     @State private var showShareSheet = false
+    @State private var showSimulationControl = false
 
     var body: some View {
         NavigationView {
@@ -44,6 +45,10 @@ struct FamilyGroupView: View {
                     localPeerID: networkManager.localDeviceName
                 )
                 .environmentObject(networkManager)
+            }
+            .sheet(isPresented: $showSimulationControl) {
+                SimulationControlPanelView()
+                    .environmentObject(networkManager)
             }
         }
     }
@@ -180,6 +185,14 @@ struct FamilyGroupView: View {
                         .padding(.horizontal, 32)
                 }
             }
+
+            // Hidden tap area to access simulation (triple tap)
+            Color.clear
+                .frame(height: 60)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 3) {
+                    showSimulationControl = true
+                }
 
             VStack(spacing: 12) {
                 Button(action: { showCreateGroup = true }) {

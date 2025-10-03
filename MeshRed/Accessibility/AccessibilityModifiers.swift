@@ -395,7 +395,7 @@ struct NetworkStatusAccessibility {
 
     var statusHint: String {
         if connectedPeers == 0 {
-            return "No devices connected. Move closer to other users to establish mesh network connection."
+            return "No devices connected. Move closer to other users to establish LinkMesh network connection."
         } else {
             return "Double tap to view detailed network information and manage connections"
         }
@@ -415,7 +415,7 @@ struct NetworkStatusAccessibility {
     }
 }
 
-// MARK: - Geofence Accessibility Helper
+// MARK: - LinkFence Accessibility Helper
 
 struct GeofenceAccessibility {
     let zoneName: String
@@ -523,6 +523,107 @@ struct StatusRow: View {
     }
 }
 #endif
+
+// MARK: - Helper Modifiers
+
+struct AccessibilityLabelValueModifier: ViewModifier {
+    let label: String?
+    let value: String?
+
+    func body(content: Content) -> some View {
+        Group {
+            if let label = label, let value = value {
+                content
+                    .accessibilityLabel(label)
+                    .accessibilityValue(value)
+            } else if let label = label {
+                content
+                    .accessibilityLabel(label)
+            } else if let value = value {
+                content
+                    .accessibilityValue(value)
+            } else {
+                content
+            }
+        }
+    }
+}
+
+// MARK: - Complete Accessibility Extensions (VoiceOver + Visual Adaptability)
+
+extension View {
+    /// Complete accessible button: VoiceOver + size scaling + haptics
+    /// Combines all accessibility features in one convenient method
+    func fullyAccessibleButton(
+        label: String,
+        hint: String? = nil,
+        minTouchTarget: CGFloat = 44
+    ) -> some View {
+        self
+            .accessibleButton(label: label, hint: hint, minTouchTarget: minTouchTarget)
+            .accessibleButton(minTouchTarget: minTouchTarget) // Apply size scaling
+    }
+
+    /// Complete accessible text: VoiceOver + visual adaptability
+    func fullyAccessibleText(
+        label: String? = nil,
+        value: String? = nil
+    ) -> some View {
+        self
+            .accessibleText() // Apply visual adaptability
+            .modifier(AccessibilityLabelValueModifier(label: label, value: value))
+    }
+
+    /// Complete accessible card: VoiceOver + visual + haptics
+    func fullyAccessibleCard(
+        title: String,
+        description: String,
+        action: String = "Double tap to open",
+        backgroundColor: Color = ThemeColors.cardBackground
+    ) -> some View {
+        self
+            .accessibleCard(backgroundColor: backgroundColor)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(title), \(description)")
+            .accessibilityHint(action)
+            .accessibilityAddTraits(.isButton)
+            .hapticFeedback(.light)
+    }
+
+    /// Applies settings-aware color (respects high contrast)
+    func settingsAwareColor(_ accessibleTheme: AccessibleThemeColors, _ colorType: AccessibleColorType) -> some View {
+        self.foregroundColor(colorType.color(from: accessibleTheme))
+    }
+}
+
+// MARK: - Accessible Color Types
+enum AccessibleColorType {
+    case textPrimary
+    case textSecondary
+    case textTertiary
+    case primaryGreen
+    case primaryBlue
+    case primaryRed
+    case success
+    case warning
+    case error
+    case emergency
+
+    func color(from theme: AccessibleThemeColors) -> Color {
+        switch self {
+        case .textPrimary: return theme.textPrimary
+        case .textSecondary: return theme.textSecondary
+        case .textTertiary: return theme.textTertiary
+        case .primaryGreen: return theme.primaryGreen
+        case .primaryBlue: return theme.primaryBlue
+        case .primaryRed: return theme.primaryRed
+        case .success: return theme.success
+        case .warning: return theme.warning
+        case .error: return theme.error
+        case .emergency: return theme.emergency
+        }
+    }
+}
 
 // MARK: - Usage Examples
 

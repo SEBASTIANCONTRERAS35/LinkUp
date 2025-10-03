@@ -7,9 +7,9 @@
 
 import SwiftUI
 
-/// Radar-style circular navigation view for UWB distance-only navigation (Nivel 3)
+/// Radar-style circular navigation view for LinkFinder distance-only navigation (Nivel 3)
 /// Shows a circular radar with pulsing ring at the target's distance
-/// Used when we have UWB distance but no direction information
+/// Used when we have LinkFinder distance but no direction information
 struct RadarNavigationView: View {
     let targetName: String
     let distance: Float
@@ -126,7 +126,7 @@ struct RadarNavigationView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "info.circle.fill")
                             .foregroundColor(.yellow)
-                        Text("Dirección no disponible - Solo distancia UWB")
+                        Text("Dirección no disponible - Solo distancia LinkFinder")
                             .font(.subheadline)
                             .foregroundColor(.white.opacity(0.8))
                     }

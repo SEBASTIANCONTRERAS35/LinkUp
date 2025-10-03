@@ -14,7 +14,7 @@ struct LocationRequestMessage: Codable, Identifiable {
     let requesterId: String              // Peer requesting location (A)
     let targetId: String                 // Peer whose location is requested (C)
     let timestamp: Date
-    let allowCollaborativeTriangulation: Bool  // Allow intermediaries to respond with UWB data
+    let allowCollaborativeTriangulation: Bool  // Allow intermediaries to respond with LinkFinder data
 
     init(
         id: UUID = UUID(),

@@ -8,7 +8,7 @@
 import Foundation
 import simd
 
-/// Represents a location measured relative to an intermediary peer using UWB
+/// Represents a location measured relative to an intermediary peer using LinkFinder
 /// Example: "C is 15.3m northeast of B"
 struct RelativeLocation: Codable, Equatable {
     let intermediaryId: String           // ID of the peer that measured (B)
@@ -60,7 +60,7 @@ struct RelativeLocation: Codable, Equatable {
     }
 }
 
-/// Represents a 3D direction vector from UWB ranging
+/// Represents a 3D direction vector from LinkFinder ranging
 struct DirectionVector: Codable, Equatable {
     let x: Float
     let y: Float

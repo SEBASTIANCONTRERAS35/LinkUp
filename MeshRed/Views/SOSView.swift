@@ -82,34 +82,7 @@ struct SOSView: View {
 
     // MARK: - Emergency Header
     private var emergencyHeader: some View {
-        VStack(spacing: 16) {
-            // Warning banner
-            HStack(spacing: 12) {
-                Image(systemName: "info.circle.fill")
-                    .font(.title3)
-                    .foregroundColor(Mundial2026Colors.azul)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Tu ubicación será compartida")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                    Text("El personal del estadio recibirá tu solicitud de inmediato")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Spacer()
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Mundial2026Colors.azul.opacity(0.1))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Mundial2026Colors.azul.opacity(0.2), lineWidth: 1)
-            )
-        }
+        EmptyView()
     }
 
     // MARK: - SOS Type Grid
@@ -134,6 +107,22 @@ struct SOSView: View {
 
     // MARK: - Actions
     private func sendSOSAlert(type: SOSType, message: String?) {
+        // Haptic feedback based on SOS type
+        let hapticPattern: HapticPatternType = {
+            switch type {
+            case .emergenciaMedica:
+                return .sosEmergency
+            case .seguridad:
+                return .sosSecurity
+            case .perdido:
+                return .sosLostChild
+            case .asistencia:
+                return .sosEmergency
+            }
+        }()
+
+        HapticManager.shared.playPattern(hapticPattern, priority: .emergency)
+
         // Create SOS alert
         let alert = SOSAlert(
             type: type,
@@ -162,7 +151,11 @@ struct SOSTypeCard: View {
     @State private var isPressed = false
 
     var body: some View {
-        Button(action: action) {
+        Button(action: {
+            // Haptic feedback on tap
+            HapticManager.shared.play(.heavy, priority: .ui)
+            action()
+        }) {
             VStack(spacing: 16) {
                 // Icon container
                 ZStack {

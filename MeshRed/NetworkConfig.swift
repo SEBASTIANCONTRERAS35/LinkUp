@@ -84,8 +84,8 @@ class NetworkConfig: ObservableObject {
     }
 
     // Maximum simultaneous connections (prevents mesh over-optimization)
-    // Increased to allow more peers in the network
-    @Published var maxConnections: Int = 10 {
+    // Limited to 5 for optimal performance and user management
+    @Published var maxConnections: Int = 5 {
         didSet {
             UserDefaults.standard.set(maxConnections, forKey: "maxConnections")
         }
@@ -136,7 +136,7 @@ class NetworkConfig: ObservableObject {
         autoReconnect = true
         maxMessageQueueSize = 100
         messageCacheTimeout = 300
-        maxConnections = 10
+        maxConnections = 5
         stopBrowsingWhenConnected = false
 
         print("🔧 Settings reset to defaults")

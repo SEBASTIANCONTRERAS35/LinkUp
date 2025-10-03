@@ -7,6 +7,7 @@
 
 import SwiftUI
 import MultipeerConnectivity
+import Combine
 
 struct MessagingDashboardView: View {
     @EnvironmentObject var networkManager: NetworkManager
@@ -14,7 +15,10 @@ struct MessagingDashboardView: View {
     // MARK: - State
     @State private var showBroadcastComposer = false
     @State private var showFamilyGroupOptions = false
+    @State private var showSimulationControl = false
     @State private var navigationPath = NavigationPath()
+    @StateObject private var mockGroupsManager = MockFamilyGroupsManager.shared
+    @StateObject private var readStateManager = MessageReadStateManager.shared
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -55,6 +59,10 @@ struct MessagingDashboardView: View {
                     localPeerID: networkManager.localDeviceName
                 )
                 .environmentObject(networkManager)
+            }
+            .sheet(isPresented: $showSimulationControl) {
+                SimulationControlPanelView()
+                    .environmentObject(networkManager)
             }
         }
     }
@@ -135,9 +143,8 @@ struct MessagingDashboardView: View {
     // MARK: - Individual Chats Section
     private var individualChatsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Always show mock data for demo purposes
-            // Mock family groups
-            ForEach(MockDataManager.mockFamilyGroups) { group in
+            // Mock family groups (now includes simulated groups if active)
+            ForEach(MockDataManager.getMockFamilyGroups()) { group in
                 let chatItem = ChatItem(
                     id: group.id,
                     type: .familyGroup,
@@ -237,18 +244,6 @@ struct MessagingDashboardView: View {
                 }
                 .buttonStyle(.plain)
             }
-
-            // Demo indicator
-            HStack {
-                Image(systemName: "eye.fill")
-                    .font(.caption)
-                Text("Modo Demo Activo - Mostrando datos simulados")
-                    .font(.caption)
-                Spacer()
-            }
-            .foregroundColor(.orange)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
         }
     }
 
@@ -485,6 +480,8 @@ struct ChatConversationView: View {
     @ObservedObject var networkManager: NetworkManager
     @State private var messageText = ""
     @State private var showUWBNavigation = false
+    @StateObject private var readStateManager = MessageReadStateManager.shared
+    @StateObject private var mockGroupsManager = MockFamilyGroupsManager.shared
 
     var body: some View {
         ZStack {
@@ -492,7 +489,7 @@ struct ChatConversationView: View {
                 // Messages list
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        // Always show mock messages for demo
+                        // Show mock messages for demo
                         ForEach(MockDataManager.mockConversationMessages(for: chat.id)) { mockMsg in
                             MockMessageBubble(
                                 message: mockMsg,
@@ -500,7 +497,20 @@ struct ChatConversationView: View {
                             )
                         }
 
-                        // Also show real messages if peer is connected (below mock messages)
+                        // Show simulated messages if this is a simulated group
+                        if chat.type == .familyGroup, let groupData = mockGroupsManager.activeGroupData {
+                            ForEach(groupData.members.filter { !$0.recentMessages.isEmpty }, id: \.peerID) { member in
+                                ForEach(member.recentMessages) { simMsg in
+                                    SimulatedMessageBubble(
+                                        message: simMsg,
+                                        senderName: member.nickname,
+                                        isFromLocal: simMsg.senderId == networkManager.localDeviceName
+                                    )
+                                }
+                            }
+                        }
+
+                        // Show real messages if peer is connected
                         if chat.peerID != nil {
                             ForEach(filteredMessages) { message in
                                 MessageBubble(
@@ -518,6 +528,9 @@ struct ChatConversationView: View {
                 }
 
                 Spacer()
+            }
+            .onAppear {
+                markMessagesAsRead()
             }
 
             // Message composer (floating above bottom nav)
@@ -571,7 +584,7 @@ struct ChatConversationView: View {
         .fullScreenCover(isPresented: $showUWBNavigation) {
             if let peerID = chat.peerID,
                let uwbManager = networkManager.uwbSessionManager {
-                UWBNavigationView(
+                LinkFinderNavigationView(
                     targetName: chat.title,
                     targetPeerID: peerID,
                     uwbManager: uwbManager,
@@ -583,7 +596,7 @@ struct ChatConversationView: View {
                     }
                 )
             } else {
-                // Fallback: UWB not available
+                // Fallback: LinkFinder not available
                 UWBNotAvailableView(onDismiss: {
                     showUWBNavigation = false
                 })
@@ -640,31 +653,125 @@ struct ChatConversationView: View {
             return
         }
 
-        // Ensure UWB session exists
+        // Ensure LinkFinder session exists
         if let uwbManager = networkManager.uwbSessionManager {
-            // Check if UWB is supported
-            guard uwbManager.isUWBSupported else {
-                print("⚠️ UWB not supported on this device")
+            // Check if LinkFinder is supported
+            guard uwbManager.isLinkFinderSupported else {
+                print("⚠️ LinkFinder not supported on this device")
                 showUWBNavigation = true  // Will show fallback view
                 return
             }
 
-            // Ensure UWB session is active with this peer
+            // Ensure LinkFinder session is active with this peer
             if !uwbManager.hasActiveSession(with: peerID) {
-                print("📡 Starting UWB session for navigation with \(peerID.displayName)")
-                // UWB session will be started automatically by NetworkManager
+                print("📡 Starting LinkFinder session for navigation with \(peerID.displayName)")
+                // LinkFinder session will be started automatically by NetworkManager
                 // when peer is connected
             }
 
             showUWBNavigation = true
         } else {
-            print("⚠️ UWB Manager not initialized")
+            print("⚠️ LinkFinder Manager not initialized")
             showUWBNavigation = true  // Will show fallback view
+        }
+    }
+
+    private func markMessagesAsRead() {
+        print("🔍 [MarkAsRead] Called - chat.type: \(chat.type), chat.id: \(chat.id)")
+
+        // Only mark messages as read for simulated groups
+        guard chat.type == .familyGroup else {
+            print("⚠️ [MarkAsRead] Not a family group, skipping")
+            return
+        }
+
+        guard let groupData = mockGroupsManager.activeGroupData else {
+            print("⚠️ [MarkAsRead] No active group data, skipping")
+            return
+        }
+
+        // Use the actual group ID from the active simulation
+        let groupId = groupData.id
+        print("📋 [MarkAsRead] Group ID: \(groupId), Name: \(groupData.name)")
+
+        // Build dictionary of member messages
+        var memberMessages: [String: [UUID]] = [:]
+        for member in groupData.members {
+            if !member.recentMessages.isEmpty {
+                memberMessages[member.peerID] = member.recentMessages.map { $0.id }
+                print("   - \(member.nickname): \(member.recentMessages.count) messages")
+            }
+        }
+
+        let totalMessages = memberMessages.values.flatMap { $0 }.count
+        print("📊 [MarkAsRead] Total messages to mark: \(totalMessages)")
+
+        // Mark all as read
+        readStateManager.markAllGroupMessagesAsRead(
+            groupId: groupId,
+            memberMessages: memberMessages
+        )
+
+        print("✅ [MarkAsRead] Marked \(totalMessages) messages as read for group \(groupId)")
+
+        // Force refresh of parent view
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            print("🔄 [MarkAsRead] Triggering UI refresh...")
+            self.mockGroupsManager.objectWillChange.send()
         }
     }
 }
 
-// MARK: - UWB Not Available View
+// MARK: - Simulated Message Bubble
+struct SimulatedMessageBubble: View {
+    let message: SimulatedMessage
+    let senderName: String
+    let isFromLocal: Bool
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 12) {
+            if isFromLocal {
+                Spacer(minLength: 0)
+            }
+
+            VStack(alignment: isFromLocal ? .trailing : .leading, spacing: 6) {
+                if !isFromLocal {
+                    Text(senderName)
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                }
+
+                Text(message.content)
+                    .font(.body)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(bubbleColor)
+                    .foregroundColor(isFromLocal ? .white : .primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                Text(message.timeAgo)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: 260, alignment: isFromLocal ? .trailing : .leading)
+
+            if !isFromLocal {
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var bubbleColor: Color {
+        if isFromLocal {
+            return Mundial2026Colors.verde
+        } else {
+            return Color.gray.opacity(0.2)
+        }
+    }
+}
+
+// MARK: - LinkFinder Not Available View
 struct UWBNotAvailableView: View {
     let onDismiss: () -> Void
 
@@ -680,7 +787,7 @@ struct UWBNotAvailableView: View {
                     .foregroundColor(.orange)
 
                 // Title
-                Text("Navegación UWB No Disponible")
+                Text("Navegación LinkFinder No Disponible")
                     .font(.title2)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
@@ -688,7 +795,7 @@ struct UWBNotAvailableView: View {
 
                 // Message
                 VStack(spacing: 12) {
-                    Text("La navegación precisa UWB requiere:")
+                    Text("La navegación precisa LinkFinder requiere:")
                         .font(.body)
                         .foregroundColor(.white.opacity(0.8))
 
@@ -722,7 +829,7 @@ struct UWBNotAvailableView: View {
                 .padding(.horizontal)
 
                 // Info
-                Text("Puedes seguir usando la mensajería mesh sin UWB")
+                Text("Puedes seguir usando la mensajería mesh sin LinkFinder")
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.6))
                     .multilineTextAlignment(.center)

@@ -1,5 +1,5 @@
 //
-//  GeofenceCreatorView.swift
+//  LinkFenceCreatorView.swift
 //  MeshRed
 //
 //  Created by Claude for StadiumConnect Pro - Geofencing System
@@ -9,9 +9,9 @@
 import SwiftUI
 import MapKit
 
-struct GeofenceCreatorView: View {
+struct LinkFenceCreatorView: View {
     @Environment(\.dismiss) var dismiss
-    @ObservedObject var geofenceManager: GeofenceManager
+    @ObservedObject var linkfenceManager: LinkFenceManager
     @ObservedObject var locationService: LocationService
 
     @State private var name: String = ""
@@ -42,7 +42,7 @@ struct GeofenceCreatorView: View {
                             HStack(spacing: 8) {
                                 Image(systemName: "hand.tap.fill")
                                     .font(.title3)
-                                Text("Toca el mapa para colocar el pin del geofence")
+                                Text("Toca el mapa para colocar el pin del linkfence")
                                     .font(.caption)
                             }
                             .padding(.horizontal, 16)
@@ -113,7 +113,7 @@ struct GeofenceCreatorView: View {
 
                     // Save button
                     Button(action: saveGeofence) {
-                        Label("Crear Geofence", systemImage: "checkmark.circle.fill")
+                        Label("Crear LinkFence", systemImage: "checkmark.circle.fill")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding()
@@ -126,7 +126,7 @@ struct GeofenceCreatorView: View {
                 .padding()
                 .background(Color(.systemBackground))
             }
-            .navigationTitle("Crear Geofence")
+            .navigationTitle("Crear LinkFence")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -142,7 +142,7 @@ struct GeofenceCreatorView: View {
                     .disabled(!locationService.isLocationAvailable)
                 }
             }
-            .alert("Geofence Creado", isPresented: $showSaveConfirmation) {
+            .alert("LinkFence Creado", isPresented: $showSaveConfirmation) {
                 Button("OK") {
                     dismiss()
                 }
@@ -182,7 +182,7 @@ struct GeofenceCreatorView: View {
     private func saveGeofence() {
         guard let coordinate = selectedCoordinate else { return }
 
-        geofenceManager.createGeofence(
+        linkfenceManager.createGeofence(
             name: name,
             center: coordinate,
             radius: radius,
@@ -256,7 +256,7 @@ struct GeofenceMapEditor: UIViewRepresentable {
             // Add pin annotation
             let annotation = MKPointAnnotation()
             annotation.coordinate = coordinate
-            annotation.title = "Centro del Geofence"
+            annotation.title = "Centro del LinkFence"
             annotation.subtitle = "Radio: \(Int(radius))m"
             mapView.addAnnotation(annotation)
 

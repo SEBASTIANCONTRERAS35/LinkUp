@@ -17,6 +17,7 @@ struct CreateFamilyGroupView: View {
     @State private var nickname = ""
     @State private var showQRCode = false
     @State private var createdGroup: FamilyGroup?
+    @StateObject private var displayNameManager = UserDisplayNameManager.shared
 
     var body: some View {
         NavigationView {
@@ -24,6 +25,13 @@ struct CreateFamilyGroupView: View {
                 qrCodeView(for: group)
             } else {
                 createGroupForm
+            }
+        }
+        .onAppear {
+            // Pre-fill nickname with family name from settings
+            if nickname.isEmpty {
+                let deviceName = ProcessInfo.processInfo.hostName
+                nickname = displayNameManager.getCurrentFamilyName(deviceName: deviceName)
             }
         }
     }

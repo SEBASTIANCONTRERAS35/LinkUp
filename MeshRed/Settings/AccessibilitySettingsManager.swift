@@ -9,6 +9,29 @@
 import SwiftUI
 import Combine
 
+// MARK: - Button Size Options
+enum ButtonSize: String, CaseIterable {
+    case small = "small"
+    case normal = "normal"
+    case large = "large"
+
+    var displayName: String {
+        switch self {
+        case .small: return "Pequeño"
+        case .normal: return "Predeterminado"
+        case .large: return "Agrandado"
+        }
+    }
+
+    var multiplier: Double {
+        switch self {
+        case .small: return 0.85
+        case .normal: return 1.0
+        case .large: return 1.3
+        }
+    }
+}
+
 /// Centralized manager for all accessibility settings
 /// Uses @AppStorage for automatic UserDefaults persistence
 class AccessibilitySettingsManager: ObservableObject {
@@ -47,8 +70,24 @@ class AccessibilitySettingsManager: ObservableObject {
     @AppStorage("accessibility.visual.minimumTextSize")
     var minimumTextSize: String = "small"
 
-    @AppStorage("accessibility.visual.buttonSizeMultiplier")
-    var buttonSizeMultiplier: Double = 1.0 // 0.8 - 1.5
+    @AppStorage("accessibility.visual.buttonSize")
+    private var buttonSizeRaw: String = ButtonSize.normal.rawValue
+
+    /// Button size setting (small, normal, large)
+    var buttonSize: ButtonSize {
+        get {
+            ButtonSize(rawValue: buttonSizeRaw) ?? .normal
+        }
+        set {
+            buttonSizeRaw = newValue.rawValue
+            objectWillChange.send()
+        }
+    }
+
+    /// Computed multiplier based on button size (for backward compatibility)
+    var buttonSizeMultiplier: Double {
+        buttonSize.multiplier
+    }
 
     @AppStorage("accessibility.visual.enableHighContrast")
     var enableHighContrast: Bool = false
@@ -79,7 +118,7 @@ class AccessibilitySettingsManager: ObservableObject {
     @AppStorage("accessibility.haptic.uiInteractions")
     var hapticOnUIInteractions: Bool = true
 
-    @AppStorage("accessibility.haptic.geofenceTransitions")
+    @AppStorage("accessibility.haptic.linkfenceTransitions")
     var hapticOnGeofenceTransitions: Bool = true
 
     // MARK: - 🎬 Animations & Motion Settings
@@ -235,7 +274,7 @@ class AccessibilitySettingsManager: ObservableObject {
             enableVoiceOverHints = true
             voiceOverSpeakingRate = 0.8
             maximumTextSize = "accessibility5"
-            buttonSizeMultiplier = 1.3
+            buttonSize = .large // ✅ Botones agrandados
             hapticsEnabled = true
             hapticIntensity = "strong"
             reduceMotionLevel = "some"
@@ -275,7 +314,7 @@ class AccessibilitySettingsManager: ObservableObject {
             showButtonLabels = true
             requireSOSConfirmation = false
             sosCountdownDuration = 10 // More time to understand
-            buttonSizeMultiplier = 1.2
+            buttonSize = .large // ✅ Botones agrandados
             preferBoldText = true
 
         case .maximoRendimiento:
@@ -297,7 +336,7 @@ class AccessibilitySettingsManager: ObservableObject {
             announceNetworkChanges = true
             requireSOSConfirmation = true
             sosCountdownDuration = 5
-            buttonSizeMultiplier = 1.0
+            buttonSize = .normal // ✅ Tamaño normal
         }
 
         // Notify observers

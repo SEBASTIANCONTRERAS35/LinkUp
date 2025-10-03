@@ -9,6 +9,9 @@ import SwiftUI
 
 /// Accessible section container for settings groups
 struct SettingsSection<Content: View>: View {
+    @EnvironmentObject var accessibilitySettings: AccessibilitySettingsManager
+    @Environment(\.accessibleTheme) var accessibleTheme
+
     let icon: String
     let title: String
     let description: String?
@@ -42,13 +45,15 @@ struct SettingsSection<Content: View>: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.headline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(ThemeColors.textPrimary)
+                        .fontWeight(accessibilitySettings.preferBoldText ? .bold : .semibold)
+                        .foregroundColor(accessibleTheme.textPrimary)
+                        .accessibleText()
 
                     if let description = description {
                         Text(description)
                             .font(.caption)
-                            .foregroundColor(ThemeColors.textSecondary)
+                            .foregroundColor(accessibleTheme.textSecondary)
+                            .accessibleText()
                     }
                 }
             }
@@ -63,8 +68,9 @@ struct SettingsSection<Content: View>: View {
             }
             .padding(.vertical, 8)
             .padding(.horizontal, 16)
-            .background(ThemeColors.cardBackground)
-            .cornerRadius(12)
+            .accessibleBackground(accessibleTheme.cardBackground)
+            .cornerRadius(accessibleTheme.standardCornerRadius)
+            .accessibleShadow(color: .black.opacity(accessibleTheme.shadowOpacity), radius: 8)
         }
         .padding(.horizontal, 20)
     }
@@ -72,6 +78,9 @@ struct SettingsSection<Content: View>: View {
 
 /// Accessible toggle row for settings
 struct AccessibleSettingToggle: View {
+    @EnvironmentObject var accessibilitySettings: AccessibilitySettingsManager
+    @Environment(\.accessibleTheme) var accessibleTheme
+
     let title: String
     let description: String?
     let icon: String?
@@ -83,7 +92,7 @@ struct AccessibleSettingToggle: View {
             if let icon = icon {
                 Image(systemName: icon)
                     .font(.body)
-                    .foregroundColor(ThemeColors.primaryBlue)
+                    .foregroundColor(accessibleTheme.primaryBlue)
                     .frame(width: 24)
                     .accessibilityHidden(true)
             }
@@ -91,12 +100,15 @@ struct AccessibleSettingToggle: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.body)
-                    .foregroundColor(ThemeColors.textPrimary)
+                    .fontWeight(accessibilitySettings.preferBoldText ? .bold : .regular)
+                    .foregroundColor(accessibleTheme.textPrimary)
+                    .accessibleText()
 
                 if let description = description {
                     Text(description)
                         .font(.caption)
-                        .foregroundColor(ThemeColors.textSecondary)
+                        .foregroundColor(accessibleTheme.textSecondary)
+                        .accessibleText()
                 }
             }
 
@@ -127,6 +139,9 @@ struct AccessibleSettingToggle: View {
 
 /// Accessible slider row for settings
 struct AccessibleSettingSlider: View {
+    @EnvironmentObject var accessibilitySettings: AccessibilitySettingsManager
+    @Environment(\.accessibleTheme) var accessibleTheme
+
     let title: String
     let description: String?
     let icon: String?
@@ -142,7 +157,7 @@ struct AccessibleSettingSlider: View {
                 if let icon = icon {
                     Image(systemName: icon)
                         .font(.body)
-                        .foregroundColor(ThemeColors.primaryBlue)
+                        .foregroundColor(accessibleTheme.primaryBlue)
                         .frame(width: 24)
                         .accessibilityHidden(true)
                 }
@@ -151,26 +166,30 @@ struct AccessibleSettingSlider: View {
                     HStack {
                         Text(title)
                             .font(.body)
-                            .foregroundColor(ThemeColors.textPrimary)
+                            .fontWeight(accessibilitySettings.preferBoldText ? .bold : .regular)
+                            .foregroundColor(accessibleTheme.textPrimary)
+                            .accessibleText()
 
                         Spacer()
 
                         Text(formattedValue)
                             .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(ThemeColors.primaryBlue)
+                            .fontWeight(accessibilitySettings.preferBoldText ? .bold : .semibold)
+                            .foregroundColor(accessibleTheme.primaryBlue)
+                            .accessibleText()
                     }
 
                     if let description = description {
                         Text(description)
                             .font(.caption)
-                            .foregroundColor(ThemeColors.textSecondary)
+                            .foregroundColor(accessibleTheme.textSecondary)
+                            .accessibleText()
                     }
                 }
             }
 
             Slider(value: $value, in: range, step: step)
-                .accentColor(ThemeColors.primaryBlue)
+                .accentColor(accessibleTheme.primaryBlue)
                 .onChange(of: value) { newValue in
                     // Haptic feedback
                     #if os(iOS)
@@ -197,6 +216,9 @@ struct AccessibleSettingSlider: View {
 
 /// Accessible picker row for settings
 struct AccessibleSettingPicker: View {
+    @EnvironmentObject var accessibilitySettings: AccessibilitySettingsManager
+    @Environment(\.accessibleTheme) var accessibleTheme
+
     let title: String
     let description: String?
     let icon: String?
@@ -210,7 +232,7 @@ struct AccessibleSettingPicker: View {
                 if let icon = icon {
                     Image(systemName: icon)
                         .font(.body)
-                        .foregroundColor(ThemeColors.primaryBlue)
+                        .foregroundColor(accessibleTheme.primaryBlue)
                         .frame(width: 24)
                         .accessibilityHidden(true)
                 }
@@ -218,12 +240,15 @@ struct AccessibleSettingPicker: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.body)
-                        .foregroundColor(ThemeColors.textPrimary)
+                        .fontWeight(accessibilitySettings.preferBoldText ? .bold : .regular)
+                        .foregroundColor(accessibleTheme.textPrimary)
+                        .accessibleText()
 
                     if let description = description {
                         Text(description)
                             .font(.caption)
-                            .foregroundColor(ThemeColors.textSecondary)
+                            .foregroundColor(accessibleTheme.textSecondary)
+                            .accessibleText()
                     }
                 }
             }

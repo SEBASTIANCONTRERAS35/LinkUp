@@ -1,8 +1,8 @@
-# 🔧 UWB Troubleshooting Guide - MeshRed
+# 🔧 LinkFinder Troubleshooting Guide - MeshRed
 
 ## Problema Actual: "Not in connected state, so giving up for participant"
 
-Este error ocurre cuando las sesiones UWB no pueden establecer ranging entre dispositivos. La sesión se crea pero no recibe datos de distancia.
+Este error ocurre cuando las sesiones LinkFinder no pueden establecer ranging entre dispositivos. La sesión se crea pero no recibe datos de distancia.
 
 ## ✅ Soluciones Implementadas
 
@@ -26,8 +26,8 @@ Este error ocurre cuando las sesiones UWB no pueden establecer ranging entre dis
 ### Síntomas Actuales
 ```
 ✅ Conexión P2P establecida
-✅ Tokens UWB intercambiados
-✅ Sesión UWB creada (Session=true)
+✅ Tokens LinkFinder intercambiados
+✅ Sesión LinkFinder creada (Session=true)
 ❌ Sin datos de ranging (Distance=nil)
 ❌ Error: "Not in connected state"
 ```
@@ -87,13 +87,13 @@ if state == .connected && !hasObject {
 
 ### Debugging Avanzado
 
-Para ver el estado detallado de UWB:
+Para ver el estado detallado de LinkFinder:
 
 ```swift
 // En ContentView, cuando se detecta sesión sin ranging:
 print(uwbManager.getUWBStatus(for: peer))
 // Output:
-// UWB Status for iphone-de-bichotee.local:
+// LinkFinder Status for iphone-de-bichotee.local:
 //   • Session: ✅
 //   • State: connected
 //   • Ranging: ❌
@@ -103,19 +103,19 @@ print(uwbManager.getUWBStatus(for: peer))
 ## 📊 Logs Esperados cuando Funciona Correctamente
 
 ```
-📡 UWB SESSION CREATION
+📡 LinkFinder SESSION CREATION
    Peer: iphone-de-bichotee.local
    Session delegate: ✓
    Discovery token: ✓
    Configuration: ✓
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 UWBSessionManager: didUpdate called for iphone-de-bichotee.local with 1 objects
+🎯 LinkFinderSessionManager: didUpdate called for iphone-de-bichotee.local with 1 objects
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎉 UWB RANGING ESTABLISHED
+🎉 LinkFinder RANGING ESTABLISHED
    Peer: iphone-de-bichotee.local
    First ranging data received!
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📡 UWB: iphone-de-bichotee.local - 2.45m (with direction)
+📡 LinkFinder: iphone-de-bichotee.local - 2.45m (with direction)
 ```
 
 ## 🔄 Estado Actual del Fix
@@ -133,7 +133,7 @@ print(uwbManager.getUWBStatus(for: peer))
 3. Conectar dispositivos via P2P
 4. Esperar 5-15 segundos para ranging
 5. Si falla, la app reintentará automáticamente
-6. Verificar logs para "UWB RANGING ESTABLISHED"
+6. Verificar logs para "LinkFinder RANGING ESTABLISHED"
 
 ## 🚨 Si Todo Falla
 
@@ -147,7 +147,7 @@ Si después de todos los intentos no funciona:
 ## 📝 Notas Técnicas
 
 - El error "Not in connected state" es del framework interno de Apple
-- No es un error de la app, sino del establecimiento de canal UWB
+- No es un error de la app, sino del establecimiento de canal LinkFinder
 - iOS intenta conectar en canales 0,1,2,5,6 antes de fallar
 - El reinicio de sesión a veces resuelve el problema
 

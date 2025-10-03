@@ -305,12 +305,9 @@ class AudioManager: NSObject, ObservableObject {
         // Speak emergency message with highest priority
         speak(message, priority: .critical)
 
-        // Vibrate if configured
+        // Haptic feedback for emergency (uses HapticManager)
         if settings.vibrateDuringSOSCountdown {
-            #if os(iOS)
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.warning)
-            #endif
+            HapticManager.shared.playPattern(.sosEmergency, priority: .emergency)
         }
     }
 
@@ -330,7 +327,7 @@ class AudioManager: NSObject, ObservableObject {
         playSound(connected ? .peerConnected : .peerDisconnected)
     }
 
-    /// Announce geofence zone transition
+    /// Announce linkfence zone transition
     func announceZoneTransition(entered: Bool, zoneName: String) {
         guard settings.announceZoneTransitions else { return }
 
@@ -343,13 +340,7 @@ class AudioManager: NSObject, ObservableObject {
         // Play sound
         playSound(entered ? .zoneEntered : .zoneExited)
 
-        // Haptic feedback if enabled
-        if settings.hapticOnGeofenceTransitions {
-            #if os(iOS)
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.success)
-            #endif
-        }
+        // Note: Haptic feedback is now handled by LinkFenceManager with category-specific patterns
     }
 
     /// Announce network status change
@@ -360,13 +351,13 @@ class AudioManager: NSObject, ObservableObject {
         let priority: AudioPriority
 
         if peerCount == 0 {
-            message = "Desconectado de la red mesh. No hay personas cercanas."
+            message = "Desconectado de la LinkMesh. No hay personas cercanas."
             priority = .important // Important to know you're disconnected
         } else if peerCount == 1 {
-            message = "Conectado a 1 persona en la red mesh."
+            message = "Conectado a 1 persona en la LinkMesh."
             priority = .normal
         } else {
-            message = "Conectado a \(peerCount) personas en la red mesh."
+            message = "Conectado a \(peerCount) personas en la LinkMesh."
             priority = .normal
         }
 

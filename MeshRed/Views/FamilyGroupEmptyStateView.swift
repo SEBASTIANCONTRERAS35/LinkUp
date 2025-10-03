@@ -16,6 +16,8 @@ struct FamilyGroupEmptyStateView: View {
 
     @State private var showCreateGroup = false
     @State private var showJoinGroup = false
+    @State private var showSimulationControl = false
+    @StateObject private var mockGroupsManager = MockFamilyGroupsManager.shared
 
     var body: some View {
         NavigationView {
@@ -44,6 +46,14 @@ struct FamilyGroupEmptyStateView: View {
                 }
 
                 Spacer()
+
+                // Hidden tap area to access simulation (triple tap)
+                Color.clear
+                    .frame(height: 60)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 3) {
+                        showSimulationControl = true
+                    }
 
                 // Action buttons
                 VStack(spacing: 16) {
@@ -87,6 +97,9 @@ struct FamilyGroupEmptyStateView: View {
                         )
                     }
                     .buttonStyle(.plain)
+
+                    // Hidden simulation button (for testing - triple tap to reveal)
+                    // This is invisible to users but accessible for demos
                 }
                 .padding(.horizontal, 40)
                 .padding(.bottom, 40)
@@ -114,6 +127,10 @@ struct FamilyGroupEmptyStateView: View {
                     localPeerID: localPeerID
                 )
                 .environmentObject(networkManager)
+            }
+            .sheet(isPresented: $showSimulationControl) {
+                SimulationControlPanelView()
+                    .environmentObject(networkManager)
             }
         }
     }

@@ -1,6 +1,6 @@
 # 🧪 Guía de Testing Multi-Hop: A → B → C
 
-Esta guía te ayudará a probar que tu red mesh funciona correctamente con routing multi-hop.
+Esta guía te ayudará a probar que tu LinkMesh funciona correctamente con routing multi-hop.
 
 ---
 
@@ -342,7 +342,7 @@ Si todo funciona correctamente, deberías ver:
 ✅ MessageCache previene duplicados
 ```
 
-**🎉 Si ves todo esto: Tu red mesh multi-hop funciona perfectamente!**
+**🎉 Si ves todo esto: Tu LinkMesh multi-hop funciona perfectamente!**
 
 ---
 
@@ -357,8 +357,8 @@ Una vez verificado el multi-hop:
    ```
 
 2. Continúa con implementación de:
-   - Core Location + Geofencing
-   - Nearby Interaction (UWB)
+   - Core Location + LinkFencing
+   - Nearby Interaction (LinkFinder)
    - Stadium Mode UI
 
 3. En la presentación, menciona:

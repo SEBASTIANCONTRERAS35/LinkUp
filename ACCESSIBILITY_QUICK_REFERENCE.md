@@ -82,7 +82,7 @@ Button(action: sendSOS) {
 100 = Headers (read first)
 90  = Emergency actions (SOS)
 80  = Primary content (match, quick actions)
-70  = Secondary content (location, geofence)
+70  = Secondary content (location, linkfence)
 60  = Lists (peers, messages)
 50  = Stats (battery, connections)
 10  = Settings (low priority)

@@ -121,13 +121,13 @@ enum NetworkPayload: Codable {
     case pong(PongMessage)
     case locationRequest(LocationRequestMessage)
     case locationResponse(LocationResponseMessage)
-    case uwbDiscoveryToken(UWBDiscoveryTokenMessage)
+    case uwbDiscoveryToken(LinkFinderDiscoveryTokenMessage)
     case familySync(FamilySyncMessage)
     case familyJoinRequest(FamilyJoinRequestMessage)
     case familyGroupInfo(FamilyGroupInfoMessage)
     case topology(TopologyMessage)
-    case geofenceEvent(GeofenceEventMessage)
-    case geofenceShare(GeofenceShareMessage)
+    case linkfenceEvent(LinkFenceEventMessage)
+    case linkfenceShare(LinkFenceShareMessage)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -158,7 +158,7 @@ enum NetworkPayload: Codable {
             let response = try container.decode(LocationResponseMessage.self, forKey: .payload)
             self = .locationResponse(response)
         case "uwbDiscoveryToken":
-            let token = try container.decode(UWBDiscoveryTokenMessage.self, forKey: .payload)
+            let token = try container.decode(LinkFinderDiscoveryTokenMessage.self, forKey: .payload)
             self = .uwbDiscoveryToken(token)
         case "familySync":
             let familySync = try container.decode(FamilySyncMessage.self, forKey: .payload)
@@ -172,12 +172,12 @@ enum NetworkPayload: Codable {
         case "topology":
             let topology = try container.decode(TopologyMessage.self, forKey: .payload)
             self = .topology(topology)
-        case "geofenceEvent":
-            let event = try container.decode(GeofenceEventMessage.self, forKey: .payload)
-            self = .geofenceEvent(event)
-        case "geofenceShare":
-            let share = try container.decode(GeofenceShareMessage.self, forKey: .payload)
-            self = .geofenceShare(share)
+        case "linkfenceEvent":
+            let event = try container.decode(LinkFenceEventMessage.self, forKey: .payload)
+            self = .linkfenceEvent(event)
+        case "linkfenceShare":
+            let share = try container.decode(LinkFenceShareMessage.self, forKey: .payload)
+            self = .linkfenceShare(share)
         default:
             throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown payload type: \(type)")
         }
@@ -220,11 +220,11 @@ enum NetworkPayload: Codable {
         case .topology(let topology):
             try container.encode("topology", forKey: .type)
             try container.encode(topology, forKey: .payload)
-        case .geofenceEvent(let event):
-            try container.encode("geofenceEvent", forKey: .type)
+        case .linkfenceEvent(let event):
+            try container.encode("linkfenceEvent", forKey: .type)
             try container.encode(event, forKey: .payload)
-        case .geofenceShare(let share):
-            try container.encode("geofenceShare", forKey: .type)
+        case .linkfenceShare(let share):
+            try container.encode("linkfenceShare", forKey: .type)
             try container.encode(share, forKey: .payload)
         }
     }

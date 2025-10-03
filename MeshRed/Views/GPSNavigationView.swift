@@ -10,7 +10,7 @@ import CoreLocation
 
 /// GPS + Compass navigation view (Nivel 2)
 /// Shows directional arrow based on GPS bearing + user's compass heading
-/// Used when we have peer's GPS location and user's heading, but no UWB direction
+/// Used when we have peer's GPS location and user's heading, but no LinkFinder direction
 struct GPSNavigationView: View {
     let targetName: String
     let userLocation: UserLocation
@@ -179,7 +179,7 @@ struct GPSNavigationInfo: View {
 
                 if let uwb = uwbDistance {
                     HStack {
-                        Text("Distancia UWB:")
+                        Text("Distancia LinkFinder:")
                             .foregroundColor(.white.opacity(0.7))
                         Spacer()
                         Text(String(format: "%.2fm", uwb))

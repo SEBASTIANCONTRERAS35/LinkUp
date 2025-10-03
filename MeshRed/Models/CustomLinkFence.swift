@@ -1,5 +1,5 @@
 //
-//  CustomGeofence.swift
+//  CustomLinkFence.swift
 //  MeshRed
 //
 //  Created by Claude for StadiumConnect Pro - Geofencing System
@@ -7,16 +7,20 @@
 
 import Foundation
 import CoreLocation
+import SwiftUI
 
-/// Represents a custom user-defined geofence region
-struct CustomGeofence: Codable, Identifiable, Equatable {
+/// Represents a custom user-defined linkfence region
+struct CustomLinkFence: Codable, Identifiable, Equatable {
     let id: UUID
     var name: String                          // User-friendly name: "Estadio Azteca"
     let center: CLLocationCoordinate2D        // Center point of circular region
     let radius: CLLocationDistance            // Radius in meters (100-5000)
     let createdAt: Date
-    let creatorPeerID: String                 // Device that created this geofence
+    let creatorPeerID: String                 // Device that created this linkfence
     var isActive: Bool                        // Currently being monitored
+    var category: LinkFenceCategory            // Category of place
+    var colorHex: String                      // Hex color for visual identification
+    var isMonitoring: Bool                    // Whether actively monitoring this linkfence
 
     init(
         id: UUID = UUID(),
@@ -25,7 +29,10 @@ struct CustomGeofence: Codable, Identifiable, Equatable {
         radius: CLLocationDistance,
         createdAt: Date = Date(),
         creatorPeerID: String,
-        isActive: Bool = true
+        isActive: Bool = true,
+        category: LinkFenceCategory = .custom,
+        colorHex: String? = nil,
+        isMonitoring: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -34,6 +41,9 @@ struct CustomGeofence: Codable, Identifiable, Equatable {
         self.createdAt = createdAt
         self.creatorPeerID = creatorPeerID
         self.isActive = isActive
+        self.category = category
+        self.colorHex = colorHex ?? category.defaultColorHex
+        self.isMonitoring = isMonitoring
     }
 
     /// Convert to CLCircularRegion for CoreLocation monitoring
@@ -48,13 +58,13 @@ struct CustomGeofence: Codable, Identifiable, Equatable {
         return region
     }
 
-    /// Check if a location is inside this geofence
+    /// Check if a location is inside this linkfence
     func contains(_ location: UserLocation) -> Bool {
-        let geofenceCenter = CLLocation(
+        let linkfenceCenter = CLLocation(
             latitude: center.latitude,
             longitude: center.longitude
         )
-        let distance = geofenceCenter.distance(from: location.toCLLocation())
+        let distance = linkfenceCenter.distance(from: location.toCLLocation())
         return distance <= radius
     }
 
@@ -63,12 +73,17 @@ struct CustomGeofence: Codable, Identifiable, Equatable {
         return "\(name) (radio: \(Int(radius))m)"
     }
 
-    /// Age of the geofence
+    /// Age of the linkfence
     var age: TimeInterval {
         return Date().timeIntervalSince(createdAt)
     }
 
-    static func == (lhs: CustomGeofence, rhs: CustomGeofence) -> Bool {
+    /// SwiftUI Color from hex string (uses Color(hex:) from Mundial2026Theme.swift)
+    var color: Color {
+        return Color(hex: colorHex)
+    }
+
+    static func == (lhs: CustomLinkFence, rhs: CustomLinkFence) -> Bool {
         return lhs.id == rhs.id
     }
 }

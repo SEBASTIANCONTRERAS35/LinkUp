@@ -18,6 +18,7 @@ struct JoinFamilyGroupView: View {
     @State private var relationshipTag = ""
     @State private var showError = false
     @State private var errorMessage = ""
+    @StateObject private var displayNameManager = UserDisplayNameManager.shared
 
     // Validation states
     @State private var validationState: ValidationState = .idle
@@ -149,6 +150,13 @@ struct JoinFamilyGroupView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: Notification.Name("FamilyGroupInfoReceived"))) { notification in
                 handleGroupInfoReceived(notification)
+            }
+            .onAppear {
+                // Pre-fill nickname with family name from settings
+                if nickname.isEmpty {
+                    let deviceName = ProcessInfo.processInfo.hostName
+                    nickname = displayNameManager.getCurrentFamilyName(deviceName: deviceName)
+                }
             }
             .onDisappear {
                 requestTimeoutTimer?.invalidate()

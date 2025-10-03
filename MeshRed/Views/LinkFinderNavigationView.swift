@@ -1,5 +1,5 @@
 //
-//  UWBNavigationView.swift
+//  LinkFinderNavigationView.swift
 //  MeshRed
 //
 //  Created by Emilio Contreras on 29/09/25.
@@ -8,15 +8,15 @@
 import SwiftUI
 import MultipeerConnectivity
 
-/// Vista de navegación UWB híbrida con 4 niveles de fallback
-/// Nivel 1: UWB Direction precisa (SIMD3)
+/// Vista de navegación LinkFinder híbrida con 4 niveles de fallback
+/// Nivel 1: LinkFinder Direction precisa (SIMD3)
 /// Nivel 2: GPS + Compass (cuando peer comparte ubicación)
-/// Nivel 3: Radar circular (solo UWB distance)
+/// Nivel 3: Radar circular (solo LinkFinder distance)
 /// Nivel 4: Walking Triangulation (modo interactivo)
-struct UWBNavigationView: View {
+struct LinkFinderNavigationView: View {
     let targetName: String
     let targetPeerID: MCPeerID
-    @ObservedObject var uwbManager: UWBSessionManager
+    @ObservedObject var uwbManager: LinkFinderSessionManager
     @ObservedObject var locationService: LocationService
     @ObservedObject var peerLocationTracker: PeerLocationTracker
     @ObservedObject var networkManager: NetworkManager
@@ -24,23 +24,27 @@ struct UWBNavigationView: View {
 
     // State for triangulation mode
     @State private var isTriangulationMode: Bool = false
+    @State private var forceArrowNavigation: Bool = false
 
-    // Computed properties que se actualizan automáticamente desde UWB
+    // Proximity haptic engine for navigation feedback
+    @State private var proximityEngine = ProximityHapticEngine()
+
+    // Computed properties que se actualizan automáticamente desde LinkFinder
     private var distance: Float? {
         let dist = uwbManager.getDistance(to: targetPeerID)
-        print("🔍 UWBNavigationView: Getting distance for \(targetPeerID.displayName) = \(dist?.description ?? "nil")")
+        print("🔍 LinkFinderNavigationView: Getting distance for \(targetPeerID.displayName) = \(dist?.description ?? "nil")")
         return dist
     }
 
     private var direction: DirectionVector? {
         if let simd = uwbManager.getDirection(to: targetPeerID) {
             let dirVector = DirectionVector(from: simd)
-            print("🔍 UWBNavigationView: Getting direction for \(targetPeerID.displayName)")
+            print("🔍 LinkFinderNavigationView: Getting direction for \(targetPeerID.displayName)")
             print("   SIMD: x=\(simd.x), y=\(simd.y), z=\(simd.z)")
             print("   DirectionVector created: x=\(dirVector.x), y=\(dirVector.y), z=\(dirVector.z)")
             return dirVector
         }
-        print("⚠️ UWBNavigationView: No direction available for \(targetPeerID.displayName)")
+        print("⚠️ LinkFinderNavigationView: No direction available for \(targetPeerID.displayName)")
         return nil
     }
 
@@ -60,12 +64,42 @@ struct UWBNavigationView: View {
         locationService.currentLocation
     }
 
+    // Estimated distance when LinkFinder unavailable
+    private var estimatedDistance: Float? {
+        // Priority 1: LinkFinder distance (most accurate)
+        if let uwbDist = distance {
+            return uwbDist
+        }
+
+        // Priority 2: GPS distance
+        if let myLoc = userLocation, let peerLoc = peerLocation {
+            return calculateGPSDistance(from: myLoc, to: peerLoc)
+        }
+
+        return nil
+    }
+
+    // Determine distance source for display
+    private var distanceSource: DistanceOnlyNavigationView.DistanceSource {
+        if distance != nil {
+            return .gps // Actually LinkFinder, but won't reach level5 in this case
+        }
+
+        if userLocation != nil && peerLocation != nil {
+            return .gps
+        }
+
+        return .none
+    }
+
     // Navigation level detection
     private enum NavigationLevel {
-        case level1_uwbPrecise      // UWB direction available
+        case level0_radar           // PRIORITY: Radar view for peer tracking
+        case level1_uwbPrecise      // LinkFinder direction available (arrow)
         case level2_gpsCompass      // GPS + Compass available
-        case level3_radar           // Only UWB distance
+        case level3_radar           // Deprecated - use level0 instead
         case level4_triangulation   // Walking triangulation mode
+        case level5_estimatedDistance // LinkFinder unavailable, show estimated distance only
         case loading                // Waiting for data
     }
 
@@ -75,31 +109,43 @@ struct UWBNavigationView: View {
             return .level4_triangulation
         }
 
-        // Check if we have UWB distance
+        // If user manually switched to arrow navigation
+        if forceArrowNavigation {
+            if direction != nil {
+                return .level1_uwbPrecise
+            } else if let _ = peerLocation, let _ = userLocation, let _ = userHeading {
+                return .level2_gpsCompass
+            }
+            // If forced arrow but no data, fall back to radar
+            forceArrowNavigation = false
+        }
+
+        // Check if we have LinkFinder distance
         guard distance != nil else {
+            // No LinkFinder available - check if we can provide estimated distance
+            if estimatedDistance != nil {
+                return .level5_estimatedDistance
+            }
             return .loading
         }
 
-        // Level 1: UWB direction available
+        // Check if we have direction (precise LinkFinder)
         if direction != nil {
-            return .level1_uwbPrecise
+            // PRIORITY: Level 0 - Show radar view ONLY when direction is available
+            return .level0_radar
         }
 
-        // Level 2: GPS + Compass available
-        if let _ = peerLocation,
-           let _ = userLocation,
-           let _ = userHeading {
-            return .level2_gpsCompass
-        }
-
-        // Level 3: Fallback to radar (only distance)
-        return .level3_radar
+        // If only distance (no direction), show distance-only view
+        return .level5_estimatedDistance
     }
 
     var body: some View {
         ZStack {
             // Route to appropriate view based on navigation level
             switch currentNavigationLevel {
+            case .level0_radar:
+                level0RadarView
+
             case .level1_uwbPrecise:
                 level1UWBPreciseView
 
@@ -111,6 +157,9 @@ struct UWBNavigationView: View {
 
             case .level4_triangulation:
                 level4TriangulationView
+
+            case .level5_estimatedDistance:
+                level5EstimatedDistanceView
 
             case .loading:
                 loadingView
@@ -129,6 +178,10 @@ struct UWBNavigationView: View {
             if !locationService.isMonitoring {
                 locationService.startMonitoring()
             }
+
+            // Start proximity haptic feedback
+            proximityEngine.start()
+            print("🎯 LinkFinderNavigationView: Started proximity haptic engine")
         }
         .onDisappear {
             // Stop GPS location sharing when navigation ends
@@ -136,10 +189,51 @@ struct UWBNavigationView: View {
 
             // Stop heading monitoring
             locationService.stopMonitoringHeading()
+
+            // Stop proximity haptic feedback
+            proximityEngine.stop()
+            print("🎯 LinkFinderNavigationView: Stopped proximity haptic engine")
+        }
+        .onChange(of: distance) { newDistance in
+            // Update proximity engine when distance changes
+            if let dist = newDistance {
+                proximityEngine.updateProximity(distance: dist, direction: uwbManager.getDirection(to: targetPeerID))
+            }
+        }
+        .onChange(of: direction) { newDirection in
+            // Update bearing if we have direction + user heading
+            if newDirection != nil, let heading = userHeading, let userLoc = userLocation, let peerLoc = peerLocation {
+                let relativeBearing = NavigationCalculator.calculateRelativeBearing(
+                    from: userLoc,
+                    to: peerLoc,
+                    userHeading: heading
+                )
+                proximityEngine.updateBearing(relative: relativeBearing)
+            }
         }
     }
 
-    // MARK: - Level 1: UWB Precise Direction
+    // MARK: - Level 0: Radar View (Priority)
+
+    private var level0RadarView: some View {
+        SinglePeerRadarView(
+            targetName: targetName,
+            targetPeerID: targetPeerID,
+            uwbManager: uwbManager,
+            locationService: locationService,
+            peerLocationTracker: peerLocationTracker,
+            networkManager: networkManager,
+            onDismiss: onDismiss,
+            onSwitchToArrowNavigation: {
+                // User wants to switch to arrow navigation
+                withAnimation {
+                    forceArrowNavigation = true
+                }
+            }
+        )
+    }
+
+    // MARK: - Level 1: LinkFinder Precise Direction
 
     private var level1UWBPreciseView: some View {
         ZStack {
@@ -187,7 +281,7 @@ struct UWBNavigationView: View {
                         }
                         .foregroundColor(.green)
 
-                        Text("Dirección precisa UWB")
+                        Text("Dirección precisa LinkFinder")
                             .font(.caption)
                             .foregroundColor(.green.opacity(0.8))
 
@@ -248,7 +342,7 @@ struct UWBNavigationView: View {
                             .font(.system(size: 56, weight: .heavy, design: .rounded))
                             .foregroundColor(.cyan)
 
-                        Text("distancia UWB")
+                        Text("distancia LinkFinder")
                             .font(.caption)
                             .foregroundColor(.cyan.opacity(0.7))
                     }
@@ -327,6 +421,17 @@ struct UWBNavigationView: View {
         )
     }
 
+    // MARK: - Level 5: Estimated Distance Only
+
+    private var level5EstimatedDistanceView: some View {
+        DistanceOnlyNavigationView(
+            targetName: targetName,
+            estimatedDistance: estimatedDistance,
+            distanceSource: distanceSource,
+            onDismiss: onDismiss
+        )
+    }
+
     // MARK: - Loading View
 
     private var loadingView: some View {
@@ -350,7 +455,7 @@ struct UWBNavigationView: View {
                     .tint(.cyan)
                     .padding()
 
-                Text("Estableciendo ranging UWB...")
+                Text("Estableciendo ranging LinkFinder...")
                     .font(.subheadline)
                     .foregroundColor(.white.opacity(0.6))
 
@@ -380,6 +485,31 @@ struct UWBNavigationView: View {
         } else {
             return String(format: "%.1fm", dist)
         }
+    }
+
+    // Calculate GPS distance using Haversine formula
+    private func calculateGPSDistance(from: UserLocation, to: UserLocation) -> Float {
+        let earthRadiusMeters: Double = 6371000.0
+
+        // Convert to radians
+        let lat1 = from.latitude * .pi / 180.0
+        let lon1 = from.longitude * .pi / 180.0
+        let lat2 = to.latitude * .pi / 180.0
+        let lon2 = to.longitude * .pi / 180.0
+
+        // Haversine formula
+        let dLat = lat2 - lat1
+        let dLon = lon2 - lon1
+
+        let a = sin(dLat / 2) * sin(dLat / 2) +
+                cos(lat1) * cos(lat2) *
+                sin(dLon / 2) * sin(dLon / 2)
+
+        let c = 2 * atan2(sqrt(a), sqrt(1 - a))
+
+        let distanceMeters = earthRadiusMeters * c
+
+        return Float(distanceMeters)
     }
 }
 
@@ -564,13 +694,13 @@ struct PulsingCircle: View {
 // MARK: - Preview
 #Preview {
     // Mock managers for preview
-    let mockUWBManager = UWBSessionManager()
+    let mockUWBManager = LinkFinderSessionManager()
     let mockLocationService = LocationService()
     let mockPeerTracker = PeerLocationTracker()
     let mockNetworkManager = NetworkManager()
     let mockPeer = MCPeerID(displayName: "José Guadalupe")
 
-    UWBNavigationView(
+    LinkFinderNavigationView(
         targetName: "José Guadalupe",
         targetPeerID: mockPeer,
         uwbManager: mockUWBManager,
