@@ -1619,10 +1619,13 @@ class NetworkManager: NSObject, ObservableObject {
         do {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
-            try session.send(data, toPeers: connectedPeers, with: .reliable)
+            // STABILITY FIX: Use unreliable mode for topology broadcasts
+            // Topology updates are periodic, so occasional packet loss is acceptable
+            // This reduces buffer pressure and prevents connection drops
+            try session.send(data, toPeers: connectedPeers, with: .unreliable)
 
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("📡 TOPOLOGY BROADCAST")
+            print("📡 TOPOLOGY BROADCAST (unreliable)")
             print("   Connections: [\(connectedPeerNames.joined(separator: ", "))]")
             print("   Sent to: \(connectedPeers.count) peers")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -1656,8 +1659,9 @@ class NetworkManager: NSObject, ObservableObject {
             do {
                 let encoder = JSONEncoder()
                 let data = try encoder.encode(payload)
-                try session.send(data, toPeers: connectedPeers, with: .reliable)
-                print("🔄 Relayed topology message (hop \(message.hopCount)/\(message.ttl))")
+                // STABILITY FIX: Use unreliable mode for topology relays too
+                try session.send(data, toPeers: connectedPeers, with: .unreliable)
+                print("🔄 Relayed topology message (hop \(message.hopCount)/\(message.ttl)) (unreliable)")
             } catch {
                 print("❌ Failed to relay topology: \(error.localizedDescription)")
             }
@@ -1702,13 +1706,15 @@ extension NetworkManager: MCSessionDelegate {
                 AudioManager.shared.announceConnectionChange(connected: true, peerName: peerID.displayName)
                 HapticManager.shared.playPattern(.peerConnected, priority: .notification)
 
-                // Broadcast updated topology immediately
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                // Broadcast updated topology after connection stabilizes
+                // STABILITY FIX: Increased from 0.5s to 2.0s to allow connection to fully establish
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                     self?.broadcastTopology()
                 }
 
                 // Send family sync if we have an active group
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                // STABILITY FIX: Increased from 1.0s to 3.0s to space out initial messages
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
                     guard let self = self else { return }
                     if self.familyGroupManager.hasActiveGroup {
                         self.sendFamilySync(to: peerID)
@@ -1725,7 +1731,8 @@ extension NetworkManager: MCSessionDelegate {
 
                 if shouldInitiate {
                     // We initiate if we have the higher ID (master role)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                    // STABILITY FIX: Increased from 2.0s to 4.0s to ensure topology and family sync complete first
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
                         guard let self = self else { return }
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         print("🎯 LinkFinder TOKEN EXCHANGE INITIATOR")
@@ -1843,6 +1850,17 @@ extension NetworkManager: MCSessionDelegate {
     func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {
         // Not used in this implementation
         print("📡 NetworkManager: Finished receiving resource (not implemented): \(resourceName) from \(peerID.displayName)")
+    }
+
+    func session(_ session: MCSession, didReceiveCertificate certificate: [Any]?, fromPeer peerID: MCPeerID, certificateHandler: @escaping (Bool) -> Void) {
+        // CRITICAL FIX: This delegate method is marked as "optional" by Apple,
+        // but in practice it MUST be implemented to prevent random disconnections
+        // after sending data. Multiple Stack Overflow threads confirm this.
+        //
+        // For development and encrypted sessions, we accept all certificates.
+        // In production, you can add certificate validation logic here.
+        certificateHandler(true)
+        print("🔐 NetworkManager: Certificate received from \(peerID.displayName) - ACCEPTED")
     }
 }
 

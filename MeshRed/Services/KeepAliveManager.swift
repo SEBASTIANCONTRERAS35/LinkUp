@@ -22,7 +22,7 @@ class KeepAliveManager: ObservableObject {
 
     private var timer: Timer?
     private weak var networkManager: NetworkManager?
-    private let pingInterval: TimeInterval = 15.0  // 15 seconds (standard for network keep-alive)
+    private let pingInterval: TimeInterval = 30.0  // 30 seconds (optimized for battery with continuous location)
     private let queue = DispatchQueue(label: "com.meshred.keepalive", qos: .utility)
 
     // MARK: - Initialization

@@ -267,10 +267,12 @@ class SessionManager {
                 info.lastDisconnection = Date()
                 info.isConnecting = false
 
-                // Decrease stability score for quick disconnections
+                // Decrease stability score ONLY for VERY quick disconnections
+                // STABILITY FIX: Reduced from 30s to 10s and penalty from -2 to -1
+                // This allows legitimate connection exchanges (topology, family sync, UWB) to complete
                 if let lastSuccess = info.lastSuccessfulConnection,
-                   Date().timeIntervalSince(lastSuccess) < 30 {
-                    info.connectionStabilityScore = max(-5, info.connectionStabilityScore - 2)
+                   Date().timeIntervalSince(lastSuccess) < 10 {
+                    info.connectionStabilityScore = max(-5, info.connectionStabilityScore - 1)
                     print("📉 Stability score decreased for \(peerKey): \(info.connectionStabilityScore)")
                 }
 

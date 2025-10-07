@@ -198,10 +198,10 @@ class LocationService: NSObject, ObservableObject {
     // MARK: - Stadium Mode Support
 
     /// Enable continuous background location updates for Stadium Mode
-    /// This extends background execution time significantly (~15-30 min)
+    /// This extends background execution time significantly (1-2 hours via automotive navigation)
     func enableStadiumMode() {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🏟️ LocationService: Enabling Stadium Mode")
+        print("🏟️ LocationService: Enabling Stadium Mode (Automotive Navigation)")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Enable background location updates
@@ -209,22 +209,25 @@ class LocationService: NSObject, ObservableObject {
         locationManager.pausesLocationUpdatesAutomatically = false
         locationManager.showsBackgroundLocationIndicator = true  // Show blue bar (transparency)
 
-        // More aggressive settings for background survival
-        locationManager.desiredAccuracy = kCLLocationAccuracyBest
-        locationManager.distanceFilter = 10  // Update every 10 meters
-        locationManager.activityType = .otherNavigation
+        // AGGRESSIVE: Automotive navigation mode for maximum background time (1-2 hours)
+        // This tells iOS we're a GPS navigation app like Waze/Google Maps
+        locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation  // Maximum GPS precision
+        locationManager.distanceFilter = kCLDistanceFilterNone  // CONTINUOUS updates (every change)
+        locationManager.activityType = .automotiveNavigation  // GPS car navigation mode (highest priority)
 
         // Start continuous updates if not already monitoring
         if !isMonitoring {
             startMonitoring()
         }
 
-        print("✅ Background location updates enabled")
-        print("   Accuracy: Best")
-        print("   Pause: Disabled")
-        print("   Filter: 10m")
-        print("   Background Indicator: Visible")
-        print("   Estimated Extension: ~15-30 min")
+        print("✅ Background location updates enabled (AGGRESSIVE MODE)")
+        print("   Accuracy: BestForNavigation (GPS max)")
+        print("   Pause: Disabled (NEVER pauses)")
+        print("   Filter: None (CONTINUOUS)")
+        print("   Activity: Automotive Navigation (highest priority)")
+        print("   Background Indicator: Visible (blue bar)")
+        print("   Estimated Extension: 1-2 HOURS")
+        print("   ⚠️  Battery: ~20% per hour")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 

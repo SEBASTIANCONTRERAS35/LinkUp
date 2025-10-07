@@ -237,6 +237,9 @@ extension NetworkManager {
         let emergencyActive = false
         let emergencyType: String? = nil
 
+        // Get unread message count from MessageStore
+        let unreadMessages = messageStore.unreadCount
+
         return MeshActivityAttributes.ContentState(
             connectedPeers: connectedPeers.count,
             connectionQuality: quality,
@@ -251,6 +254,7 @@ extension NetworkManager {
             linkfenceStatus: fenceStatus,
             emergencyActive: emergencyActive,
             emergencyType: emergencyType,
+            unreadMessageCount: unreadMessages,
             lastUpdated: Date()
         )
     }
@@ -281,6 +285,15 @@ extension NetworkManager {
             .debounce(for: .seconds(0.5), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.updateLiveActivity()
+            }
+            .store(in: &LiveActivityStorage.activityCancellables)
+
+        // Update when unread message count changes
+        messageStore.$unreadCount
+            .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
+            .sink { [weak self] count in
+                self?.updateLiveActivity()
+                print("📬 Live Activity updated with \(count) unread messages")
             }
             .store(in: &LiveActivityStorage.activityCancellables)
 

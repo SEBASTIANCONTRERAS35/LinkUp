@@ -60,16 +60,21 @@ class MessageStore: ObservableObject {
     @Published private(set) var messages: [Message] = []
     @Published private(set) var activeConversationId: String
     @Published private(set) var conversationSummaries: [ConversationSummary] = []
+    @Published private(set) var unreadCount: Int = 0
 
     // MARK: - Private Properties
 
     private var conversations: [String: [Message]] = [:]
     private var metadata: [String: ConversationDescriptor] = [:]
+    private var readMessageIds: Set<UUID> = []
+    private var lastReadTimestamps: [String: Date] = [:]
 
     private let maxMessagesPerConversation = 200
     private let storageKey = "MeshRed.Conversations.v1"
     private let legacyKey = "MeshRedMessages"  // Backward compatibility
     private let activeKey = "MeshRed.ActiveConversation"
+    private let readMessagesKey = "MeshRed.ReadMessageIds"
+    private let lastReadKey = "MeshRed.LastReadTimestamps"
 
     // MARK: - Initialization
 
@@ -78,6 +83,7 @@ class MessageStore: ObservableObject {
         self.activeConversationId = storedActiveConversation ?? ConversationIdentifier.public.rawValue
 
         loadConversations()
+        loadReadState()
         ensurePublicConversationExists()
 
         if metadata[activeConversationId] == nil {
@@ -85,6 +91,7 @@ class MessageStore: ObservableObject {
         }
 
         refreshPublishedState()
+        calculateUnreadCount()
     }
 
     // MARK: - Public API
@@ -117,6 +124,7 @@ class MessageStore: ObservableObject {
 
         saveConversations()
         refreshPublishedState()
+        calculateUnreadCount()
 
         print("📱 MessageStore: Added message to conversation \(descriptor.id) - Title: \(descriptor.title)")
     }
@@ -124,8 +132,15 @@ class MessageStore: ObservableObject {
     func selectConversation(_ conversationId: String) {
         guard conversationId != activeConversationId else { return }
 
+        // Mark all messages in current conversation as read before switching
+        markConversationAsRead(conversationId: activeConversationId)
+
         activeConversationId = conversationId
         UserDefaults.standard.set(conversationId, forKey: activeKey)
+
+        // Mark new conversation as read too
+        markConversationAsRead(conversationId: conversationId)
+
         refreshPublishedState()
 
         print("💬 MessageStore: Active conversation switched to \(conversationId)")
@@ -277,6 +292,86 @@ class MessageStore: ObservableObject {
         }
 
         return summaries
+    }
+
+    // MARK: - Read State Management
+
+    /// Mark a single message as read
+    func markAsRead(messageId: UUID) {
+        readMessageIds.insert(messageId)
+        saveReadState()
+        calculateUnreadCount()
+    }
+
+    /// Mark all messages in a conversation as read
+    func markConversationAsRead(conversationId: String) {
+        guard let messages = conversations[conversationId] else { return }
+
+        for message in messages {
+            readMessageIds.insert(message.id)
+        }
+
+        lastReadTimestamps[conversationId] = Date()
+        saveReadState()
+        calculateUnreadCount()
+
+        print("📬 MessageStore: Marked all messages as read in conversation \(conversationId)")
+    }
+
+    /// Check if a message is read
+    func isMessageRead(_ messageId: UUID) -> Bool {
+        return readMessageIds.contains(messageId)
+    }
+
+    /// Get unread count for specific conversation
+    func getUnreadCount(for conversationId: String) -> Int {
+        guard let messages = conversations[conversationId] else { return 0 }
+        return messages.filter { !readMessageIds.contains($0.id) }.count
+    }
+
+    /// Calculate total unread messages across all conversations
+    private func calculateUnreadCount() {
+        var total = 0
+        for (conversationId, messages) in conversations {
+            // Don't count active conversation as unread
+            if conversationId == activeConversationId {
+                continue
+            }
+            total += messages.filter { !readMessageIds.contains($0.id) }.count
+        }
+        unreadCount = total
+        print("📊 MessageStore: Unread count updated to \(total)")
+    }
+
+    // MARK: - Read State Persistence
+
+    private func loadReadState() {
+        // Load read message IDs
+        if let data = UserDefaults.standard.data(forKey: readMessagesKey),
+           let uuidStrings = try? JSONDecoder().decode([String].self, from: data) {
+            readMessageIds = Set(uuidStrings.compactMap { UUID(uuidString: $0) })
+            print("📬 MessageStore: Loaded \(readMessageIds.count) read message IDs")
+        }
+
+        // Load last read timestamps
+        if let data = UserDefaults.standard.data(forKey: lastReadKey),
+           let timestamps = try? JSONDecoder().decode([String: Date].self, from: data) {
+            lastReadTimestamps = timestamps
+            print("📬 MessageStore: Loaded \(timestamps.count) last read timestamps")
+        }
+    }
+
+    private func saveReadState() {
+        // Save read message IDs
+        let uuidStrings = readMessageIds.map { $0.uuidString }
+        if let data = try? JSONEncoder().encode(uuidStrings) {
+            UserDefaults.standard.set(data, forKey: readMessagesKey)
+        }
+
+        // Save last read timestamps
+        if let data = try? JSONEncoder().encode(lastReadTimestamps) {
+            UserDefaults.standard.set(data, forKey: lastReadKey)
+        }
     }
 }
 

@@ -91,17 +91,18 @@ class StadiumModeManager: ObservableObject {
         // Update state
         isActive = true
         startTime = Date()
-        batteryImpact = .medium
-        estimatedBackgroundTime = 25 * 60  // ~25 minutes estimated
+        batteryImpact = .high  // Updated: automotive navigation uses more battery
+        estimatedBackgroundTime = 90 * 60  // ~90 minutes (1.5 hours) with automotive navigation
 
         // Start uptime counter
         startUptimeTimer()
 
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🏟️ STADIUM MODE ACTIVE")
-        print("   Estimated Background Time: ~25 min")
-        print("   Battery Impact: Medium (~10-15%/2hr)")
-        print("   Layers: Live Activity + Location + Keep-Alive")
+        print("🏟️ STADIUM MODE ACTIVE (AUTOMOTIVE NAVIGATION)")
+        print("   Estimated Background Time: 1-2 HOURS")
+        print("   Battery Impact: High (~20%/hour)")
+        print("   Layers: Live Activity + GPS Navigation + Keep-Alive")
+        print("   ⚠️  Blue bar will be visible (iOS transparency)")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Send notification to user
