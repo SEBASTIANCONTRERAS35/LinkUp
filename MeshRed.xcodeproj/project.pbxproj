@@ -6,10 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		F0D0C6862E8FA11E00FF001A /* MeshRed Watch App Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = F0D0C6662E8FA11D00FF001A /* MeshRed Watch App Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-/* End PBXBuildFile section */
-
 /* Begin PBXContainerItemProxy section */
 		F02B8BD02E89DB6700BC6239 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -25,50 +21,12 @@
 			remoteGlobalIDString = F02B8BC12E89DB6600BC6239;
 			remoteInfo = MeshRed;
 		};
-		F0D0C6732E8FA11E00FF001A /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = F02B8BBA2E89DB6600BC6239 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = F0D0C6652E8FA11D00FF001A;
-			remoteInfo = "MeshRed Watch App Watch App";
-		};
-		F0D0C67D2E8FA11E00FF001A /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = F02B8BBA2E89DB6600BC6239 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = F0D0C6652E8FA11D00FF001A;
-			remoteInfo = "MeshRed Watch App Watch App";
-		};
-		F0D0C6842E8FA11E00FF001A /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = F02B8BBA2E89DB6600BC6239 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = F0D0C6652E8FA11D00FF001A;
-			remoteInfo = "MeshRed Watch App Watch App";
-		};
 /* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		F0D0C68A2E8FA11E00FF001A /* Embed Watch Content */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
-			dstSubfolderSpec = 16;
-			files = (
-				F0D0C6862E8FA11E00FF001A /* MeshRed Watch App Watch App.app in Embed Watch Content */,
-			);
-			name = "Embed Watch Content";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		F02B8BC22E89DB6600BC6239 /* MeshRed.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MeshRed.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F02B8BCF2E89DB6700BC6239 /* MeshRedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MeshRedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F02B8BD92E89DB6700BC6239 /* MeshRedUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MeshRedUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		F0D0C6662E8FA11D00FF001A /* MeshRed Watch App Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MeshRed Watch App Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		F0D0C6722E8FA11E00FF001A /* MeshRed Watch App Watch AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "MeshRed Watch App Watch AppTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		F0D0C67C2E8FA11E00FF001A /* MeshRed Watch App Watch AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "MeshRed Watch App Watch AppUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -100,21 +58,6 @@
 			path = MeshRedUITests;
 			sourceTree = "<group>";
 		};
-		F0D0C6672E8FA11D00FF001A /* MeshRed Watch App Watch App */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "MeshRed Watch App Watch App";
-			sourceTree = "<group>";
-		};
-		F0D0C6752E8FA11E00FF001A /* MeshRed Watch App Watch AppTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "MeshRed Watch App Watch AppTests";
-			sourceTree = "<group>";
-		};
-		F0D0C67F2E8FA11E00FF001A /* MeshRed Watch App Watch AppUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "MeshRed Watch App Watch AppUITests";
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -139,27 +82,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		F0D0C6632E8FA11D00FF001A /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		F0D0C66F2E8FA11E00FF001A /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		F0D0C6792E8FA11E00FF001A /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -169,9 +91,6 @@
 				F02B8BC42E89DB6600BC6239 /* MeshRed */,
 				F02B8BD22E89DB6700BC6239 /* MeshRedTests */,
 				F02B8BDC2E89DB6700BC6239 /* MeshRedUITests */,
-				F0D0C6672E8FA11D00FF001A /* MeshRed Watch App Watch App */,
-				F0D0C6752E8FA11E00FF001A /* MeshRed Watch App Watch AppTests */,
-				F0D0C67F2E8FA11E00FF001A /* MeshRed Watch App Watch AppUITests */,
 				F02B8BC32E89DB6600BC6239 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -182,9 +101,6 @@
 				F02B8BC22E89DB6600BC6239 /* MeshRed.app */,
 				F02B8BCF2E89DB6700BC6239 /* MeshRedTests.xctest */,
 				F02B8BD92E89DB6700BC6239 /* MeshRedUITests.xctest */,
-				F0D0C6662E8FA11D00FF001A /* MeshRed Watch App Watch App.app */,
-				F0D0C6722E8FA11E00FF001A /* MeshRed Watch App Watch AppTests.xctest */,
-				F0D0C67C2E8FA11E00FF001A /* MeshRed Watch App Watch AppUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -199,12 +115,10 @@
 				F02B8BBE2E89DB6600BC6239 /* Sources */,
 				F02B8BBF2E89DB6600BC6239 /* Frameworks */,
 				F02B8BC02E89DB6600BC6239 /* Resources */,
-				F0D0C68A2E8FA11E00FF001A /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				F0D0C6852E8FA11E00FF001A /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				F02B8BC42E89DB6600BC6239 /* MeshRed */,
@@ -262,74 +176,6 @@
 			productReference = F02B8BD92E89DB6700BC6239 /* MeshRedUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
-		F0D0C6652E8FA11D00FF001A /* MeshRed Watch App Watch App */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = F0D0C6872E8FA11E00FF001A /* Build configuration list for PBXNativeTarget "MeshRed Watch App Watch App" */;
-			buildPhases = (
-				F0D0C6622E8FA11D00FF001A /* Sources */,
-				F0D0C6632E8FA11D00FF001A /* Frameworks */,
-				F0D0C6642E8FA11D00FF001A /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				F0D0C6672E8FA11D00FF001A /* MeshRed Watch App Watch App */,
-			);
-			name = "MeshRed Watch App Watch App";
-			packageProductDependencies = (
-			);
-			productName = "MeshRed Watch App Watch App";
-			productReference = F0D0C6662E8FA11D00FF001A /* MeshRed Watch App Watch App.app */;
-			productType = "com.apple.product-type.application";
-		};
-		F0D0C6712E8FA11E00FF001A /* MeshRed Watch App Watch AppTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = F0D0C68B2E8FA11E00FF001A /* Build configuration list for PBXNativeTarget "MeshRed Watch App Watch AppTests" */;
-			buildPhases = (
-				F0D0C66E2E8FA11E00FF001A /* Sources */,
-				F0D0C66F2E8FA11E00FF001A /* Frameworks */,
-				F0D0C6702E8FA11E00FF001A /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				F0D0C6742E8FA11E00FF001A /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				F0D0C6752E8FA11E00FF001A /* MeshRed Watch App Watch AppTests */,
-			);
-			name = "MeshRed Watch App Watch AppTests";
-			packageProductDependencies = (
-			);
-			productName = "MeshRed Watch App Watch AppTests";
-			productReference = F0D0C6722E8FA11E00FF001A /* MeshRed Watch App Watch AppTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
-		F0D0C67B2E8FA11E00FF001A /* MeshRed Watch App Watch AppUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = F0D0C68E2E8FA11E00FF001A /* Build configuration list for PBXNativeTarget "MeshRed Watch App Watch AppUITests" */;
-			buildPhases = (
-				F0D0C6782E8FA11E00FF001A /* Sources */,
-				F0D0C6792E8FA11E00FF001A /* Frameworks */,
-				F0D0C67A2E8FA11E00FF001A /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				F0D0C67E2E8FA11E00FF001A /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				F0D0C67F2E8FA11E00FF001A /* MeshRed Watch App Watch AppUITests */,
-			);
-			name = "MeshRed Watch App Watch AppUITests";
-			packageProductDependencies = (
-			);
-			productName = "MeshRed Watch App Watch AppUITests";
-			productReference = F0D0C67C2E8FA11E00FF001A /* MeshRed Watch App Watch AppUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -351,17 +197,6 @@
 						CreatedOnToolsVersion = 26.0.1;
 						TestTargetID = F02B8BC12E89DB6600BC6239;
 					};
-					F0D0C6652E8FA11D00FF001A = {
-						CreatedOnToolsVersion = 26.0.1;
-					};
-					F0D0C6712E8FA11E00FF001A = {
-						CreatedOnToolsVersion = 26.0.1;
-						TestTargetID = F0D0C6652E8FA11D00FF001A;
-					};
-					F0D0C67B2E8FA11E00FF001A = {
-						CreatedOnToolsVersion = 26.0.1;
-						TestTargetID = F0D0C6652E8FA11D00FF001A;
-					};
 				};
 			};
 			buildConfigurationList = F02B8BBD2E89DB6600BC6239 /* Build configuration list for PBXProject "MeshRed" */;
@@ -381,9 +216,6 @@
 				F02B8BC12E89DB6600BC6239 /* MeshRed */,
 				F02B8BCE2E89DB6700BC6239 /* MeshRedTests */,
 				F02B8BD82E89DB6700BC6239 /* MeshRedUITests */,
-				F0D0C6652E8FA11D00FF001A /* MeshRed Watch App Watch App */,
-				F0D0C6712E8FA11E00FF001A /* MeshRed Watch App Watch AppTests */,
-				F0D0C67B2E8FA11E00FF001A /* MeshRed Watch App Watch AppUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -404,27 +236,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		F02B8BD72E89DB6700BC6239 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		F0D0C6642E8FA11D00FF001A /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		F0D0C6702E8FA11E00FF001A /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		F0D0C67A2E8FA11E00FF001A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -455,27 +266,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		F0D0C6622E8FA11D00FF001A /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		F0D0C66E2E8FA11E00FF001A /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		F0D0C6782E8FA11E00FF001A /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -488,21 +278,6 @@
 			isa = PBXTargetDependency;
 			target = F02B8BC12E89DB6600BC6239 /* MeshRed */;
 			targetProxy = F02B8BDA2E89DB6700BC6239 /* PBXContainerItemProxy */;
-		};
-		F0D0C6742E8FA11E00FF001A /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = F0D0C6652E8FA11D00FF001A /* MeshRed Watch App Watch App */;
-			targetProxy = F0D0C6732E8FA11E00FF001A /* PBXContainerItemProxy */;
-		};
-		F0D0C67E2E8FA11E00FF001A /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = F0D0C6652E8FA11D00FF001A /* MeshRed Watch App Watch App */;
-			targetProxy = F0D0C67D2E8FA11E00FF001A /* PBXContainerItemProxy */;
-		};
-		F0D0C6852E8FA11E00FF001A /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = F0D0C6652E8FA11D00FF001A /* MeshRed Watch App Watch App */;
-			targetProxy = F0D0C6842E8FA11E00FF001A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -823,169 +598,6 @@
 			};
 			name = Release;
 		};
-		F0D0C6882E8FA11E00FF001A /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QF2R75VM2Y;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "MeshRed Watch App";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Monitoreamos tu ritmo cardíaco para detectar emergencias automáticamente durante eventos masivos del Mundial 2026.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Necesitamos acceso a HealthKit para tu seguridad. La detección automática puede salvar vidas.";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = EmilioContreras.MeshRed;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = EmilioContreras.MeshRed.watchkitapp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 26.0;
-			};
-			name = Debug;
-		};
-		F0D0C6892E8FA11E00FF001A /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QF2R75VM2Y;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "MeshRed Watch App";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Monitoreamos tu ritmo cardíaco para detectar emergencias automáticamente durante eventos masivos del Mundial 2026.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Necesitamos acceso a HealthKit para tu seguridad. La detección automática puede salvar vidas.";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = EmilioContreras.MeshRed;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = EmilioContreras.MeshRed.watchkitapp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				VALIDATE_PRODUCT = YES;
-				WATCHOS_DEPLOYMENT_TARGET = 26.0;
-			};
-			name = Release;
-		};
-		F0D0C68C2E8FA11E00FF001A /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QF2R75VM2Y;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "EmilioContreras.MeshRed-Watch-App-Watch-AppTests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = watchos;
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MeshRed Watch App Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MeshRed Watch App Watch App";
-				WATCHOS_DEPLOYMENT_TARGET = 26.0;
-			};
-			name = Debug;
-		};
-		F0D0C68D2E8FA11E00FF001A /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QF2R75VM2Y;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "EmilioContreras.MeshRed-Watch-App-Watch-AppTests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = watchos;
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MeshRed Watch App Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MeshRed Watch App Watch App";
-				VALIDATE_PRODUCT = YES;
-				WATCHOS_DEPLOYMENT_TARGET = 26.0;
-			};
-			name = Release;
-		};
-		F0D0C68F2E8FA11E00FF001A /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QF2R75VM2Y;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "EmilioContreras.MeshRed-Watch-App-Watch-AppUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = watchos;
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				TEST_TARGET_NAME = "MeshRed Watch App Watch App";
-				WATCHOS_DEPLOYMENT_TARGET = 26.0;
-			};
-			name = Debug;
-		};
-		F0D0C6902E8FA11E00FF001A /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QF2R75VM2Y;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "EmilioContreras.MeshRed-Watch-App-Watch-AppUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = watchos;
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				TEST_TARGET_NAME = "MeshRed Watch App Watch App";
-				VALIDATE_PRODUCT = YES;
-				WATCHOS_DEPLOYMENT_TARGET = 26.0;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1021,33 +633,6 @@
 			buildConfigurations = (
 				F02B8BEA2E89DB6700BC6239 /* Debug */,
 				F02B8BEB2E89DB6700BC6239 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		F0D0C6872E8FA11E00FF001A /* Build configuration list for PBXNativeTarget "MeshRed Watch App Watch App" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				F0D0C6882E8FA11E00FF001A /* Debug */,
-				F0D0C6892E8FA11E00FF001A /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		F0D0C68B2E8FA11E00FF001A /* Build configuration list for PBXNativeTarget "MeshRed Watch App Watch AppTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				F0D0C68C2E8FA11E00FF001A /* Debug */,
-				F0D0C68D2E8FA11E00FF001A /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		F0D0C68E2E8FA11E00FF001A /* Build configuration list for PBXNativeTarget "MeshRed Watch App Watch AppUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				F0D0C68F2E8FA11E00FF001A /* Debug */,
-				F0D0C6902E8FA11E00FF001A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
