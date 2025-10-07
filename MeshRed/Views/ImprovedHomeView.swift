@@ -114,6 +114,7 @@ struct ImprovedHomeView: View {
         }
         .sheet(isPresented: $showSettings) {
             AccessibilitySettingsView()
+                .environmentObject(networkManager)
         }
         .onAppear {
             updateGeofenceZone()

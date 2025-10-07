@@ -96,6 +96,35 @@ extension NetworkManager {
         }
     }
 
+    /// Update Live Activity WITH alert banner (for non-Dynamic Island devices)
+    /// Shows a banner notification on devices without Dynamic Island
+    func updateLiveActivity(withAlert title: String, body: String, sound: AlertConfiguration.AlertSound = .default) {
+        guard let activity = LiveActivityStorage.currentActivity else {
+            print("⚠️ No active Live Activity to update")
+            return
+        }
+
+        let newState = createCurrentState()
+
+        let alertConfig = AlertConfiguration(
+            title: LocalizedStringResource(stringLiteral: title),
+            body: LocalizedStringResource(stringLiteral: body),
+            sound: sound
+        )
+
+        Task {
+            await activity.update(
+                .init(state: newState, staleDate: nil),
+                alertConfiguration: alertConfig
+            )
+
+            print("🔔 Live Activity updated WITH ALERT")
+            print("   Title: \(title)")
+            print("   Body: \(body)")
+            print("   This shows banner on non-Dynamic Island devices")
+        }
+    }
+
     /// Stop the Live Activity
     /// This should be called when disconnecting or app is backgrounding for extended period
     func stopLiveActivity(dismissalPolicy: ActivityUIDismissalPolicy = .default) {

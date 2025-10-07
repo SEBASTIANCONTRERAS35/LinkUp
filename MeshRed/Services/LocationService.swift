@@ -194,6 +194,62 @@ class LocationService: NSObject, ObservableObject {
         }
         return status
     }
+
+    // MARK: - Stadium Mode Support
+
+    /// Enable continuous background location updates for Stadium Mode
+    /// This extends background execution time significantly (~15-30 min)
+    func enableStadiumMode() {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🏟️ LocationService: Enabling Stadium Mode")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Enable background location updates
+        locationManager.allowsBackgroundLocationUpdates = true
+        locationManager.pausesLocationUpdatesAutomatically = false
+        locationManager.showsBackgroundLocationIndicator = true  // Show blue bar (transparency)
+
+        // More aggressive settings for background survival
+        locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        locationManager.distanceFilter = 10  // Update every 10 meters
+        locationManager.activityType = .otherNavigation
+
+        // Start continuous updates if not already monitoring
+        if !isMonitoring {
+            startMonitoring()
+        }
+
+        print("✅ Background location updates enabled")
+        print("   Accuracy: Best")
+        print("   Pause: Disabled")
+        print("   Filter: 10m")
+        print("   Background Indicator: Visible")
+        print("   Estimated Extension: ~15-30 min")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
+
+    /// Disable Stadium Mode and revert to normal settings
+    func disableStadiumMode() {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🏟️ LocationService: Disabling Stadium Mode")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Revert to normal settings
+        locationManager.allowsBackgroundLocationUpdates = false
+        locationManager.pausesLocationUpdatesAutomatically = true
+        locationManager.showsBackgroundLocationIndicator = false
+
+        // Less aggressive settings
+        locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        locationManager.distanceFilter = 100  // Update every 100 meters
+        locationManager.activityType = .other
+
+        print("✅ Reverted to normal mode")
+        print("   Accuracy: 100m")
+        print("   Pause: Enabled")
+        print("   Filter: 100m")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
 }
 
 // MARK: - CLLocationManagerDelegate

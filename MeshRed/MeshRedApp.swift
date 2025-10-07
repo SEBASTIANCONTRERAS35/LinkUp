@@ -25,6 +25,12 @@ struct MeshRedApp: App {
                     print("🚀 StadiumConnect Pro: App started with device: \(networkManager.localDeviceName)")
                     print("♿️ Accessibility: High Contrast = \(accessibilitySettings.enableHighContrast), Bold Text = \(accessibilitySettings.preferBoldText)")
 
+                    // Initialize Stadium Mode Manager with dependencies
+                    StadiumModeManager.shared.setup(
+                        networkManager: networkManager,
+                        locationService: networkManager.locationService
+                    )
+
                     // Start Live Activity when app appears if we have connections
                     startLiveActivityIfNeeded()
                 }

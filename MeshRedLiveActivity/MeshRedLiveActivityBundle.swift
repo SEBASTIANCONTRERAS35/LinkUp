@@ -2,16 +2,18 @@
 //  MeshRedLiveActivityBundle.swift
 //  MeshRedLiveActivity
 //
-//  Created by Claude for StadiumConnect Pro - Live Activities
+//  Created by Emilio Contreras on 07/10/25.
 //
 
 import WidgetKit
 import SwiftUI
 
 @main
-@available(iOS 16.1, *)
 struct MeshRedLiveActivityBundle: WidgetBundle {
     var body: some Widget {
-        MeshActivityWidget()
+        // Only register the actual MeshActivityWidget for StadiumConnect Pro
+        if #available(iOS 16.1, *) {
+            MeshActivityWidget()
+        }
     }
 }

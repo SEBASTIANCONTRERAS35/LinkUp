@@ -95,7 +95,15 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     override init() {
+        // DEVELOPMENT: Use .optional for Simulator-Device compatibility
+        // PRODUCTION: Change back to .required for security
+        #if targetEnvironment(simulator)
+        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .optional)
+        print("🔓 [SIMULATOR] Using .optional encryption for Simulator-Device compatibility")
+        #else
         self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .required)
+        print("🔐 [DEVICE] Using .required encryption for maximum security")
+        #endif
         super.init()
 
         // Initialize routing table
@@ -128,6 +136,11 @@ class NetworkManager: NSObject, ObservableObject {
 
         // Setup notification observers for settings actions
         setupNotificationObservers()
+
+        // DEVELOPMENT: Clear any blocked peers to allow Simulator-Device connections
+        #if DEBUG
+        connectionManager.clearAllBlocksForDevelopment()
+        #endif
 
         print("🚀 NetworkManager: Initialized with peer ID: \(localPeerID.displayName)")
     }
@@ -281,7 +294,13 @@ class NetworkManager: NSObject, ObservableObject {
         }
 
         // Create a new session to clear any DTLS/SSL errors
+        #if targetEnvironment(simulator)
+        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .optional)
+        print("🔓 [RESTART-SIMULATOR] Using .optional encryption for Simulator-Device compatibility")
+        #else
         self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .required)
+        print("🔐 [RESTART-DEVICE] Using .required encryption for maximum security")
+        #endif
         self.session.delegate = self
 
         // Restart almost immediately for faster recovery
@@ -574,6 +593,17 @@ class NetworkManager: NSObject, ObservableObject {
             print("📬 ACK sent for message \(originalMessageId) to \(senderId)")
         } catch {
             print("❌ Failed to send ACK: \(error.localizedDescription)")
+        }
+    }
+
+    /// Send raw data to a specific peer (for keep-alive pings, etc.)
+    /// This is a low-level helper used by KeepAliveManager and other background services
+    func sendRawData(_ data: Data, to peer: MCPeerID, reliable: Bool = false) {
+        do {
+            let mode: MCSessionSendDataMode = reliable ? .reliable : .unreliable
+            try session.send(data, toPeers: [peer], with: mode)
+        } catch {
+            print("❌ Failed to send raw data to \(peer.displayName): \(error.localizedDescription)")
         }
     }
 
