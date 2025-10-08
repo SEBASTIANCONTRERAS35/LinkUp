@@ -835,6 +835,10 @@ class NetworkManager: NSObject, ObservableObject {
                 print("   Payload Type: Ping (handled by health monitor)")
             case .pong(_):
                 print("   Payload Type: Pong (handled by health monitor)")
+            case .keepAlive(let keepAlive):
+                print("   Payload Type: Keep-Alive (peer count: \(keepAlive.peerCount))")
+                // Keep-alive messages are lightweight network stability pings
+                // No action needed - just receiving them keeps connection alive
             case .locationRequest(let locationRequest):
                 print("   Payload Type: Location Request")
                 handleLocationRequest(locationRequest, from: peerID)
@@ -2327,5 +2331,89 @@ extension NetworkManager: LinkFinderSessionManagerDelegate {
                 print("⏳ NetworkManager: SLAVE waiting for MASTER to re-send token")
             }
         }
+    }
+
+    // MARK: - Testing & Simulation
+
+    /// Send a simulated message for testing Live Activity message display
+    /// This creates a fake message and adds it to the message store
+    /// IMPORTANT: Uses a separate "test-chat" conversation so it counts as UNREAD
+    func sendSimulatedMessage(content: String = "Mensaje de prueba", sender: String = "Test User") {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🧪 SENDING SIMULATED MESSAGE")
+        print("   Sender: \(sender)")
+        print("   Content: \(content)")
+        print("   Current active conversation: \(messageStore.activeConversationId)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Use a SEPARATE conversation ID so messages count as unread
+        // MessageStore.calculateUnreadCount() skips activeConversationId
+        let testConversationId = "test-chat-simulation"
+
+        let simulatedMessage = Message(
+            sender: sender,
+            content: content,
+            conversationId: testConversationId,
+            conversationName: "Chat de Prueba"
+        )
+
+        // Create a test conversation context (NOT the active one)
+        let testContext = MessageStore.ConversationDescriptor(
+            id: testConversationId,
+            title: "Chat de Prueba (\(sender))",
+            isFamily: false,
+            participantId: nil,
+            defaultRecipientId: "test-broadcast"
+        )
+
+        // Add to message store (this will trigger Live Activity update)
+        messageStore.addMessage(simulatedMessage, context: testContext)
+
+        print("✅ Simulated message added to MessageStore")
+        print("   Message ID: \(simulatedMessage.id)")
+        print("   Unread count: \(messageStore.unreadCount)")
+        print("   Total messages: \(messageStore.messageCount)")
+        print("   Latest message sender: \(messageStore.latestMessage?.sender ?? "none")")
+        print("   Latest message content: \(messageStore.latestMessage?.content ?? "none")")
+        print("   Latest message timestamp: \(messageStore.latestMessage?.timestamp.description ?? "none")")
+        print("   🔔 MessageStore observers should trigger Live Activity update")
+
+        // Force Live Activity update immediately
+        print("   🔄 Forcing Live Activity update NOW...")
+        updateLiveActivity()
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
+
+    /// Send multiple simulated messages for testing
+    func sendSimulatedMessages(count: Int = 3) {
+        let senders = ["Ana", "Carlos", "María", "Test User", "Beta Tester"]
+        let messages = [
+            "Hola, ¿dónde están?",
+            "Estoy en la sección 12",
+            "¿Alguien vio a Pedro?",
+            "Nos vemos en la entrada norte",
+            "Ya casi llego",
+            "¿Quién tiene las entradas?",
+            "La fila está muy larga",
+            "Mensaje de prueba largo para ver cómo se trunca en la vista previa del Live Activity"
+        ]
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🧪 SENDING \(count) SIMULATED MESSAGES")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        for i in 0..<count {
+            let sender = senders[i % senders.count]
+            let content = messages[i % messages.count]
+
+            sendSimulatedMessage(content: content, sender: sender)
+
+            // Small delay between messages
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+
+        print("✅ Sent \(count) simulated messages")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 }

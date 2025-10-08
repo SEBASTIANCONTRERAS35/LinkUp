@@ -16,6 +16,8 @@ struct StadiumModeSettingsView: View {
 
     @State private var showExplanation = false
     @State private var showLocationPermissionAlert = false
+    @State private var testMessagesSent = 0
+    @State private var showMessageSentConfirmation = false
 
     var body: some View {
         NavigationView {
@@ -29,6 +31,11 @@ struct StadiumModeSettingsView: View {
                 // Features Section (when enabled)
                 if stadiumMode.isActive {
                     featuresSection
+                }
+
+                // Testing Section (when Live Activity is active)
+                if networkManager.hasActiveLiveActivity {
+                    testingSection
                 }
 
                 // Info Section
@@ -160,6 +167,81 @@ struct StadiumModeSettingsView: View {
         }
     }
 
+    // MARK: - Testing Section
+
+    private var testingSection: some View {
+        Section {
+            VStack(spacing: 16) {
+                // Info text
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "flask.fill")
+                        .font(.title3)
+                        .foregroundColor(.purple)
+                        .frame(width: 30)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Probar Contador de Mensajes")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        Text("Envía un mensaje de prueba para verificar que el contador aparece en Dynamic Island")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Divider()
+
+                // Test button
+                Button(action: {
+                    sendTestMessage()
+                }) {
+                    HStack {
+                        Image(systemName: "paperplane.fill")
+                            .font(.body)
+
+                        Text("Enviar Mensaje de Prueba")
+                            .font(.body)
+                            .fontWeight(.semibold)
+
+                        Spacer()
+
+                        if testMessagesSent > 0 {
+                            Text("(\(testMessagesSent))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.purple)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Success confirmation (animated)
+                if showMessageSentConfirmation {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("¡Mensaje enviado! Revisa Dynamic Island")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .padding(.vertical, 8)
+        } header: {
+            Text("Pruebas")
+        } footer: {
+            Text("Los mensajes de prueba se envían a una conversación separada y aparecen como no leídos en Dynamic Island.")
+                .font(.caption)
+        }
+    }
+
     // MARK: - Features Section
 
     private var featuresSection: some View {
@@ -287,6 +369,55 @@ struct StadiumModeSettingsView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Helper Methods - Test Message
+
+    private func sendTestMessage() {
+        let messages = [
+            "¡Hola! Este es un mensaje de prueba 📱",
+            "Mensaje de prueba #\(testMessagesSent + 1)",
+            "Probando el contador de Dynamic Island ✨",
+            "Nuevo mensaje desde Modo Estadio 🏟️",
+            "Test de Live Activity funcionando 🎉"
+        ]
+
+        let senders = [
+            "Sistema de Pruebas",
+            "Test User",
+            "Simulación",
+            "Demo",
+            "Test Bot"
+        ]
+
+        let randomMessage = messages.randomElement() ?? "Mensaje de prueba"
+        let randomSender = senders.randomElement() ?? "Test User"
+
+        // Send the message
+        networkManager.sendSimulatedMessage(content: randomMessage, sender: randomSender)
+
+        // Update counter
+        testMessagesSent += 1
+
+        // Show confirmation with animation
+        withAnimation(.spring()) {
+            showMessageSentConfirmation = true
+        }
+
+        // Hide confirmation after 3 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            withAnimation(.spring()) {
+                showMessageSentConfirmation = false
+            }
+        }
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🧪 TEST MESSAGE SENT FROM UI")
+        print("   Total test messages: \(testMessagesSent)")
+        print("   Sender: \(randomSender)")
+        print("   Content: \(randomMessage)")
+        print("   ✅ Check Dynamic Island for message counter!")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 }
 

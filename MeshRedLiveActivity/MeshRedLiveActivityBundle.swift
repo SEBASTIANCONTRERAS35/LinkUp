@@ -11,8 +11,7 @@ import SwiftUI
 @main
 struct MeshRedLiveActivityBundle: WidgetBundle {
     var body: some Widget {
-        MeshRedLiveActivity()
-        MeshRedLiveActivityControl()
-        MeshRedLiveActivityLiveActivity()
+        // ✅ CORRECTED: Register the actual MeshActivityWidget we've been editing
+        MeshActivityWidget()
     }
 }

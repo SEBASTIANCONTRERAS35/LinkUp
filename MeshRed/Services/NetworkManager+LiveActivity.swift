@@ -29,48 +29,77 @@ extension NetworkManager {
     /// Start a Live Activity for the mesh network session
     /// This should be called when the app becomes active and has connections
     func startLiveActivity() {
-        // Only start if we don't already have an active activity
-        guard LiveActivityStorage.currentActivity == nil else {
-            print("⚠️ Live Activity already running")
-            return
-        }
+        // Clean up any stale/zombie activities first
+        Task {
+            await cleanupStaleActivities()
 
-        // Only start if ActivityKit is supported
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
-            print("⚠️ Live Activities are not enabled by user")
-            return
-        }
+            // Only start if we don't already have an active activity
+            guard LiveActivityStorage.currentActivity == nil else {
+                print("⚠️ Live Activity already running")
+                return
+            }
 
-        let attributes = MeshActivityAttributes(
-            sessionId: UUID().uuidString,
-            localDeviceName: localDeviceName,
-            startedAt: Date()
-        )
+            // Only start if ActivityKit is supported
+            guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+                print("⚠️ Live Activities are not enabled by user")
+                return
+            }
 
-        let initialState = createCurrentState()
-
-        do {
-            let activity = try Activity.request(
-                attributes: attributes,
-                content: .init(state: initialState, staleDate: nil),
-                pushType: nil
+            let attributes = MeshActivityAttributes(
+                sessionId: UUID().uuidString,
+                localDeviceName: localDeviceName,
+                startedAt: Date()
             )
 
-            LiveActivityStorage.currentActivity = activity
+            let initialState = createCurrentState()
 
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("🎬 LIVE ACTIVITY STARTED")
-            print("   Activity ID: \(activity.id)")
-            print("   Session: \(attributes.sessionId)")
-            print("   Device: \(attributes.localDeviceName)")
-            print("   Connected Peers: \(initialState.connectedPeers)")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            do {
+                let activity = try Activity.request(
+                    attributes: attributes,
+                    content: .init(state: initialState, staleDate: nil),
+                    pushType: nil
+                )
 
-            // Setup automatic updates based on NetworkManager changes
-            setupLiveActivityUpdates()
+                LiveActivityStorage.currentActivity = activity
 
-        } catch {
-            print("❌ Failed to start Live Activity: \(error)")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("🎬 LIVE ACTIVITY STARTED")
+                print("   Activity ID: \(activity.id)")
+                print("   Session: \(attributes.sessionId)")
+                print("   Device: \(attributes.localDeviceName)")
+                print("   Connected Peers: \(initialState.connectedPeers)")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                // Setup automatic updates based on NetworkManager changes
+                setupLiveActivityUpdates()
+
+            } catch {
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("❌ FAILED TO START LIVE ACTIVITY")
+                print("   Error: \(error)")
+                print("   Error type: \(type(of: error))")
+                print("   Error localized: \(error.localizedDescription)")
+
+                // Check for specific "invalid reuse" error
+                if let activityError = error as? ActivityAuthorizationError {
+                    print("   Authorization error: \(activityError)")
+                }
+
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                // Clean up on failure
+                LiveActivityStorage.currentActivity = nil
+                LiveActivityStorage.activityCancellables.removeAll()
+
+                // Wait before retry
+                print("⏳ Will retry in 3 seconds...")
+                Task {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    await cleanupStaleActivities()
+                    print("🔄 Retrying Live Activity start...")
+                    startLiveActivity()
+                }
+            }
         }
     }
 
@@ -92,7 +121,13 @@ extension NetworkManager {
                 )
             )
 
-            print("🔄 Live Activity updated - Peers: \(newState.connectedPeers), Tracking: \(newState.trackingUser ?? "none")")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("🔄 LIVE ACTIVITY UPDATED")
+            print("   Peers: \(newState.connectedPeers)")
+            print("   Unread Messages: \(newState.unreadMessageCount)")
+            print("   Latest Message Sender: \(newState.latestMessageSender ?? "nil")")
+            print("   Has New Messages: \(newState.hasNewMessages)")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         }
     }
 
@@ -240,6 +275,21 @@ extension NetworkManager {
         // Get unread message count from MessageStore
         let unreadMessages = messageStore.unreadCount
 
+        // Get latest message information
+        let latestMessage = messageStore.latestMessage
+        let latestSender = latestMessage?.sender
+        let latestPreview = latestMessage?.content.prefix(40).description
+        let latestTimestamp = latestMessage?.timestamp
+
+        // DEBUG: Log message data for Live Activity
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📊 LIVE ACTIVITY MESSAGE DATA")
+        print("   Unread Count: \(unreadMessages)")
+        print("   Latest Sender: \(latestSender ?? "nil")")
+        print("   Latest Preview: \(latestPreview ?? "nil")")
+        print("   Has New Messages: \(unreadMessages > 0)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
         return MeshActivityAttributes.ContentState(
             connectedPeers: connectedPeers.count,
             connectionQuality: quality,
@@ -255,6 +305,9 @@ extension NetworkManager {
             emergencyActive: emergencyActive,
             emergencyType: emergencyType,
             unreadMessageCount: unreadMessages,
+            latestMessageSender: latestSender,
+            latestMessagePreview: latestPreview,
+            latestMessageTimestamp: latestTimestamp,
             lastUpdated: Date()
         )
     }
@@ -288,12 +341,14 @@ extension NetworkManager {
             }
             .store(in: &LiveActivityStorage.activityCancellables)
 
-        // Update when unread message count changes
-        messageStore.$unreadCount
-            .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
-            .sink { [weak self] count in
-                self?.updateLiveActivity()
-                print("📬 Live Activity updated with \(count) unread messages")
+        // Update when new messages arrive (observe messages array)
+        messageStore.$messages
+            .debounce(for: .seconds(0.5), scheduler: DispatchQueue.main)
+            .sink { [weak self] messages in
+                guard let self = self, !messages.isEmpty else { return }
+                let latestMsg = messages.last
+                self.updateLiveActivity()
+                print("💬 Live Activity updated with latest message from: \(latestMsg?.sender ?? "unknown")")
             }
             .store(in: &LiveActivityStorage.activityCancellables)
 
@@ -319,5 +374,38 @@ extension NetworkManager {
             .store(in: &LiveActivityStorage.activityCancellables)
 
         print("✅ Live Activity auto-update observers configured")
+    }
+
+    /// Clean up any stale or zombie Live Activities
+    /// This prevents "invalid reuse after initialization failure" errors
+    private func cleanupStaleActivities() async {
+        // Get all active activities for our type
+        let activities = Activity<MeshActivityAttributes>.activities
+
+        print("🧹 Cleaning up stale Live Activities...")
+        print("   Found \(activities.count) existing activities")
+
+        for activity in activities {
+            // Check if activity is ended or stale
+            let activityState = activity.activityState
+
+            if activityState == .dismissed || activityState == .ended {
+                print("   🗑️ Removing stale activity: \(activity.id)")
+                await activity.end(nil, dismissalPolicy: .immediate)
+            } else {
+                print("   ⚠️ Found active activity: \(activity.id) - ending it")
+                // End any existing active activities to prevent conflicts
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+        }
+
+        // Clear local storage
+        LiveActivityStorage.currentActivity = nil
+        LiveActivityStorage.activityCancellables.removeAll()
+
+        // Wait a bit to ensure system processes the cleanup
+        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+
+        print("✅ Cleanup complete - waited for system to process")
     }
 }

@@ -82,6 +82,15 @@ struct MeshActivityAttributes: ActivityAttributes {
         /// Number of unread messages across all conversations
         var unreadMessageCount: Int
 
+        /// Sender of the most recent message
+        var latestMessageSender: String?
+
+        /// Preview of the most recent message content (truncated to 40 chars)
+        var latestMessagePreview: String?
+
+        /// Timestamp of the most recent message
+        var latestMessageTimestamp: Date?
+
         // MARK: - Metadata
 
         /// Last update timestamp
@@ -113,6 +122,33 @@ struct MeshActivityAttributes: ActivityAttributes {
         var directionEmoji: String {
             guard let dir = direction else { return "" }
             return dir.emoji
+        }
+
+        /// Time ago string for latest message (e.g., "Hace 2m")
+        var messageTimeAgo: String {
+            guard let timestamp = latestMessageTimestamp else { return "" }
+
+            let interval = Date().timeIntervalSince(timestamp)
+            let minutes = Int(interval / 60)
+            let hours = Int(interval / 3600)
+
+            if minutes < 1 {
+                return "Ahora"
+            } else if minutes < 60 {
+                return "Hace \(minutes)m"
+            } else if hours < 24 {
+                return "Hace \(hours)h"
+            } else {
+                return "Hace 1d+"
+            }
+        }
+
+        /// Preview text for latest message (safe truncation)
+        var messagePreviewText: String {
+            guard let preview = latestMessagePreview, !preview.isEmpty else {
+                return "Sin mensajes"
+            }
+            return preview
         }
 
         /// Status summary for compact view
@@ -258,6 +294,9 @@ extension MeshActivityAttributes.ContentState {
             emergencyActive: false,
             emergencyType: nil,
             unreadMessageCount: 0,
+            latestMessageSender: nil,
+            latestMessagePreview: nil,
+            latestMessageTimestamp: nil,
             lastUpdated: Date()
         )
     }
@@ -285,6 +324,9 @@ extension MeshActivityAttributes.ContentState {
             emergencyActive: false,
             emergencyType: nil,
             unreadMessageCount: 0,
+            latestMessageSender: nil,
+            latestMessagePreview: nil,
+            latestMessageTimestamp: nil,
             lastUpdated: Date()
         )
     }
@@ -309,6 +351,9 @@ extension MeshActivityAttributes.ContentState {
             emergencyActive: true,
             emergencyType: type,
             unreadMessageCount: 0,
+            latestMessageSender: nil,
+            latestMessagePreview: nil,
+            latestMessageTimestamp: nil,
             lastUpdated: Date()
         )
     }

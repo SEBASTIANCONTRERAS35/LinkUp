@@ -8,17 +8,27 @@
 import ActivityKit
 import WidgetKit
 import SwiftUI
+import AppIntents
 
 /// Main Live Activity Widget for StadiumConnect Pro mesh networking
 @available(iOS 16.1, *)
 struct MeshActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: MeshActivityAttributes.self) { context in
+            let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            let _ = print("📱 LIVE ACTIVITY RENDERING")
+            let _ = print("   Activity State: \(context.state)")
+            let _ = print("   Activity ID: \(context.attributes.sessionId)")
+            let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
             // Lock Screen / Banner UI
             LockScreenLiveActivityView(context: context)
         } dynamicIsland: { context in
             // Dynamic Island UI
             DynamicIsland {
+                let _ = print("🏝️ DYNAMIC ISLAND CONFIGURATION")
+                let _ = print("   Peers: \(context.state.connectedPeers)")
+                let _ = print("   Emergency: \(context.state.emergencyActive)")
                 // Expanded UI
                 DynamicIslandExpandedRegion(.leading) {
                     ExpandedLeadingView(context: context)
@@ -33,12 +43,15 @@ struct MeshActivityWidget: Widget {
                     ExpandedBottomView(context: context)
                 }
             } compactLeading: {
+                let _ = print("   → Setting up COMPACT LEADING")
                 // Compact Leading (left side of island)
                 CompactLeadingView(context: context)
             } compactTrailing: {
+                let _ = print("   → Setting up COMPACT TRAILING")
                 // Compact Trailing (right side of island)
                 CompactTrailingView(context: context)
             } minimal: {
+                let _ = print("   → Setting up MINIMAL")
                 // Minimal (when multiple activities are active)
                 MinimalView(context: context)
             }
@@ -275,111 +288,31 @@ struct DefaultLockScreenContent: View {
 struct CompactLeadingView: View {
     let context: ActivityViewContext<MeshActivityAttributes>
 
-    // Animation state
-    @State private var breathingScale: CGFloat = 1.0
-    @State private var pulseOpacity: Double = 0.3
-    @State private var glowRadius: CGFloat = 4
-    @State private var badgePulse: CGFloat = 1.0
-
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            // Main icon
+        ZStack {
+            // DEBUG: Print what we're rendering
+            let _ = print("🔍 COMPACT LEADING VIEW")
+            let _ = print("   Emergency: \(context.state.emergencyActive)")
+            let _ = print("   Tracking User: \(context.state.trackingUser ?? "nil")")
+            let _ = print("   Connected Peers: \(context.state.connectedPeers)")
+
+            // Main icon - SIMPLIFIED with explicit sizing
             if context.state.emergencyActive {
-                // EMERGENCY: Pulsing red effect
+                let _ = print("   → Rendering RED triangle")
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.red, .orange],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .shadow(color: .red.opacity(pulseOpacity), radius: glowRadius)
-                    .scaleEffect(breathingScale)
+                    .font(.system(size: 20))
+                    .foregroundColor(.red)
             } else if context.state.trackingUser != nil {
-                if context.state.isUWBTracking {
-                    // UWB TRACKING: Cyan gradient with shimmer
-                    Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [Color.cyan, Color.blue],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .shadow(color: Color.cyan.opacity(0.5), radius: 3)
-                } else {
-                    // GPS TRACKING: Blue solid
-                    Image(systemName: "location.fill")
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.blue, .blue.opacity(0.8)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .shadow(color: .blue.opacity(0.4), radius: 2)
-                }
+                let _ = print("   → Rendering CYAN location")
+                Image(systemName: "location.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(.cyan)
             } else {
-                // NORMAL: Breathing green network
+                let _ = print("   → Rendering GREEN network icon")
                 Image(systemName: "network")
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.green, .mint],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .shadow(color: .green.opacity(0.4), radius: glowRadius)
-                    .scaleEffect(breathingScale)
+                    .font(.system(size: 20))
+                    .foregroundColor(.green)
             }
-
-            // MESSAGE BADGE: Show unread count if there are new messages
-            if context.state.hasNewMessages {
-                Text("\(context.state.unreadMessageCount)")
-                    .font(.system(size: 8, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(minWidth: 12, minHeight: 12)
-                    .padding(2)
-                    .background(
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [.red, .red.opacity(0.9)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .shadow(color: .red.opacity(0.6), radius: 4)
-                    )
-                    .offset(x: 6, y: -4)
-                    .scaleEffect(badgePulse)
-            }
-        }
-        .onAppear {
-            startAnimations()
-        }
-    }
-
-    private func startAnimations() {
-        // Breathing animation (1.0 → 1.08 → 1.0) every 2 seconds
-        withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-            breathingScale = 1.08
-        }
-
-        // Pulse opacity for emergency/glow
-        withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
-            pulseOpacity = 0.8
-        }
-
-        // Glow radius pulsing
-        withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-            glowRadius = 6
-        }
-
-        // Badge pulse animation (for unread messages)
-        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-            badgePulse = 1.15
         }
     }
 }
@@ -388,142 +321,34 @@ struct CompactLeadingView: View {
 struct CompactTrailingView: View {
     let context: ActivityViewContext<MeshActivityAttributes>
 
-    @State private var shimmerOffset: CGFloat = -50
-    @State private var distanceBounce: CGFloat = 1.0
-    @State private var arrowRotation: Double = 0
-    @State private var emergencyPulse: CGFloat = 1.0
-
     var body: some View {
-        if context.state.emergencyActive {
-            // EMERGENCY: Bold SOS with pulsing animation
-            Text("SOS")
-                .font(.system(size: 12, weight: .black, design: .rounded))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.red, .orange],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .shadow(color: .red.opacity(0.5), radius: 2)
-                .scaleEffect(emergencyPulse)
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
-                        emergencyPulse = 1.15
-                    }
-                }
-        } else if let user = context.state.trackingUser {
-            VStack(alignment: .trailing, spacing: 2) {
-                // Distance with SF Rounded + bounce animation
-                Text(context.state.distanceString)
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.white, .white.opacity(0.9)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .scaleEffect(distanceBounce)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.6), value: context.state.distanceString)
+        let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        let _ = print("🔍 COMPACT TRAILING VIEW")
+        let _ = print("   Unread Messages: \(context.state.unreadMessageCount)")
+        let _ = print("   Has New Messages: \(context.state.hasNewMessages)")
 
-                // Direction arrow with rotation
-                if context.state.direction != nil {
-                    Text(context.state.directionEmoji)
-                        .font(.system(size: 11))
-                        .rotationEffect(.degrees(arrowRotation))
-                        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: context.state.direction)
-                }
-            }
-            .onChange(of: context.state.distanceString) { _ in
-                // Bounce effect when distance updates
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
-                    distanceBounce = 1.2
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    withAnimation(.spring(response: 0.4)) {
-                        distanceBounce = 1.0
-                    }
-                }
-            }
-            .onChange(of: context.state.direction) { _ in
-                // Wiggle arrow when direction changes
-                withAnimation(.spring(response: 0.3)) {
-                    arrowRotation = 20
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    withAnimation(.spring(response: 0.4)) {
-                        arrowRotation = 0
-                    }
-                }
-            }
-        } else if context.state.hasNewMessages {
-            // MESSAGES COUNT: Show unread messages with icon
-            VStack(spacing: 1) {
-                Text("\(context.state.unreadMessageCount)")
-                    .font(.system(size: 14, weight: .black, design: .rounded))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.white, .white.opacity(0.9)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 1)
-                    .overlay(
-                        // Shimmer overlay (triggers on message count change)
-                        LinearGradient(
-                            colors: [.clear, .white.opacity(0.3), .clear],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: 20)
-                        .offset(x: shimmerOffset)
-                    )
+        ZStack {
+            if context.state.hasNewMessages {
+                let _ = print("   → ✅ Rendering MESSAGE BADGE: \(context.state.unreadMessageCount)")
+                let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-                Image(systemName: "envelope.fill")
-                    .font(.system(size: 8))
-                    .foregroundColor(.red)
-                    .shadow(color: .red.opacity(0.4), radius: 2)
-            }
-            .onChange(of: context.state.unreadMessageCount) { _ in
-                triggerShimmer()
-            }
-        } else {
-            // PEERS COUNT: Premium number display
-            ZStack {
-                // Number with shimmer effect on update
+                ZStack {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 26, height: 26)
+
+                    Text("\(context.state.unreadMessageCount)")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.white)
+                }
+            } else {
+                let _ = print("   → ℹ️ Rendering PEER COUNT: \(context.state.connectedPeers)")
+                let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
                 Text("\(context.state.connectedPeers)")
-                    .font(.system(size: 17, weight: .black, design: .rounded))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.white, .white.opacity(0.85)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 1)
-                    .overlay(
-                        // Shimmer overlay (triggers on peer count change)
-                        LinearGradient(
-                            colors: [.clear, .white.opacity(0.3), .clear],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: 20)
-                        .offset(x: shimmerOffset)
-                    )
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.white)
             }
-            .onChange(of: context.state.connectedPeers) { _ in
-                triggerShimmer()
-            }
-        }
-    }
-
-    private func triggerShimmer() {
-        shimmerOffset = -50
-        withAnimation(.linear(duration: 0.6)) {
-            shimmerOffset = 50
         }
     }
 }
@@ -535,16 +360,44 @@ struct MinimalView: View {
     let context: ActivityViewContext<MeshActivityAttributes>
 
     var body: some View {
-        if context.state.emergencyActive {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.red)
-        } else if context.state.trackingUser != nil {
-            Image(systemName: "location.fill")
-                .foregroundColor(.blue)
-        } else {
-            Text("\(context.state.connectedPeers)")
-                .font(.caption2)
-                .fontWeight(.bold)
+        let _ = print("🔍 MINIMAL VIEW (multiple activities)")
+        let _ = print("   Emergency: \(context.state.emergencyActive)")
+        let _ = print("   Has New Messages: \(context.state.hasNewMessages)")
+        let _ = print("   Tracking: \(context.state.trackingUser ?? "nil")")
+        let _ = print("   Peers: \(context.state.connectedPeers)")
+
+        ZStack {
+            if context.state.emergencyActive {
+                let _ = print("   → Rendering RED triangle")
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.red)
+                    .font(.system(size: 12))
+            } else if context.state.hasNewMessages {
+                // Priority: Show message icon when there are new messages
+                let _ = print("   → Rendering MESSAGE icon with badge")
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "message.fill")
+                        .foregroundColor(.blue)
+                        .font(.system(size: 12))
+
+                    // Small badge indicator
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 6, height: 6)
+                        .offset(x: 3, y: -3)
+                }
+            } else if context.state.trackingUser != nil {
+                let _ = print("   → Rendering BLUE location")
+                Image(systemName: "location.fill")
+                    .foregroundColor(.blue)
+                    .font(.system(size: 12))
+            } else {
+                let _ = print("   → Rendering WHITE number: \(context.state.connectedPeers)")
+                Text("\(context.state.connectedPeers)")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+            }
         }
     }
 }
@@ -778,9 +631,35 @@ struct ExpandedCenterView: View {
     let context: ActivityViewContext<MeshActivityAttributes>
 
     var body: some View {
-        Text(context.state.statusSummary)
-            .font(.headline)
-            .multilineTextAlignment(.center)
+        VStack(spacing: 4) {
+            // Status summary
+            Text(context.state.statusSummary)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+
+            // NEW MESSAGES counter - ALWAYS VISIBLE if there are unread messages
+            if context.state.hasNewMessages {
+                HStack(spacing: 6) {
+                    Image(systemName: "envelope.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.blue)
+
+                    Text("\(context.state.unreadMessageCount) mensajes nuevos")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundColor(.blue)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.blue.opacity(0.15))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                )
+            }
+        }
     }
 }
 
@@ -915,6 +794,26 @@ struct ExpandedBottomView: View {
             }
         }
         .padding(.horizontal, 12)
+
+        // STOP BUTTON - Always visible at bottom
+        // Uses URL scheme deep link - most reliable approach for Live Activities
+        // Link opens meshred://stop which triggers immediate background processing
+        Link(destination: URL(string: "meshred://stop-live-activity")!) {
+            HStack(spacing: 6) {
+                Image(systemName: "stop.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("Stop")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+            }
+            .foregroundColor(.white)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color.red)
+            )
+        }
+        .padding(.top, 8)
     }
 
     // Helper computed properties for latency
