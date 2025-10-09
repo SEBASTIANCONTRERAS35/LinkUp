@@ -955,14 +955,31 @@ class NetworkManager: NSObject, ObservableObject {
             let messageTypeDisplayName = message.messageType.displayName
             let hopCount = message.hopCount
             let route = message.routePath.joined(separator: " → ")
+            let senderId = message.senderId
+            let content = message.content
+            let conversationId = conversationDescriptor.id
 
             DispatchQueue.main.async {
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("📨 NetworkManager: MESSAGE FOR ME - Delivering to MessageStore")
+                print("   Thread: MAIN (via DispatchQueue.main.async)")
+                print("   Sender: \(senderId)")
+                print("   Content: \"\(content)\"")
+                print("   Type: \(messageTypeDisplayName)")
+                print("   Hops: \(hopCount)")
+                print("   Route: \(route)")
+                print("   Conversation: \(conversationId)")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
                 // FORCE immediate UI update - critical for messages received via MultipeerConnectivity
+                print("   📢 Sending objectWillChange to MessageStore...")
                 self.messageStore.objectWillChange.send()
 
                 // CRITICAL: Auto-switch to conversation when receiving messages
+                print("   📥 Calling messageStore.addMessage()...")
                 self.messageStore.addMessage(simpleMessage, context: conversationDescriptor, autoSwitch: true)
-                print("📨 ✅ DELIVERED - Type: \(messageTypeDisplayName), Hops: \(hopCount), Route: \(route)")
+                print("✅ NetworkManager: Message delivered to MessageStore")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
 
             if message.requiresAck {

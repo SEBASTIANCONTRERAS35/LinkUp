@@ -173,6 +173,17 @@ class MessageStore: ObservableObject {
     // MARK: - Public API
 
     func addMessage(_ message: Message, context: ConversationDescriptor, autoSwitch: Bool = false) {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📨 MessageStore.addMessage() CALLED")
+        print("   Thread: \(Thread.isMainThread ? "MAIN" : "BACKGROUND")")
+        print("   Message ID: \(message.id)")
+        print("   Sender: \(message.sender)")
+        print("   Content: \"\(message.content)\"")
+        print("   Conversation: \(context.id)")
+        print("   AutoSwitch: \(autoSwitch)")
+        print("   Current Active Conv: \(activeConversationId)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
         var descriptor = context
 
         if let existing = metadata[descriptor.id] {
@@ -188,6 +199,7 @@ class MessageStore: ObservableObject {
         metadata[descriptor.id] = descriptor
 
         var threadMessages = conversations[descriptor.id] ?? []
+        let previousCount = threadMessages.count
         threadMessages.append(message)
         threadMessages.sort { $0.timestamp < $1.timestamp }
 
@@ -198,6 +210,9 @@ class MessageStore: ObservableObject {
         }
 
         conversations[descriptor.id] = threadMessages
+
+        print("   ✅ Message added to internal storage")
+        print("   Previous count: \(previousCount), New count: \(threadMessages.count)")
 
         // CRITICAL FIX: Auto-switch to conversation when incoming message arrives
         // Only if autoSwitch is enabled and it's a different conversation
@@ -215,11 +230,16 @@ class MessageStore: ObservableObject {
             UserDefaults.standard.set(activeConversationId, forKey: activeKey)
         }
 
+        print("   🔄 Calling saveConversations()...")
         saveConversations()
+        print("   🔄 Calling refreshPublishedState()...")
         refreshPublishedState()
+        print("   🔄 Calling calculateUnreadCount()...")
         calculateUnreadCount()
 
-        print("📱 MessageStore: Added message to conversation \(descriptor.id) - Title: \(descriptor.title)")
+        print("✅ MessageStore.addMessage() COMPLETE")
+        print("   Conversation: \(descriptor.title)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     func selectConversation(_ conversationId: String) {
@@ -429,16 +449,27 @@ class MessageStore: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
+            print("   🎯 ON MAIN THREAD - About to update @Published properties")
+            print("      Current messages.count: \(self.messages.count)")
+            print("      New messages.count: \(currentMessages.count)")
+            print("      Current summaries.count: \(self.conversationSummaries.count)")
+            print("      New summaries.count: \(currentSummaries.count)")
+
             // FORCE SwiftUI to re-render by sending objectWillChange notification
             // This is critical for immediate UI updates when messages arrive via MultipeerConnectivity
+            print("   📢 Sending objectWillChange.send()...")
             self.objectWillChange.send()
 
+            print("   🔄 Updating @Published var messages...")
             self.messages = currentMessages
+
+            print("   🔄 Updating @Published var conversationSummaries...")
             self.conversationSummaries = currentSummaries
 
             print("   ✅ Published state updated on main thread")
             print("      - messages.count: \(self.messages.count)")
             print("      - conversationSummaries.count: \(self.conversationSummaries.count)")
+            print("   🎬 SwiftUI should re-render NOW!")
         }
     }
 

@@ -559,7 +559,17 @@ struct ChatConversationView: View {
     }
 
     private var messagesContent: some View {
-        LazyVStack(spacing: 12) {
+        let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        let _ = print("🎨 ChatConversationView.messagesContent RENDERING")
+        let _ = print("   Chat: \(chat.title)")
+        let _ = print("   FilteredMessages count: \(filteredMessages.count)")
+        let _ = print("   Thread: \(Thread.isMainThread ? "MAIN" : "BACKGROUND")")
+        let _ = filteredMessages.forEach { msg in
+            print("   • [\(msg.id.uuidString.prefix(8))...] \(msg.sender): \(msg.content)")
+        }
+        let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        return LazyVStack(spacing: 12) {
             // Show mock messages for demo
             ForEach(MockDataManager.mockConversationMessages(for: chat.id)) { mockMsg in
                 let isFromLocal = mockMsg.type == .sent
@@ -658,38 +668,63 @@ struct ChatConversationView: View {
     }
 
     private var filteredMessages: [Message] {
+        let allMessages = networkManager.messageStore.messages
+        print("🔍 filteredMessages computed property CALLED")
+        print("   Chat type: \(chat.type)")
+        print("   All messages in store: \(allMessages.count)")
+
+        let filtered: [Message]
+
         switch chat.type {
         case .familyGroup:
             // Show family group messages
-            return networkManager.messageStore.messages.filter { message in
+            filtered = allMessages.filter { message in
                 // This would need proper family group message filtering
                 true
             }
+            print("   Family group filter: \(filtered.count) messages")
         case .individual:
             // Show messages from specific peer
-            guard let peerID = chat.peerID else { return [] }
-            return networkManager.messageStore.messages.filter { message in
+            guard let peerID = chat.peerID else {
+                print("   ⚠️ No peerID for individual chat")
+                return []
+            }
+            filtered = allMessages.filter { message in
                 message.sender == peerID.displayName ||
                 (message.sender == networkManager.localDeviceName && message.recipientId == peerID.displayName)
             }
+            print("   Individual filter (peer: \(peerID.displayName)): \(filtered.count) messages")
         case .broadcast:
-            return networkManager.messageStore.messages.filter { $0.recipientId == "broadcast" }
+            filtered = allMessages.filter { $0.recipientId == "broadcast" }
+            print("   Broadcast filter: \(filtered.count) messages")
         }
+
+        return filtered
     }
 
     private func sendMessage() {
         guard !messageText.isEmpty else { return }
 
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📤 ChatConversationView.sendMessage() CALLED")
+        print("   Chat: \(chat.title)")
+        print("   Content: \"\(messageText)\"")
+        print("   Thread: \(Thread.isMainThread ? "MAIN" : "BACKGROUND")")
+
         let recipientId: String
         switch chat.type {
         case .familyGroup:
             recipientId = "broadcast" // Would need proper family group handling
+            print("   Type: familyGroup → recipientId: broadcast")
         case .individual:
             recipientId = chat.peerID?.displayName ?? "broadcast"
+            print("   Type: individual → recipientId: \(recipientId)")
         case .broadcast:
             recipientId = "broadcast"
+            print("   Type: broadcast → recipientId: broadcast")
         }
 
+        print("   📡 Calling networkManager.sendMessage()...")
         networkManager.sendMessage(
             messageText,
             type: .chat,
@@ -698,6 +733,8 @@ struct ChatConversationView: View {
         )
 
         messageText = ""
+        print("✅ ChatConversationView.sendMessage() COMPLETE")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy) {
