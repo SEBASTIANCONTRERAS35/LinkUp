@@ -16,6 +16,7 @@ class MessageStore: ObservableObject {
         var id: String
         var title: String
         var isFamily: Bool
+        var isDirect: Bool  // New: indicates direct (non-family) conversation
         var participantId: String?
         var defaultRecipientId: String
 
@@ -24,6 +25,7 @@ class MessageStore: ObservableObject {
                 id: ConversationIdentifier.public.rawValue,
                 title: "Chat General",
                 isFamily: false,
+                isDirect: false,
                 participantId: nil,
                 defaultRecipientId: "broadcast"
             )
@@ -34,20 +36,69 @@ class MessageStore: ObservableObject {
                 id: ConversationIdentifier.family(peerId: peerId).rawValue,
                 title: displayName ?? peerId,
                 isFamily: true,
+                isDirect: false,
                 participantId: peerId,
                 defaultRecipientId: peerId
             )
         }
+
+        static func directChat(peerId: String, displayName: String?) -> ConversationDescriptor {
+            ConversationDescriptor(
+                id: ConversationIdentifier.direct(peerId: peerId).rawValue,
+                title: displayName ?? peerId,
+                isFamily: false,
+                isDirect: true,
+                participantId: peerId,
+                defaultRecipientId: peerId
+            )
+        }
+
+        /// Computed property: true for any private conversation (family or direct)
+        var isPrivate: Bool {
+            return isFamily || isDirect
+        }
+
+        /// Display type for UI
+        var conversationType: String {
+            if isFamily { return "Familia" }
+            if isDirect { return "Directo" }
+            return "Público"
+        }
     }
 
-    struct ConversationSummary: Identifiable {
+    struct ConversationSummary: Identifiable, Equatable {
         let id: String
         let title: String
         let isFamily: Bool
+        let isDirect: Bool  // New: indicates direct (non-family) conversation
         let participantId: String?
         let defaultRecipientId: String
         let lastMessagePreview: String?
         let lastMessageDate: Date?
+
+        /// Computed property: true for any private conversation (family or direct)
+        var isPrivate: Bool {
+            return isFamily || isDirect
+        }
+
+        /// Display type for UI
+        var conversationType: String {
+            if isFamily { return "Familia" }
+            if isDirect { return "Directo" }
+            return "Público"
+        }
+
+        // Equatable helps SwiftUI detect changes in ForEach
+        static func == (lhs: ConversationSummary, rhs: ConversationSummary) -> Bool {
+            lhs.id == rhs.id &&
+            lhs.title == rhs.title &&
+            lhs.isFamily == rhs.isFamily &&
+            lhs.isDirect == rhs.isDirect &&
+            lhs.participantId == rhs.participantId &&
+            lhs.defaultRecipientId == rhs.defaultRecipientId &&
+            lhs.lastMessagePreview == rhs.lastMessagePreview &&
+            lhs.lastMessageDate == rhs.lastMessageDate
+        }
     }
 
     private struct StoredPayload: Codable {
@@ -57,9 +108,34 @@ class MessageStore: ObservableObject {
 
     // MARK: - Published State
 
-    @Published private(set) var messages: [Message] = []
-    @Published private(set) var activeConversationId: String
-    @Published private(set) var conversationSummaries: [ConversationSummary] = []
+    @Published private(set) var messages: [Message] = [] {
+        didSet {
+            print("🔔 MessageStore.messages CHANGED")
+            print("   Old count: \(oldValue.count)")
+            print("   New count: \(messages.count)")
+            print("   For conversation: \(activeConversationId)")
+        }
+    }
+
+    @Published private(set) var activeConversationId: String {
+        didSet {
+            print("🔔 MessageStore.activeConversationId CHANGED")
+            print("   Old: \(oldValue)")
+            print("   New: \(activeConversationId)")
+        }
+    }
+
+    @Published private(set) var conversationSummaries: [ConversationSummary] = [] {
+        didSet {
+            print("🔔 MessageStore.conversationSummaries CHANGED")
+            print("   Old count: \(oldValue.count)")
+            print("   New count: \(conversationSummaries.count)")
+            conversationSummaries.forEach { summary in
+                print("   • \(summary.title) (\(summary.id))")
+            }
+        }
+    }
+
     @Published private(set) var unreadCount: Int = 0
 
     // MARK: - Private Properties
@@ -96,12 +172,13 @@ class MessageStore: ObservableObject {
 
     // MARK: - Public API
 
-    func addMessage(_ message: Message, context: ConversationDescriptor) {
+    func addMessage(_ message: Message, context: ConversationDescriptor, autoSwitch: Bool = false) {
         var descriptor = context
 
         if let existing = metadata[descriptor.id] {
             descriptor.title = descriptor.title.isEmpty ? existing.title : descriptor.title
             descriptor.isFamily = existing.isFamily || descriptor.isFamily
+            descriptor.isDirect = existing.isDirect || descriptor.isDirect
             descriptor.participantId = descriptor.participantId ?? existing.participantId
             if descriptor.defaultRecipientId.isEmpty {
                 descriptor.defaultRecipientId = existing.defaultRecipientId
@@ -122,6 +199,22 @@ class MessageStore: ObservableObject {
 
         conversations[descriptor.id] = threadMessages
 
+        // CRITICAL FIX: Auto-switch to conversation when incoming message arrives
+        // Only if autoSwitch is enabled and it's a different conversation
+        let isNewConversation = descriptor.id != activeConversationId
+
+        if autoSwitch && isNewConversation {
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("🔄 AUTO-SWITCHING TO NEW CONVERSATION")
+            print("   From: \(activeConversationId)")
+            print("   To: \(descriptor.id)")
+            print("   Reason: Incoming message from \(message.sender)")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            activeConversationId = descriptor.id
+            UserDefaults.standard.set(activeConversationId, forKey: activeKey)
+        }
+
         saveConversations()
         refreshPublishedState()
         calculateUnreadCount()
@@ -130,7 +223,17 @@ class MessageStore: ObservableObject {
     }
 
     func selectConversation(_ conversationId: String) {
-        guard conversationId != activeConversationId else { return }
+        guard conversationId != activeConversationId else {
+            print("⚠️ MessageStore.selectConversation: Already on \(conversationId), skipping")
+            return
+        }
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🔄 SWITCHING CONVERSATION")
+        print("   From: \(activeConversationId)")
+        print("   To: \(conversationId)")
+        print("   Previous message count: \(conversations[activeConversationId]?.count ?? 0)")
+        print("   New message count: \(conversations[conversationId]?.count ?? 0)")
 
         // Mark all messages in current conversation as read before switching
         markConversationAsRead(conversationId: activeConversationId)
@@ -143,7 +246,8 @@ class MessageStore: ObservableObject {
 
         refreshPublishedState()
 
-        print("💬 MessageStore: Active conversation switched to \(conversationId)")
+        print("   ✅ Conversation switched")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     func ensureConversation(_ descriptor: ConversationDescriptor) {
@@ -154,6 +258,9 @@ class MessageStore: ObservableObject {
             var stored = metadata[descriptor.id]!
             if descriptor.isFamily {
                 stored.isFamily = true
+            }
+            if descriptor.isDirect {
+                stored.isDirect = true
             }
             if let participant = descriptor.participantId {
                 stored.participantId = participant
@@ -175,6 +282,43 @@ class MessageStore: ObservableObject {
 
     func descriptor(for conversationId: String) -> ConversationDescriptor? {
         return metadata[conversationId]
+    }
+
+    func hasConversation(withId conversationId: String) -> Bool {
+        return metadata[conversationId] != nil && !(conversations[conversationId] ?? []).isEmpty
+    }
+
+    func deleteConversation(_ conversationId: String) {
+        // Don't allow deleting the public conversation
+        guard conversationId != ConversationIdentifier.public.rawValue else {
+            print("⚠️ MessageStore: Cannot delete public conversation")
+            return
+        }
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🗑️ DELETING CONVERSATION")
+        print("   Conversation ID: \(conversationId)")
+        print("   Message count: \(conversations[conversationId]?.count ?? 0)")
+        print("   Was active: \(activeConversationId == conversationId)")
+
+        // Remove conversation messages and metadata
+        conversations.removeValue(forKey: conversationId)
+        metadata.removeValue(forKey: conversationId)
+
+        // If the deleted conversation was active, switch to public chat
+        if activeConversationId == conversationId {
+            print("   → Switching to public chat")
+            activeConversationId = ConversationIdentifier.public.rawValue
+            UserDefaults.standard.set(activeConversationId, forKey: activeKey)
+        }
+
+        saveConversations()
+        refreshPublishedState()
+        calculateUnreadCount()
+
+        print("   ✅ Conversation deleted")
+        print("   Remaining conversations: \(metadata.count)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     func clearAllMessages() {
@@ -210,7 +354,16 @@ class MessageStore: ObservableObject {
                 let payload = try JSONDecoder().decode(StoredPayload.self, from: data)
                 conversations = payload.messages
                 metadata = payload.metadata
-                print("📱 MessageStore: Loaded \(payload.messages.count) conversations from storage")
+
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("💾 LOADED CONVERSATIONS FROM STORAGE")
+                print("   Total conversations: \(payload.messages.count)")
+                print("   Total metadata entries: \(payload.metadata.count)")
+                for (id, descriptor) in payload.metadata {
+                    let msgCount = payload.messages[id]?.count ?? 0
+                    print("   • \(descriptor.title): \(msgCount) messages")
+                }
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 return
             } catch {
                 print("❌ MessageStore: Failed to load conversations: \(error.localizedDescription)")
@@ -233,7 +386,17 @@ class MessageStore: ObservableObject {
             let data = try JSONEncoder().encode(payload)
             UserDefaults.standard.set(data, forKey: storageKey)
             UserDefaults.standard.set(activeConversationId, forKey: activeKey)
-            print("📱 MessageStore: Saved \(conversations.count) conversations to storage")
+
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("💾 SAVING CONVERSATIONS TO STORAGE")
+            print("   Total conversations: \(conversations.count)")
+            print("   Total metadata entries: \(metadata.count)")
+            for (id, descriptor) in metadata {
+                let msgCount = conversations[id]?.count ?? 0
+                print("   • \(descriptor.title): \(msgCount) messages")
+            }
+            print("   Active conversation: \(activeConversationId)")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         } catch {
             print("❌ MessageStore: Failed to save conversations: \(error.localizedDescription)")
         }
@@ -252,22 +415,54 @@ class MessageStore: ObservableObject {
     }
 
     private func refreshPublishedState() {
-        messages = conversations[activeConversationId] ?? []
-        conversationSummaries = buildConversationSummaries()
+        // Capture current state before dispatching to main thread
+        let currentActiveId = activeConversationId
+        let currentMessages = conversations[activeConversationId] ?? []
+        let currentSummaries = buildConversationSummaries()
+
+        print("🔄 MessageStore.refreshPublishedState() - Preparing UI update")
+        print("   Active conversation: \(currentActiveId)")
+        print("   Messages to publish: \(currentMessages.count)")
+        print("   Summaries to publish: \(currentSummaries.count)")
+
+        // CRITICAL: Always update @Published properties on main thread to ensure SwiftUI updates
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            self.messages = currentMessages
+            self.conversationSummaries = currentSummaries
+
+            print("   ✅ Published state updated on main thread")
+            print("      - messages.count: \(self.messages.count)")
+            print("      - conversationSummaries.count: \(self.conversationSummaries.count)")
+        }
     }
 
     private func buildConversationSummaries() -> [ConversationSummary] {
         var summaries: [ConversationSummary] = []
 
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📊 BUILDING CONVERSATION SUMMARIES")
+        print("   Metadata count: \(metadata.count)")
+        print("   Conversations count: \(conversations.count)")
+
         for (conversationId, descriptor) in metadata {
             let threadMessages = conversations[conversationId] ?? []
             let lastMessage = threadMessages.last
+
+            print("   • \(descriptor.title) (\(conversationId))")
+            print("     Messages: \(threadMessages.count)")
+            print("     Type: \(descriptor.conversationType)")
+            print("     IsFamily: \(descriptor.isFamily)")
+            print("     IsDirect: \(descriptor.isDirect)")
+            print("     ParticipantID: \(descriptor.participantId ?? "nil")")
 
             summaries.append(
                 ConversationSummary(
                     id: descriptor.id,
                     title: descriptor.title,
                     isFamily: descriptor.isFamily,
+                    isDirect: descriptor.isDirect,
                     participantId: descriptor.participantId,
                     defaultRecipientId: descriptor.defaultRecipientId,
                     lastMessagePreview: lastMessage?.content,
@@ -275,6 +470,9 @@ class MessageStore: ObservableObject {
                 )
             )
         }
+
+        print("   Total summaries created: \(summaries.count)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Always ensure public conversation is first
         summaries.sort { summaryA, summaryB in

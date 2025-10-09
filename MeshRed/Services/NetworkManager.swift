@@ -482,14 +482,24 @@ class NetworkManager: NSObject, ObservableObject {
         }
 
         let isBroadcast = recipientId == "broadcast"
-        let isFamilyConversation = !isBroadcast && familyGroupManager.isFamilyMember(peerID: recipientId)
         let conversationDescriptor: MessageStore.ConversationDescriptor
 
-        if isFamilyConversation {
-            let displayName = familyGroupManager.getMember(withPeerID: recipientId)?.displayName ?? recipientId
-            conversationDescriptor = .familyChat(peerId: recipientId, displayName: displayName)
-        } else {
+        if isBroadcast {
+            // Broadcast messages go to public chat
             conversationDescriptor = .publicChat()
+        } else {
+            // Private message - determine if family or direct conversation
+            let displayName = familyGroupManager.getMember(withPeerID: recipientId)?.displayName ?? recipientId
+            let isFamilyMember = familyGroupManager.isFamilyMember(peerID: recipientId)
+            let wasEverFamilyMember = familyGroupManager.wasEverFamilyMember(peerID: recipientId)
+
+            if isFamilyMember || wasEverFamilyMember {
+                // Family member conversation (current or historical)
+                conversationDescriptor = .familyChat(peerId: recipientId, displayName: displayName)
+            } else {
+                // Direct (non-family) conversation
+                conversationDescriptor = .directChat(peerId: recipientId, displayName: displayName)
+            }
         }
 
         let message = Message(
@@ -509,6 +519,8 @@ class NetworkManager: NSObject, ObservableObject {
         print("   Type: \(type.displayName)")
         print("   Priority: \(networkMessage.priority)")
         print("   Requires ACK: \(requiresAck)")
+        print("   Conversation Type: \(conversationDescriptor.conversationType)")
+        print("   Conversation ID: \(conversationDescriptor.id)")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
@@ -908,19 +920,29 @@ class NetworkManager: NSObject, ObservableObject {
 
         if isForMe {
             let isBroadcast = message.recipientId == "broadcast"
-            let isFamilyConversation = !isBroadcast && familyGroupManager.isFamilyMember(peerID: message.senderId)
             let conversationDescriptor: MessageStore.ConversationDescriptor
 
-            if isFamilyConversation {
-                let displayName = familyGroupManager.getMember(withPeerID: message.senderId)?.displayName ?? message.senderId
-                conversationDescriptor = .familyChat(peerId: message.senderId, displayName: displayName)
-            } else {
+            if isBroadcast {
+                // Broadcast messages go to public chat
                 conversationDescriptor = .publicChat()
+            } else {
+                // Private message - determine if family or direct conversation
+                let displayName = familyGroupManager.getMember(withPeerID: message.senderId)?.displayName ?? message.senderId
+                let isFamilyMember = familyGroupManager.isFamilyMember(peerID: message.senderId)
+                let wasEverFamilyMember = familyGroupManager.wasEverFamilyMember(peerID: message.senderId)
+
+                if isFamilyMember || wasEverFamilyMember {
+                    // Family member conversation (current or historical)
+                    conversationDescriptor = .familyChat(peerId: message.senderId, displayName: displayName)
+                } else {
+                    // Direct (non-family) conversation
+                    conversationDescriptor = .directChat(peerId: message.senderId, displayName: displayName)
+                }
             }
 
             let simpleMessage = Message(
                 sender: message.senderId,
-                content: "[\(message.messageType.displayName)] \(message.content)",
+                content: message.content,
                 recipientId: isBroadcast ? nil : message.recipientId,
                 conversationId: conversationDescriptor.id,
                 conversationName: conversationDescriptor.title
@@ -932,7 +954,8 @@ class NetworkManager: NSObject, ObservableObject {
             let route = message.routePath.joined(separator: " → ")
 
             DispatchQueue.main.async {
-                self.messageStore.addMessage(simpleMessage, context: conversationDescriptor)
+                // CRITICAL: Auto-switch to conversation when receiving messages
+                self.messageStore.addMessage(simpleMessage, context: conversationDescriptor, autoSwitch: true)
                 print("📨 ✅ DELIVERED - Type: \(messageTypeDisplayName), Hops: \(hopCount), Route: \(route)")
             }
 
@@ -1777,6 +1800,12 @@ extension NetworkManager: MCSessionDelegate {
                 // Disconnection is handled by the session state changes
 
                 let wasConnected = self.connectedPeers.contains(peerID)
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("🔌 PEER DISCONNECTION EVENT")
+                print("   Peer: \(peerID.displayName)")
+                print("   Was connected: \(wasConnected)")
+                print("   Remaining connected peers: \(self.connectedPeers.count - 1)")
+
                 self.connectedPeers.removeAll { $0 == peerID }
                 self.sessionManager.recordDisconnection(from: peerID)
                 self.healthMonitor.removePeer(peerID)
@@ -1798,6 +1827,21 @@ extension NetworkManager: MCSessionDelegate {
                 // No longer waiting for this peer to invite us
                 self.waitingForInvitationFrom.removeValue(forKey: peerID.displayName)
 
+                // DEBUG: Check if this peer has conversations
+                let familyConversationId = ConversationIdentifier.family(peerId: peerID.displayName).rawValue
+                let hasConversation = self.messageStore.hasConversation(withId: familyConversationId)
+                let conversationDescriptor = self.messageStore.descriptor(for: familyConversationId)
+
+                print("   💬 CONVERSATION STATUS:")
+                print("      Has conversation: \(hasConversation)")
+                print("      Conversation ID: \(familyConversationId)")
+                if let descriptor = conversationDescriptor {
+                    print("      Conversation title: \(descriptor.title)")
+                    print("      Message count: \(self.messageStore.messages(for: familyConversationId).count)")
+                }
+                print("   Active conversation: \(self.messageStore.activeConversationId)")
+                print("   Total conversations: \(self.messageStore.conversationSummaries.count)")
+
                 if wasConnected {
                     print("❌ DISCONNECTION: Lost connection to peer: \(peerID.displayName)")
 
@@ -1805,6 +1849,8 @@ extension NetworkManager: MCSessionDelegate {
                     AudioManager.shared.announceConnectionChange(connected: false, peerName: peerID.displayName)
                     HapticManager.shared.playPattern(.peerDisconnected, priority: .notification)
                     print("🔌 Disconnected from \(peerID.displayName)")
+
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 } else {
                     print("📵 Connection attempt failed for peer: \(peerID.displayName)")
                     // Handle connection failure with retry logic
@@ -2362,6 +2408,7 @@ extension NetworkManager: LinkFinderSessionManagerDelegate {
             id: testConversationId,
             title: "Chat de Prueba (\(sender))",
             isFamily: false,
+            isDirect: false,  // Test chat is neither family nor direct
             participantId: nil,
             defaultRecipientId: "test-broadcast"
         )
