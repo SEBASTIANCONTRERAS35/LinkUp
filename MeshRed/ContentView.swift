@@ -1936,6 +1936,9 @@ private struct MessageListView: View {
             ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                 messageRow(for: message, at: index)
             }
+
+            // Extra padding at bottom so last message is not covered by composer
+            Color.clear.frame(height: 80)
         }
     }
 
