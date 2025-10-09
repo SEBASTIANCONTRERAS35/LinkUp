@@ -112,6 +112,39 @@ struct Message: Identifiable, Codable, Equatable {
     func isFromLocalDevice(deviceName: String) -> Bool {
         return sender == deviceName
     }
+
+    // MARK: - WhatsApp-style Date Helpers
+
+    /// Returns a user-friendly date string ("Hoy", "Ayer", or formatted date)
+    var dateGroupLabel: String {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let messageDate = calendar.startOfDay(for: timestamp)
+
+        if messageDate == today {
+            return "Hoy"
+        } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
+                  messageDate == yesterday {
+            return "Ayer"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "dd/MM/yyyy"
+            return formatter.string(from: timestamp)
+        }
+    }
+
+    /// Check if this message is on the same day as another message
+    func isSameDay(as other: Message) -> Bool {
+        let calendar = Calendar.current
+        return calendar.isDate(timestamp, inSameDayAs: other.timestamp)
+    }
+
+    /// Check if this message is from the same sender and within 2 minutes of another
+    func shouldGroupWith(_ other: Message) -> Bool {
+        guard sender == other.sender else { return false }
+        let timeDifference = abs(timestamp.timeIntervalSince(other.timestamp))
+        return timeDifference < 120 // 2 minutes
+    }
 }
 
 // Extension for UserDefaults persistence

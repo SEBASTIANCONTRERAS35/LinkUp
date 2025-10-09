@@ -12,6 +12,7 @@ import MultipeerConnectivity
 struct MainDashboardContainer: View {
     @EnvironmentObject var networkManager: NetworkManager
     @State private var selectedTab: DashboardTab = .home
+    @State private var hideBottomBar: Bool = false
 
     var body: some View {
         ZStack {
@@ -23,7 +24,7 @@ struct MainDashboardContainer: View {
                         .environmentObject(networkManager)
                         .transition(.opacity)
                 case .chat:
-                    MessagingDashboardView()
+                    MessagingDashboardView(hideBottomBar: $hideBottomBar)
                         .environmentObject(networkManager)
                         .transition(.opacity)
                 case .sos:
@@ -31,14 +32,16 @@ struct MainDashboardContainer: View {
                         .transition(.opacity)
                 }
             }
-
-            // Bottom navigation overlay (always visible)
-            VStack {
-                Spacer()
-                SharedBottomNavigationBar(selectedTab: $selectedTab)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                // Bottom navigation overlay (conditionally visible with proper spacing)
+                if !hideBottomBar {
+                    SharedBottomNavigationBar(selectedTab: $selectedTab)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
         }
         .animation(.easeInOut(duration: 0.2), value: selectedTab)
+        .animation(.easeInOut(duration: 0.3), value: hideBottomBar)
     }
 }
 

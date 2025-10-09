@@ -11,6 +11,7 @@ import Combine
 
 struct MessagingDashboardView: View {
     @EnvironmentObject var networkManager: NetworkManager
+    @Binding var hideBottomBar: Bool
 
     // MARK: - State
     @State private var showBroadcastComposer = false
@@ -38,7 +39,7 @@ struct MessagingDashboardView: View {
                         individualChatsSection
 
                         // Extra spacing for bottom nav
-                        Color.clear.frame(height: 100)
+                        Color.clear.frame(height: 20)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
@@ -49,6 +50,22 @@ struct MessagingDashboardView: View {
             .background(appBackgroundColor.ignoresSafeArea())
             .navigationDestination(for: ChatItem.self) { chat in
                 ChatConversationView(chat: chat, networkManager: networkManager)
+                    .onAppear {
+                        withAnimation {
+                            hideBottomBar = true
+                        }
+                    }
+                    .onDisappear {
+                        withAnimation {
+                            hideBottomBar = false
+                        }
+                    }
+            }
+            .onChange(of: navigationPath) { oldPath, newPath in
+                // Hide bottom bar when navigating to a conversation
+                withAnimation {
+                    hideBottomBar = !newPath.isEmpty
+                }
             }
             .sheet(isPresented: $showBroadcastComposer) {
                 BroadcastMessageComposer(networkManager: networkManager)
@@ -515,13 +532,14 @@ struct ChatConversationView: View {
                             ForEach(filteredMessages) { message in
                                 MessageBubble(
                                     message: message,
-                                    isFromLocal: message.sender == networkManager.localDeviceName
+                                    isFromLocal: message.sender == networkManager.localDeviceName,
+                                    showSenderName: true
                                 )
                             }
                         }
 
                         // Extra padding at bottom for composer
-                        Color.clear.frame(height: 80)
+                        Color.clear.frame(height: 20)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
@@ -564,7 +582,6 @@ struct ChatConversationView: View {
                     Color.white
                         .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: -2)
                 )
-                .padding(.bottom, 100) // Space for bottom nav bar
             }
         }
         .navigationTitle(chat.title)
@@ -907,6 +924,6 @@ struct MockMessageBubble: View {
 
 // MARK: - Preview
 #Preview {
-    MessagingDashboardView()
+    MessagingDashboardView(hideBottomBar: .constant(false))
         .environmentObject(NetworkManager())
 }

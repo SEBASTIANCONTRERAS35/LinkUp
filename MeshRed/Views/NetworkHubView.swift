@@ -56,7 +56,7 @@ struct NetworkHubView: View {
             .background(accessibleTheme.background.ignoresSafeArea())
             .navigationBarHidden(true)
             .fullScreenCover(isPresented: $showMessaging) {
-                MessagingDashboardView()
+                MessagingDashboardView(hideBottomBar: .constant(false))
                     .environmentObject(networkManager)
             }
         }

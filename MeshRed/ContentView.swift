@@ -976,14 +976,8 @@ private struct MessagesSection: View {
                     let _ = messages.forEach { msg in
                         print("   • [\(msg.id)] \(msg.sender): \(msg.content.prefix(30))...")
                     }
-                    LazyVStack(spacing: 12) {
-                        ForEach(messages) { message in
-                            MessageBubble(
-                                message: message,
-                                isFromLocal: message.sender == localDeviceName
-                            )
-                        }
-                    }
+
+                    MessageListView(messages: messages, localDeviceName: localDeviceName)
                 }
             }
         }
@@ -1916,42 +1910,115 @@ struct LocationResponseView: View {
     }
 }
 
+// MARK: - Message List with Auto-Scroll
+
+private struct MessageListView: View {
+    let messages: [Message]
+    let localDeviceName: String
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                messageListContent
+                    .padding(.horizontal, 4)
+            }
+            .onChange(of: messages.count) { oldCount, newCount in
+                scrollToBottom(proxy: proxy)
+            }
+            .onAppear {
+                scrollToBottom(proxy: proxy)
+            }
+        }
+    }
+
+    private var messageListContent: some View {
+        LazyVStack(spacing: 4) {
+            ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                messageRow(for: message, at: index)
+            }
+        }
+    }
+
+    private func messageRow(for message: Message, at index: Int) -> some View {
+        VStack(spacing: 4) {
+            if shouldShowDateDivider(for: message, at: index) {
+                DateDivider(dateLabel: message.dateGroupLabel)
+                    .padding(.vertical, 8)
+            }
+
+            MessageBubble(
+                message: message,
+                isFromLocal: message.sender == localDeviceName,
+                showSenderName: shouldShowSenderName(for: message, at: index)
+            )
+            .id(message.id)
+        }
+    }
+
+    private func shouldShowDateDivider(for message: Message, at index: Int) -> Bool {
+        guard index > 0 else { return true }
+        return !message.isSameDay(as: messages[index - 1])
+    }
+
+    private func shouldShowSenderName(for message: Message, at index: Int) -> Bool {
+        guard index > 0 else { return true }
+        return !message.shouldGroupWith(messages[index - 1])
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        guard let lastMessage = messages.last else { return }
+        withAnimation {
+            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+        }
+    }
+}
+
+// MARK: - Message Bubble
+
 struct MessageBubble: View {
     let message: Message
     let isFromLocal: Bool
+    let showSenderName: Bool
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 12) {
+        HStack(alignment: .bottom, spacing: 8) {
             if isFromLocal {
                 Spacer(minLength: 0)
             }
 
-            VStack(alignment: isFromLocal ? .trailing : .leading, spacing: 6) {
-                if !isFromLocal {
+            VStack(alignment: isFromLocal ? .trailing : .leading, spacing: 2) {
+                // Show sender name only if showSenderName is true and not from local
+                if !isFromLocal && showSenderName {
                     Text(message.sender)
                         .font(.caption2)
                         .fontWeight(.semibold)
                         .foregroundColor(.secondary)
+                        .padding(.leading, 12)
+                        .padding(.top, 4)
                 }
 
-                Text(message.content)
-                    .font(.body)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(bubbleColor)
-                    .foregroundColor(isFromLocal ? .white : .primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                HStack(alignment: .bottom, spacing: 4) {
+                    Text(message.content)
+                        .font(.body)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(bubbleColor)
+                        .foregroundColor(isFromLocal ? .white : .primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-                Text(message.formattedTime)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                    // Time stamp next to bubble (WhatsApp style)
+                    Text(message.formattedTime)
+                        .font(.caption2)
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
             }
-            .frame(maxWidth: 260, alignment: isFromLocal ? .trailing : .leading)
+            .frame(maxWidth: 280, alignment: isFromLocal ? .trailing : .leading)
 
             if !isFromLocal {
                 Spacer(minLength: 0)
             }
         }
+        .padding(.vertical, 1)
     }
 
     private var bubbleColor: Color {
@@ -1960,6 +2027,28 @@ struct MessageBubble: View {
         } else {
             return Color.meshRowBackground
         }
+    }
+}
+
+// MARK: - Date Divider Component
+
+struct DateDivider: View {
+    let dateLabel: String
+
+    var body: some View {
+        HStack {
+            VStack { Divider() }
+            Text(dateLabel)
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .background(Color.meshCardBackground)
+                .clipShape(Capsule())
+            VStack { Divider() }
+        }
+        .padding(.vertical, 4)
     }
 }
 
