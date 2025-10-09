@@ -356,6 +356,13 @@ struct ContentView: View {
             networkManager.messageStore.selectConversation(descriptor.id)
         }
         recipientId = newRecipient
+
+        // CRITICAL FIX: Force refresh after creating new conversation
+        // This ensures the UI is ready to display messages
+        print("🔄 Forcing UI refresh after creating new conversation")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            networkManager.messageStore.refreshPublishedState()
+        }
     }
 
     private func syncRecipientWithActiveConversation() {

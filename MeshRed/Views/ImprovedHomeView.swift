@@ -820,11 +820,42 @@ struct ImprovedHomeView: View {
     private func getDistance(for peer: MCPeerID) -> String? {
         // Check if LinkFinder distance is available
         if #available(iOS 14.0, *),
-           let uwbManager = networkManager.uwbSessionManager,
-           let distance = uwbManager.getDistance(to: peer) {
-            return String(format: "%.1f metros", distance)
+           let uwbManager = networkManager.uwbSessionManager {
+            // Check session state
+            let state = uwbManager.sessionStates[peer.displayName] ?? .disconnected
+
+            // Get distance if available
+            if let distance = uwbManager.getDistance(to: peer) {
+                return String(format: "%.1f metros", distance)
+            } else {
+                // Return status message based on state
+                switch state {
+                case .preparing, .tokenReady:
+                    return "Iniciando ubicación..."
+                case .running:
+                    return "Esperando señal..."
+                case .ranging:
+                    return "Calculando..."
+                case .suspended:
+                    return "Ubicación pausada"
+                case .disconnected:
+                    return "Ubicación no disponible"
+                @unknown default:
+                    return "Ubicación no disponible"
+                }
+            }
         }
-        return nil
+        // Fallback: Check if we have a recent GPS location
+        if let peerLocation = networkManager.peerLocationTracker.getPeerLocation(peerID: peer.displayName),
+           let myLocation = networkManager.locationService.currentLocation {
+            // Use the built-in distance method from UserLocation
+            let distance = myLocation.distance(to: peerLocation)
+
+            if distance > 0 && distance < 100000 { // Reasonable range (< 100km)
+                return String(format: "~%.0f metros (GPS)", distance)
+            }
+        }
+        return "Ubicación no disponible"
     }
 
     private func requestLocation(for peer: MCPeerID) {

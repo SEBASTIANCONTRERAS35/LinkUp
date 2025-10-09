@@ -172,7 +172,7 @@ class MessageStore: ObservableObject {
 
     // MARK: - Public API
 
-    func addMessage(_ message: Message, context: ConversationDescriptor, autoSwitch: Bool = false) {
+    func addMessage(_ message: Message, context: ConversationDescriptor, autoSwitch: Bool = false, localDeviceName: String? = nil) {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("📨 MessageStore.addMessage() CALLED")
         print("   Thread: \(Thread.isMainThread ? "MAIN" : "BACKGROUND")")
@@ -183,6 +183,29 @@ class MessageStore: ObservableObject {
         print("   AutoSwitch: \(autoSwitch)")
         print("   Current Active Conv: \(activeConversationId)")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Trigger haptic feedback for incoming messages (not for our own messages)
+        // Use the localDeviceName parameter if provided, otherwise get device name
+        let currentDeviceName = localDeviceName ?? ProcessInfo.processInfo.hostName
+        if !message.isFromLocalDevice(deviceName: currentDeviceName) {
+            // Coordinated haptic feedback + Live Activity update
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("📱 NEW MESSAGE NOTIFICATION")
+            print("   From: \(message.sender)")
+            print("   Preview: \(String(message.content.prefix(50)))")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            // Strong haptic pattern for incoming messages
+            HapticManager.shared.play(.heavy, priority: .notification)
+
+            // Second haptic after short delay for emphasis
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                HapticManager.shared.play(.success, priority: .notification)
+            }
+
+            print("📳 Strong vibration triggered")
+            print("🏝️ Live Activity will update automatically via observer")
+        }
 
         var descriptor = context
 
@@ -211,6 +234,13 @@ class MessageStore: ObservableObject {
 
         conversations[descriptor.id] = threadMessages
 
+        // CRITICAL: Auto-mark own messages as read immediately
+        if let localName = localDeviceName, message.sender == localName {
+            readMessageIds.insert(message.id)
+            saveReadState()
+            print("   ✅ Auto-marked own message as read (sender: \(message.sender))")
+        }
+
         print("   ✅ Message added to internal storage")
         print("   Previous count: \(previousCount), New count: \(threadMessages.count)")
 
@@ -236,6 +266,27 @@ class MessageStore: ObservableObject {
         refreshPublishedState()
         print("   🔄 Calling calculateUnreadCount()...")
         calculateUnreadCount()
+
+        // CRITICAL FIX: Force additional refresh when it's the first message
+        // This ensures UI updates correctly for new conversations
+        if previousCount == 0 && threadMessages.count == 1 {
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("🆕 FIRST MESSAGE IN CONVERSATION DETECTED")
+            print("   Forcing additional UI refresh with delay...")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard let self = self else { return }
+                print("   🔄 Executing forced refresh for first message...")
+                self.refreshPublishedState()
+
+                // Double-check the conversation is selected
+                if self.activeConversationId != descriptor.id {
+                    print("   ⚠️ Conversation mismatch detected - selecting correct conversation")
+                    self.selectConversation(descriptor.id)
+                }
+            }
+        }
 
         print("✅ MessageStore.addMessage() COMPLETE")
         print("   Conversation: \(descriptor.title)")
@@ -366,6 +417,52 @@ class MessageStore: ObservableObject {
         return messages.last
     }
 
+    // MARK: - Last Message Helpers (for chat list preview)
+
+    /// Get the last message for a specific peer (checks both direct and family conversations)
+    func getLastMessage(forPeerID peerID: String) -> Message? {
+        // Try direct conversation first
+        let directConvId = ConversationIdentifier.direct(peerId: peerID).rawValue
+        if let directMessages = conversations[directConvId], let last = directMessages.last {
+            return last
+        }
+
+        // Try family conversation
+        let familyConvId = ConversationIdentifier.family(peerId: peerID).rawValue
+        if let familyMessages = conversations[familyConvId], let last = familyMessages.last {
+            return last
+        }
+
+        return nil
+    }
+
+    /// Format last message preview with "Tú:" prefix if from local device (WhatsApp-style)
+    func formatLastMessagePreview(message: Message?, localDeviceName: String) -> String {
+        guard let message = message else {
+            return "Sin mensajes"
+        }
+
+        if message.sender == localDeviceName {
+            return "Tú: \(message.content)"
+        } else {
+            return message.content
+        }
+    }
+
+    /// Get unread count for a specific peer (checks both direct and family conversations)
+    func getUnreadCount(forPeerID peerID: String) -> Int {
+        // Try direct conversation first
+        let directConvId = ConversationIdentifier.direct(peerId: peerID).rawValue
+        let directUnread = getUnreadCount(for: directConvId)
+
+        // Try family conversation
+        let familyConvId = ConversationIdentifier.family(peerId: peerID).rawValue
+        let familyUnread = getUnreadCount(for: familyConvId)
+
+        // Return the sum (only one should have messages, but sum handles edge cases)
+        return directUnread + familyUnread
+    }
+
     // MARK: - Persistence
 
     private func loadConversations() {
@@ -434,7 +531,7 @@ class MessageStore: ObservableObject {
         }
     }
 
-    private func refreshPublishedState() {
+    func refreshPublishedState() {
         // Capture current state before dispatching to main thread
         let currentActiveId = activeConversationId
         let currentMessages = conversations[activeConversationId] ?? []
@@ -565,15 +662,15 @@ class MessageStore: ObservableObject {
     /// Calculate total unread messages across all conversations
     private func calculateUnreadCount() {
         var total = 0
-        for (conversationId, messages) in conversations {
-            // Don't count active conversation as unread
-            if conversationId == activeConversationId {
-                continue
-            }
+        for (_, messages) in conversations {
+            // Count ALL unread messages, including active conversation
+            // This ensures Dynamic Island always shows accurate count
             total += messages.filter { !readMessageIds.contains($0.id) }.count
         }
         unreadCount = total
         print("📊 MessageStore: Unread count updated to \(total)")
+        print("   Read messages: \(readMessageIds.count)")
+        print("   Total messages: \(conversations.values.flatMap { $0 }.count)")
     }
 
     // MARK: - Read State Persistence
