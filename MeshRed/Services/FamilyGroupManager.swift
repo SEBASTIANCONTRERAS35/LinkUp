@@ -17,10 +17,13 @@ class FamilyGroupManager: ObservableObject {
 
     // MARK: - Private Properties
     private let userDefaultsKey = "StadiumConnect.FamilyGroup"
+    private let historicalMembersKey = "StadiumConnect.FamilyGroup.HistoricalMembers"
     private let queue = DispatchQueue(label: "com.meshred.familygroup", qos: .userInitiated)
+    private var historicalMemberPeerIDs: Set<String> = []
 
     // MARK: - Initialization
     init() {
+        loadHistoricalMembers()
         loadGroup()
     }
 
@@ -199,6 +202,11 @@ class FamilyGroupManager: ObservableObject {
         return currentGroup?.hasMember(withPeerID: peerID) ?? false
     }
 
+    /// Check if a peer was ever a family member (historical)
+    func wasEverFamilyMember(peerID: String) -> Bool {
+        return historicalMemberPeerIDs.contains(peerID)
+    }
+
     /// Update member's last seen timestamp
     func updateMemberLastSeen(peerID: String) {
         queue.async { [weak self] in
@@ -296,12 +304,36 @@ class FamilyGroupManager: ObservableObject {
                 let data = try JSONEncoder().encode(group)
                 UserDefaults.standard.set(data, forKey: userDefaultsKey)
                 print("💾 FamilyGroupManager: Saved family group '\(group.name)'")
+
+                // Update historical members
+                for member in group.members {
+                    historicalMemberPeerIDs.insert(member.peerID)
+                }
+                saveHistoricalMembers()
             } else {
                 UserDefaults.standard.removeObject(forKey: userDefaultsKey)
                 print("💾 FamilyGroupManager: Cleared family group")
             }
         } catch {
             print("❌ FamilyGroupManager: Failed to save group: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadHistoricalMembers() {
+        if let data = UserDefaults.standard.data(forKey: historicalMembersKey),
+           let memberIDs = try? JSONDecoder().decode(Set<String>.self, from: data) {
+            historicalMemberPeerIDs = memberIDs
+            print("📚 FamilyGroupManager: Loaded \(memberIDs.count) historical members")
+        }
+    }
+
+    private func saveHistoricalMembers() {
+        do {
+            let data = try JSONEncoder().encode(historicalMemberPeerIDs)
+            UserDefaults.standard.set(data, forKey: historicalMembersKey)
+            print("💾 FamilyGroupManager: Saved \(historicalMemberPeerIDs.count) historical members")
+        } catch {
+            print("❌ FamilyGroupManager: Failed to save historical members: \(error.localizedDescription)")
         }
     }
 

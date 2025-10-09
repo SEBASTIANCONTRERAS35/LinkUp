@@ -62,7 +62,8 @@ struct StadiumDashboardView: View {
         }
         .background(appBackgroundColor.ignoresSafeArea())
         .sheet(isPresented: $showSettings) {
-            SettingsPlaceholderView()
+            StadiumModeSettingsView()
+                .environmentObject(networkManager)
         }
         .sheet(isPresented: $showGeofenceList) {
             if let linkfenceManager = networkManager.linkfenceManager {
@@ -508,39 +509,6 @@ enum DashboardTab {
     case sos
 }
 
-// MARK: - Settings Placeholder
-struct SettingsPlaceholderView: View {
-    @Environment(\.dismiss) var dismiss
-
-    var body: some View {
-        NavigationView {
-            VStack(spacing: 20) {
-                Image(systemName: "gearshape.2.fill")
-                    .font(.system(size: 60))
-                    .foregroundColor(.blue)
-
-                Text("Configuración")
-                    .font(.title)
-                    .fontWeight(.bold)
-
-                Text("Aquí irán las configuraciones de la app")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-            .navigationTitle("Ajustes")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Cerrar") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-}
 
 // MARK: - Preview
 #Preview {

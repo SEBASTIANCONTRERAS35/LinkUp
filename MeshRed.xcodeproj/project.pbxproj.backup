@@ -7,17 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		F01444C12E95CB6400153105 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F014418A2E95A16500153105 /* WidgetKit.framework */; };
-		F01444C22E95CB6400153105 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F014418C2E95A16500153105 /* SwiftUI.framework */; };
-		F01444D32E95CB6500153105 /* MeshRedLiveActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F01444C02E95CB6400153105 /* MeshRedLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F014418B2E95A16500153105 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F014418A2E95A16500153105 /* WidgetKit.framework */; };
+		F014418D2E95A16500153105 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F014418C2E95A16500153105 /* SwiftUI.framework */; };
+		F014419E2E95A16600153105 /* MeshRedLiveActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F01441882E95A16500153105 /* MeshRedLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		F01444D12E95CB6500153105 /* PBXContainerItemProxy */ = {
+		F014419C2E95A16600153105 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = F02B8BBA2E89DB6600BC6239 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = F01444BF2E95CB6400153105;
+			remoteGlobalIDString = F01441872E95A16500153105;
 			remoteInfo = MeshRedLiveActivityExtension;
 		};
 		F02B8BD02E89DB6700BC6239 /* PBXContainerItemProxy */ = {
@@ -43,7 +43,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				F01444D32E95CB6500153105 /* MeshRedLiveActivityExtension.appex in Embed Foundation Extensions */,
+				F014419E2E95A16600153105 /* MeshRedLiveActivityExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -51,21 +51,28 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		F01441882E95A16500153105 /* MeshRedLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MeshRedLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F014418A2E95A16500153105 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		F014418C2E95A16500153105 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		F01444C02E95CB6400153105 /* MeshRedLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MeshRedLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F02B8BC22E89DB6600BC6239 /* MeshRed.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MeshRed.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F02B8BCF2E89DB6700BC6239 /* MeshRedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MeshRedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F02B8BD92E89DB6700BC6239 /* MeshRedUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MeshRedUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		5FC34DAF4CEF444C888EBF2C /* Exceptions for "MeshRedLiveActivity" folder in "MeshRedLiveActivityExtension" target */ = {
+		F01441A32E95A16600153105 /* Exceptions for "MeshRedLiveActivity" folder in "MeshRedLiveActivityExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = F01444BF2E95CB6400153105 /* MeshRedLiveActivityExtension */;
+			target = F01441872E95A16500153105 /* MeshRedLiveActivityExtension */;
+		};
+		F01441A72E95A20600153105 /* Exceptions for "MeshRed" folder in "MeshRedLiveActivityExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Models/MeshActivityAttributes.swift,
+			);
+			target = F01441872E95A16500153105 /* MeshRedLiveActivityExtension */;
 		};
 		F047DAFF2E8A431500EA76A6 /* Exceptions for "MeshRed" folder in "MeshRed" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -80,7 +87,7 @@
 		F014418E2E95A16500153105 /* MeshRedLiveActivity */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				5FC34DAF4CEF444C888EBF2C /* Exceptions for "MeshRedLiveActivity" folder in "MeshRedLiveActivityExtension" target */,
+				F01441A32E95A16600153105 /* Exceptions for "MeshRedLiveActivity" folder in "MeshRedLiveActivityExtension" target */,
 			);
 			path = MeshRedLiveActivity;
 			sourceTree = "<group>";
@@ -89,6 +96,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				F047DAFF2E8A431500EA76A6 /* Exceptions for "MeshRed" folder in "MeshRed" target */,
+				F01441A72E95A20600153105 /* Exceptions for "MeshRed" folder in "MeshRedLiveActivityExtension" target */,
 			);
 			path = MeshRed;
 			sourceTree = "<group>";
@@ -106,12 +114,12 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		F01444BD2E95CB6400153105 /* Frameworks */ = {
+		F01441852E95A16500153105 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F01444C22E95CB6400153105 /* SwiftUI.framework in Frameworks */,
-				F01444C12E95CB6400153105 /* WidgetKit.framework in Frameworks */,
+				F014418D2E95A16500153105 /* SwiftUI.framework in Frameworks */,
+				F014418B2E95A16500153105 /* WidgetKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -166,7 +174,7 @@
 				F02B8BC22E89DB6600BC6239 /* MeshRed.app */,
 				F02B8BCF2E89DB6700BC6239 /* MeshRedTests.xctest */,
 				F02B8BD92E89DB6700BC6239 /* MeshRedUITests.xctest */,
-				F01444C02E95CB6400153105 /* MeshRedLiveActivityExtension.appex */,
+				F01441882E95A16500153105 /* MeshRedLiveActivityExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -174,13 +182,13 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		F01444BF2E95CB6400153105 /* MeshRedLiveActivityExtension */ = {
+		F01441872E95A16500153105 /* MeshRedLiveActivityExtension */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F01444D42E95CB6500153105 /* Build configuration list for PBXNativeTarget "MeshRedLiveActivityExtension" */;
+			buildConfigurationList = F01441A22E95A16600153105 /* Build configuration list for PBXNativeTarget "MeshRedLiveActivityExtension" */;
 			buildPhases = (
-				F01444BC2E95CB6400153105 /* Sources */,
-				F01444BD2E95CB6400153105 /* Frameworks */,
-				F01444BE2E95CB6400153105 /* Resources */,
+				F01441842E95A16500153105 /* Sources */,
+				F01441852E95A16500153105 /* Frameworks */,
+				F01441862E95A16500153105 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -193,7 +201,7 @@
 			packageProductDependencies = (
 			);
 			productName = MeshRedLiveActivityExtension;
-			productReference = F01444C02E95CB6400153105 /* MeshRedLiveActivityExtension.appex */;
+			productReference = F01441882E95A16500153105 /* MeshRedLiveActivityExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 		F02B8BC12E89DB6600BC6239 /* MeshRed */ = {
@@ -208,7 +216,7 @@
 			buildRules = (
 			);
 			dependencies = (
-				F01444D22E95CB6500153105 /* PBXTargetDependency */,
+				F014419D2E95A16600153105 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				F02B8BC42E89DB6600BC6239 /* MeshRed */,
@@ -276,7 +284,7 @@
 				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
-					F01444BF2E95CB6400153105 = {
+					F01441872E95A16500153105 = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
 					F02B8BC12E89DB6600BC6239 = {
@@ -309,13 +317,13 @@
 				F02B8BC12E89DB6600BC6239 /* MeshRed */,
 				F02B8BCE2E89DB6700BC6239 /* MeshRedTests */,
 				F02B8BD82E89DB6700BC6239 /* MeshRedUITests */,
-				F01444BF2E95CB6400153105 /* MeshRedLiveActivityExtension */,
+				F01441872E95A16500153105 /* MeshRedLiveActivityExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		F01444BE2E95CB6400153105 /* Resources */ = {
+		F01441862E95A16500153105 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -346,7 +354,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		F01444BC2E95CB6400153105 /* Sources */ = {
+		F01441842E95A16500153105 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -377,10 +385,10 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		F01444D22E95CB6500153105 /* PBXTargetDependency */ = {
+		F014419D2E95A16600153105 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = F01444BF2E95CB6400153105 /* MeshRedLiveActivityExtension */;
-			targetProxy = F01444D12E95CB6500153105 /* PBXContainerItemProxy */;
+			target = F01441872E95A16500153105 /* MeshRedLiveActivityExtension */;
+			targetProxy = F014419C2E95A16600153105 /* PBXContainerItemProxy */;
 		};
 		F02B8BD12E89DB6700BC6239 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -395,11 +403,12 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		F01444D52E95CB6500153105 /* Debug */ = {
+		F01441A02E95A16600153105 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = MeshRedLiveActivity/MeshRedLiveActivity.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = QF2R75VM2Y;
@@ -414,7 +423,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = EmilioContreras.MeshRed.MeshRedLiveActivity;
+				PRODUCT_BUNDLE_IDENTIFIER = EmilioContreras.MeshRed.MeshRedLiveActivityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -427,11 +436,12 @@
 			};
 			name = Debug;
 		};
-		F01444D62E95CB6500153105 /* Release */ = {
+		F01441A12E95A16600153105 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = MeshRedLiveActivity/MeshRedLiveActivity.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = QF2R75VM2Y;
@@ -446,7 +456,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = EmilioContreras.MeshRed.MeshRedLiveActivity;
+				PRODUCT_BUNDLE_IDENTIFIER = EmilioContreras.MeshRed.MeshRedLiveActivityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -781,11 +791,11 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		F01444D42E95CB6500153105 /* Build configuration list for PBXNativeTarget "MeshRedLiveActivityExtension" */ = {
+		F01441A22E95A16600153105 /* Build configuration list for PBXNativeTarget "MeshRedLiveActivityExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				F01444D52E95CB6500153105 /* Debug */,
-				F01444D62E95CB6500153105 /* Release */,
+				F01441A02E95A16600153105 /* Debug */,
+				F01441A12E95A16600153105 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

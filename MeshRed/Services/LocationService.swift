@@ -194,6 +194,65 @@ class LocationService: NSObject, ObservableObject {
         }
         return status
     }
+
+    // MARK: - Stadium Mode Support
+
+    /// Enable continuous background location updates for Stadium Mode
+    /// This extends background execution time significantly (1-2 hours via automotive navigation)
+    func enableStadiumMode() {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🏟️ LocationService: Enabling Stadium Mode (Automotive Navigation)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Enable background location updates
+        locationManager.allowsBackgroundLocationUpdates = true
+        locationManager.pausesLocationUpdatesAutomatically = false
+        locationManager.showsBackgroundLocationIndicator = true  // Show blue bar (transparency)
+
+        // AGGRESSIVE: Automotive navigation mode for maximum background time (1-2 hours)
+        // This tells iOS we're a GPS navigation app like Waze/Google Maps
+        locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation  // Maximum GPS precision
+        locationManager.distanceFilter = kCLDistanceFilterNone  // CONTINUOUS updates (every change)
+        locationManager.activityType = .automotiveNavigation  // GPS car navigation mode (highest priority)
+
+        // Start continuous updates if not already monitoring
+        if !isMonitoring {
+            startMonitoring()
+        }
+
+        print("✅ Background location updates enabled (AGGRESSIVE MODE)")
+        print("   Accuracy: BestForNavigation (GPS max)")
+        print("   Pause: Disabled (NEVER pauses)")
+        print("   Filter: None (CONTINUOUS)")
+        print("   Activity: Automotive Navigation (highest priority)")
+        print("   Background Indicator: Visible (blue bar)")
+        print("   Estimated Extension: 1-2 HOURS")
+        print("   ⚠️  Battery: ~20% per hour")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
+
+    /// Disable Stadium Mode and revert to normal settings
+    func disableStadiumMode() {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🏟️ LocationService: Disabling Stadium Mode")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Revert to normal settings
+        locationManager.allowsBackgroundLocationUpdates = false
+        locationManager.pausesLocationUpdatesAutomatically = true
+        locationManager.showsBackgroundLocationIndicator = false
+
+        // Less aggressive settings
+        locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        locationManager.distanceFilter = 100  // Update every 100 meters
+        locationManager.activityType = .other
+
+        print("✅ Reverted to normal mode")
+        print("   Accuracy: 100m")
+        print("   Pause: Enabled")
+        print("   Filter: 100m")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
 }
 
 // MARK: - CLLocationManagerDelegate

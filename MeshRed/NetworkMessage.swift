@@ -119,6 +119,7 @@ enum NetworkPayload: Codable {
     case ack(AckMessage)
     case ping(PingMessage)
     case pong(PongMessage)
+    case keepAlive(KeepAlivePing)
     case locationRequest(LocationRequestMessage)
     case locationResponse(LocationResponseMessage)
     case uwbDiscoveryToken(LinkFinderDiscoveryTokenMessage)
@@ -151,6 +152,9 @@ enum NetworkPayload: Codable {
         case "pong":
             let pong = try container.decode(PongMessage.self, forKey: .payload)
             self = .pong(pong)
+        case "keep-alive":
+            let keepAlive = try container.decode(KeepAlivePing.self, forKey: .payload)
+            self = .keepAlive(keepAlive)
         case "locationRequest":
             let request = try container.decode(LocationRequestMessage.self, forKey: .payload)
             self = .locationRequest(request)
@@ -199,6 +203,9 @@ enum NetworkPayload: Codable {
         case .pong(let pong):
             try container.encode("pong", forKey: .type)
             try container.encode(pong, forKey: .payload)
+        case .keepAlive(let keepAlive):
+            try container.encode("keep-alive", forKey: .type)
+            try container.encode(keepAlive, forKey: .payload)
         case .locationRequest(let request):
             try container.encode("locationRequest", forKey: .type)
             try container.encode(request, forKey: .payload)

@@ -157,4 +157,21 @@ class ConnectionManager: ObservableObject {
         Preferred: \(preferredPeers.joined(separator: ", "))
         """
     }
+
+    // MARK: - Development Helpers
+
+    /// Clear all blocks for development (useful when testing Simulator-Device connections)
+    /// Call this in DEBUG builds to reset connection state
+    func clearAllBlocksForDevelopment() {
+        #if DEBUG
+        let blockedCount = blockedPeers.count
+        if blockedCount > 0 {
+            print("🧹 [DEV] Clearing \(blockedCount) blocked peers for development:")
+            for peer in blockedPeers {
+                print("   - \(peer)")
+            }
+            unblockAllPeers()
+        }
+        #endif
+    }
 }

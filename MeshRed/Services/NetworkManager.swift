@@ -95,7 +95,15 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     override init() {
+        // DEVELOPMENT: Use .optional for Simulator-Device compatibility
+        // PRODUCTION: Change back to .required for security
+        #if targetEnvironment(simulator)
+        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .optional)
+        print("🔓 [SIMULATOR] Using .optional encryption for Simulator-Device compatibility")
+        #else
         self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .required)
+        print("🔐 [DEVICE] Using .required encryption for maximum security")
+        #endif
         super.init()
 
         // Initialize routing table
@@ -128,6 +136,11 @@ class NetworkManager: NSObject, ObservableObject {
 
         // Setup notification observers for settings actions
         setupNotificationObservers()
+
+        // DEVELOPMENT: Clear any blocked peers to allow Simulator-Device connections
+        #if DEBUG
+        connectionManager.clearAllBlocksForDevelopment()
+        #endif
 
         print("🚀 NetworkManager: Initialized with peer ID: \(localPeerID.displayName)")
     }
@@ -281,7 +294,13 @@ class NetworkManager: NSObject, ObservableObject {
         }
 
         // Create a new session to clear any DTLS/SSL errors
+        #if targetEnvironment(simulator)
+        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .optional)
+        print("🔓 [RESTART-SIMULATOR] Using .optional encryption for Simulator-Device compatibility")
+        #else
         self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .required)
+        print("🔐 [RESTART-DEVICE] Using .required encryption for maximum security")
+        #endif
         self.session.delegate = self
 
         // Restart almost immediately for faster recovery
@@ -463,14 +482,24 @@ class NetworkManager: NSObject, ObservableObject {
         }
 
         let isBroadcast = recipientId == "broadcast"
-        let isFamilyConversation = !isBroadcast && familyGroupManager.isFamilyMember(peerID: recipientId)
         let conversationDescriptor: MessageStore.ConversationDescriptor
 
-        if isFamilyConversation {
-            let displayName = familyGroupManager.getMember(withPeerID: recipientId)?.displayName ?? recipientId
-            conversationDescriptor = .familyChat(peerId: recipientId, displayName: displayName)
-        } else {
+        if isBroadcast {
+            // Broadcast messages go to public chat
             conversationDescriptor = .publicChat()
+        } else {
+            // Private message - determine if family or direct conversation
+            let displayName = familyGroupManager.getMember(withPeerID: recipientId)?.displayName ?? recipientId
+            let isFamilyMember = familyGroupManager.isFamilyMember(peerID: recipientId)
+            let wasEverFamilyMember = familyGroupManager.wasEverFamilyMember(peerID: recipientId)
+
+            if isFamilyMember || wasEverFamilyMember {
+                // Family member conversation (current or historical)
+                conversationDescriptor = .familyChat(peerId: recipientId, displayName: displayName)
+            } else {
+                // Direct (non-family) conversation
+                conversationDescriptor = .directChat(peerId: recipientId, displayName: displayName)
+            }
         }
 
         let message = Message(
@@ -490,6 +519,8 @@ class NetworkManager: NSObject, ObservableObject {
         print("   Type: \(type.displayName)")
         print("   Priority: \(networkMessage.priority)")
         print("   Requires ACK: \(requiresAck)")
+        print("   Conversation Type: \(conversationDescriptor.conversationType)")
+        print("   Conversation ID: \(conversationDescriptor.id)")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
@@ -574,6 +605,17 @@ class NetworkManager: NSObject, ObservableObject {
             print("📬 ACK sent for message \(originalMessageId) to \(senderId)")
         } catch {
             print("❌ Failed to send ACK: \(error.localizedDescription)")
+        }
+    }
+
+    /// Send raw data to a specific peer (for keep-alive pings, etc.)
+    /// This is a low-level helper used by KeepAliveManager and other background services
+    func sendRawData(_ data: Data, to peer: MCPeerID, reliable: Bool = false) {
+        do {
+            let mode: MCSessionSendDataMode = reliable ? .reliable : .unreliable
+            try session.send(data, toPeers: [peer], with: mode)
+        } catch {
+            print("❌ Failed to send raw data to \(peer.displayName): \(error.localizedDescription)")
         }
     }
 
@@ -805,6 +847,10 @@ class NetworkManager: NSObject, ObservableObject {
                 print("   Payload Type: Ping (handled by health monitor)")
             case .pong(_):
                 print("   Payload Type: Pong (handled by health monitor)")
+            case .keepAlive(let keepAlive):
+                print("   Payload Type: Keep-Alive (peer count: \(keepAlive.peerCount))")
+                // Keep-alive messages are lightweight network stability pings
+                // No action needed - just receiving them keeps connection alive
             case .locationRequest(let locationRequest):
                 print("   Payload Type: Location Request")
                 handleLocationRequest(locationRequest, from: peerID)
@@ -874,19 +920,29 @@ class NetworkManager: NSObject, ObservableObject {
 
         if isForMe {
             let isBroadcast = message.recipientId == "broadcast"
-            let isFamilyConversation = !isBroadcast && familyGroupManager.isFamilyMember(peerID: message.senderId)
             let conversationDescriptor: MessageStore.ConversationDescriptor
 
-            if isFamilyConversation {
-                let displayName = familyGroupManager.getMember(withPeerID: message.senderId)?.displayName ?? message.senderId
-                conversationDescriptor = .familyChat(peerId: message.senderId, displayName: displayName)
-            } else {
+            if isBroadcast {
+                // Broadcast messages go to public chat
                 conversationDescriptor = .publicChat()
+            } else {
+                // Private message - determine if family or direct conversation
+                let displayName = familyGroupManager.getMember(withPeerID: message.senderId)?.displayName ?? message.senderId
+                let isFamilyMember = familyGroupManager.isFamilyMember(peerID: message.senderId)
+                let wasEverFamilyMember = familyGroupManager.wasEverFamilyMember(peerID: message.senderId)
+
+                if isFamilyMember || wasEverFamilyMember {
+                    // Family member conversation (current or historical)
+                    conversationDescriptor = .familyChat(peerId: message.senderId, displayName: displayName)
+                } else {
+                    // Direct (non-family) conversation
+                    conversationDescriptor = .directChat(peerId: message.senderId, displayName: displayName)
+                }
             }
 
             let simpleMessage = Message(
                 sender: message.senderId,
-                content: "[\(message.messageType.displayName)] \(message.content)",
+                content: message.content,
                 recipientId: isBroadcast ? nil : message.recipientId,
                 conversationId: conversationDescriptor.id,
                 conversationName: conversationDescriptor.title
@@ -898,7 +954,8 @@ class NetworkManager: NSObject, ObservableObject {
             let route = message.routePath.joined(separator: " → ")
 
             DispatchQueue.main.async {
-                self.messageStore.addMessage(simpleMessage, context: conversationDescriptor)
+                // CRITICAL: Auto-switch to conversation when receiving messages
+                self.messageStore.addMessage(simpleMessage, context: conversationDescriptor, autoSwitch: true)
                 print("📨 ✅ DELIVERED - Type: \(messageTypeDisplayName), Hops: \(hopCount), Route: \(route)")
             }
 
@@ -1589,10 +1646,13 @@ class NetworkManager: NSObject, ObservableObject {
         do {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
-            try session.send(data, toPeers: connectedPeers, with: .reliable)
+            // STABILITY FIX: Use unreliable mode for topology broadcasts
+            // Topology updates are periodic, so occasional packet loss is acceptable
+            // This reduces buffer pressure and prevents connection drops
+            try session.send(data, toPeers: connectedPeers, with: .unreliable)
 
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("📡 TOPOLOGY BROADCAST")
+            print("📡 TOPOLOGY BROADCAST (unreliable)")
             print("   Connections: [\(connectedPeerNames.joined(separator: ", "))]")
             print("   Sent to: \(connectedPeers.count) peers")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -1626,8 +1686,9 @@ class NetworkManager: NSObject, ObservableObject {
             do {
                 let encoder = JSONEncoder()
                 let data = try encoder.encode(payload)
-                try session.send(data, toPeers: connectedPeers, with: .reliable)
-                print("🔄 Relayed topology message (hop \(message.hopCount)/\(message.ttl))")
+                // STABILITY FIX: Use unreliable mode for topology relays too
+                try session.send(data, toPeers: connectedPeers, with: .unreliable)
+                print("🔄 Relayed topology message (hop \(message.hopCount)/\(message.ttl)) (unreliable)")
             } catch {
                 print("❌ Failed to relay topology: \(error.localizedDescription)")
             }
@@ -1672,13 +1733,15 @@ extension NetworkManager: MCSessionDelegate {
                 AudioManager.shared.announceConnectionChange(connected: true, peerName: peerID.displayName)
                 HapticManager.shared.playPattern(.peerConnected, priority: .notification)
 
-                // Broadcast updated topology immediately
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                // Broadcast updated topology after connection stabilizes
+                // STABILITY FIX: Increased from 0.5s to 2.0s to allow connection to fully establish
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                     self?.broadcastTopology()
                 }
 
                 // Send family sync if we have an active group
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                // STABILITY FIX: Increased from 1.0s to 3.0s to space out initial messages
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
                     guard let self = self else { return }
                     if self.familyGroupManager.hasActiveGroup {
                         self.sendFamilySync(to: peerID)
@@ -1695,7 +1758,8 @@ extension NetworkManager: MCSessionDelegate {
 
                 if shouldInitiate {
                     // We initiate if we have the higher ID (master role)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                    // STABILITY FIX: Increased from 2.0s to 4.0s to ensure topology and family sync complete first
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
                         guard let self = self else { return }
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         print("🎯 LinkFinder TOKEN EXCHANGE INITIATOR")
@@ -1736,6 +1800,12 @@ extension NetworkManager: MCSessionDelegate {
                 // Disconnection is handled by the session state changes
 
                 let wasConnected = self.connectedPeers.contains(peerID)
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("🔌 PEER DISCONNECTION EVENT")
+                print("   Peer: \(peerID.displayName)")
+                print("   Was connected: \(wasConnected)")
+                print("   Remaining connected peers: \(self.connectedPeers.count - 1)")
+
                 self.connectedPeers.removeAll { $0 == peerID }
                 self.sessionManager.recordDisconnection(from: peerID)
                 self.healthMonitor.removePeer(peerID)
@@ -1757,6 +1827,21 @@ extension NetworkManager: MCSessionDelegate {
                 // No longer waiting for this peer to invite us
                 self.waitingForInvitationFrom.removeValue(forKey: peerID.displayName)
 
+                // DEBUG: Check if this peer has conversations
+                let familyConversationId = ConversationIdentifier.family(peerId: peerID.displayName).rawValue
+                let hasConversation = self.messageStore.hasConversation(withId: familyConversationId)
+                let conversationDescriptor = self.messageStore.descriptor(for: familyConversationId)
+
+                print("   💬 CONVERSATION STATUS:")
+                print("      Has conversation: \(hasConversation)")
+                print("      Conversation ID: \(familyConversationId)")
+                if let descriptor = conversationDescriptor {
+                    print("      Conversation title: \(descriptor.title)")
+                    print("      Message count: \(self.messageStore.messages(for: familyConversationId).count)")
+                }
+                print("   Active conversation: \(self.messageStore.activeConversationId)")
+                print("   Total conversations: \(self.messageStore.conversationSummaries.count)")
+
                 if wasConnected {
                     print("❌ DISCONNECTION: Lost connection to peer: \(peerID.displayName)")
 
@@ -1764,6 +1849,8 @@ extension NetworkManager: MCSessionDelegate {
                     AudioManager.shared.announceConnectionChange(connected: false, peerName: peerID.displayName)
                     HapticManager.shared.playPattern(.peerDisconnected, priority: .notification)
                     print("🔌 Disconnected from \(peerID.displayName)")
+
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 } else {
                     print("📵 Connection attempt failed for peer: \(peerID.displayName)")
                     // Handle connection failure with retry logic
@@ -1813,6 +1900,17 @@ extension NetworkManager: MCSessionDelegate {
     func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {
         // Not used in this implementation
         print("📡 NetworkManager: Finished receiving resource (not implemented): \(resourceName) from \(peerID.displayName)")
+    }
+
+    func session(_ session: MCSession, didReceiveCertificate certificate: [Any]?, fromPeer peerID: MCPeerID, certificateHandler: @escaping (Bool) -> Void) {
+        // CRITICAL FIX: This delegate method is marked as "optional" by Apple,
+        // but in practice it MUST be implemented to prevent random disconnections
+        // after sending data. Multiple Stack Overflow threads confirm this.
+        //
+        // For development and encrypted sessions, we accept all certificates.
+        // In production, you can add certificate validation logic here.
+        certificateHandler(true)
+        print("🔐 NetworkManager: Certificate received from \(peerID.displayName) - ACCEPTED")
     }
 }
 
@@ -2279,5 +2377,90 @@ extension NetworkManager: LinkFinderSessionManagerDelegate {
                 print("⏳ NetworkManager: SLAVE waiting for MASTER to re-send token")
             }
         }
+    }
+
+    // MARK: - Testing & Simulation
+
+    /// Send a simulated message for testing Live Activity message display
+    /// This creates a fake message and adds it to the message store
+    /// IMPORTANT: Uses a separate "test-chat" conversation so it counts as UNREAD
+    func sendSimulatedMessage(content: String = "Mensaje de prueba", sender: String = "Test User") {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🧪 SENDING SIMULATED MESSAGE")
+        print("   Sender: \(sender)")
+        print("   Content: \(content)")
+        print("   Current active conversation: \(messageStore.activeConversationId)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Use a SEPARATE conversation ID so messages count as unread
+        // MessageStore.calculateUnreadCount() skips activeConversationId
+        let testConversationId = "test-chat-simulation"
+
+        let simulatedMessage = Message(
+            sender: sender,
+            content: content,
+            conversationId: testConversationId,
+            conversationName: "Chat de Prueba"
+        )
+
+        // Create a test conversation context (NOT the active one)
+        let testContext = MessageStore.ConversationDescriptor(
+            id: testConversationId,
+            title: "Chat de Prueba (\(sender))",
+            isFamily: false,
+            isDirect: false,  // Test chat is neither family nor direct
+            participantId: nil,
+            defaultRecipientId: "test-broadcast"
+        )
+
+        // Add to message store (this will trigger Live Activity update)
+        messageStore.addMessage(simulatedMessage, context: testContext)
+
+        print("✅ Simulated message added to MessageStore")
+        print("   Message ID: \(simulatedMessage.id)")
+        print("   Unread count: \(messageStore.unreadCount)")
+        print("   Total messages: \(messageStore.messageCount)")
+        print("   Latest message sender: \(messageStore.latestMessage?.sender ?? "none")")
+        print("   Latest message content: \(messageStore.latestMessage?.content ?? "none")")
+        print("   Latest message timestamp: \(messageStore.latestMessage?.timestamp.description ?? "none")")
+        print("   🔔 MessageStore observers should trigger Live Activity update")
+
+        // Force Live Activity update immediately
+        print("   🔄 Forcing Live Activity update NOW...")
+        updateLiveActivity()
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
+
+    /// Send multiple simulated messages for testing
+    func sendSimulatedMessages(count: Int = 3) {
+        let senders = ["Ana", "Carlos", "María", "Test User", "Beta Tester"]
+        let messages = [
+            "Hola, ¿dónde están?",
+            "Estoy en la sección 12",
+            "¿Alguien vio a Pedro?",
+            "Nos vemos en la entrada norte",
+            "Ya casi llego",
+            "¿Quién tiene las entradas?",
+            "La fila está muy larga",
+            "Mensaje de prueba largo para ver cómo se trunca en la vista previa del Live Activity"
+        ]
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🧪 SENDING \(count) SIMULATED MESSAGES")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        for i in 0..<count {
+            let sender = senders[i % senders.count]
+            let content = messages[i % messages.count]
+
+            sendSimulatedMessage(content: content, sender: sender)
+
+            // Small delay between messages
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+
+        print("✅ Sent \(count) simulated messages")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 }

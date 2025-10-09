@@ -99,9 +99,14 @@ struct ContentView: View {
                     MessagesSection(
                         messageStore: networkManager.messageStore,
                         localDeviceName: networkManager.localDeviceName,
+                        connectedPeers: networkManager.connectedPeers,
                         onConversationSelected: { summary in
+                            // Directly select conversation without going through handleRecipientSelection
+                            // to avoid unwanted redirections
                             recipientId = summary.defaultRecipientId
-                            handleRecipientSelection(summary.defaultRecipientId)
+                            if networkManager.messageStore.activeConversationId != summary.id {
+                                networkManager.messageStore.selectConversation(summary.id)
+                            }
                         }
                     )
 
@@ -122,7 +127,11 @@ struct ContentView: View {
                         },
                         onClearConnections: clearConnections,
                         onRecipientChange: { newRecipient in
-                            handleRecipientSelection(newRecipient)
+                            // Only change conversation if we're selecting a different recipient
+                            if newRecipient != recipientId {
+                                recipientId = newRecipient
+                                handleRecipientSelection(newRecipient)
+                            }
                         }
                     )
                 }
@@ -143,6 +152,12 @@ struct ContentView: View {
         .background(appBackgroundColor.ignoresSafeArea())
         .onAppear {
             syncRecipientWithActiveConversation()
+        }
+        .onChange(of: networkManager.messageStore.activeConversationId) { oldValue, newValue in
+            // CRITICAL: Sync recipientId whenever the active conversation changes
+            syncRecipientWithActiveConversation()
+            print("🔄 Active conversation changed to: \(newValue)")
+            print("   Synced recipientId to: \(recipientId)")
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("UWBPermissionDenied"))) { notification in
             if let userInfo = notification.userInfo,
@@ -222,12 +237,39 @@ struct ContentView: View {
             return
         }
 
-        networkManager.sendMessage(
-            messageText,
-            type: selectedMessageType,
-            recipientId: recipientId,
-            requiresAck: requiresAck
-        )
+        // CRITICAL FIX: Always send to the active conversation's recipient
+        // Get the descriptor of the currently active conversation
+        if let activeDescriptor = networkManager.messageStore.descriptor(for: networkManager.messageStore.activeConversationId) {
+            let actualRecipient = activeDescriptor.defaultRecipientId
+
+            print("📤 ContentView.sendMessage:")
+            print("   Active conversation: \(networkManager.messageStore.activeConversationId)")
+            print("   Active descriptor recipient: \(actualRecipient)")
+            print("   Current recipientId state: \(recipientId)")
+
+            // Sync recipientId to match active conversation
+            if recipientId != actualRecipient {
+                print("   ⚠️ MISMATCH DETECTED - Syncing recipientId to active conversation")
+                recipientId = actualRecipient
+            }
+
+            networkManager.sendMessage(
+                messageText,
+                type: selectedMessageType,
+                recipientId: actualRecipient,  // Use active conversation's recipient
+                requiresAck: requiresAck
+            )
+        } else {
+            // Fallback to broadcast if no active conversation descriptor
+            print("⚠️ No active conversation descriptor - defaulting to broadcast")
+            networkManager.sendMessage(
+                messageText,
+                type: selectedMessageType,
+                recipientId: "broadcast",
+                requiresAck: requiresAck
+            )
+        }
+
         messageText = ""
     }
 
@@ -271,29 +313,59 @@ struct ContentView: View {
             return
         }
 
-        guard networkManager.familyGroupManager.isFamilyMember(peerID: newRecipient) else {
-            if networkManager.messageStore.activeConversationId != ConversationIdentifier.public.rawValue {
-                networkManager.messageStore.selectConversation(ConversationIdentifier.public.rawValue)
+        // Check if conversation already exists (could be family OR direct)
+        let familyConversationId = ConversationIdentifier.family(peerId: newRecipient).rawValue
+        let directConversationId = ConversationIdentifier.direct(peerId: newRecipient).rawValue
+
+        // Try family conversation first
+        if let descriptor = networkManager.messageStore.descriptor(for: familyConversationId) {
+            // Family conversation exists - select it
+            if networkManager.messageStore.activeConversationId != descriptor.id {
+                networkManager.messageStore.selectConversation(descriptor.id)
             }
+            recipientId = newRecipient
             return
         }
 
+        // Try direct conversation second
+        if let descriptor = networkManager.messageStore.descriptor(for: directConversationId) {
+            // Direct conversation exists - select it
+            if networkManager.messageStore.activeConversationId != descriptor.id {
+                networkManager.messageStore.selectConversation(descriptor.id)
+            }
+            recipientId = newRecipient
+            return
+        }
+
+        // No existing conversation - determine type and create
         let displayName = networkManager.familyGroupManager.getMember(withPeerID: newRecipient)?.displayName ?? newRecipient
-        let descriptor = MessageStore.ConversationDescriptor.familyChat(peerId: newRecipient, displayName: displayName)
+        let isFamilyMember = networkManager.familyGroupManager.isFamilyMember(peerID: newRecipient)
+        let wasEverFamilyMember = networkManager.familyGroupManager.wasEverFamilyMember(peerID: newRecipient)
+
+        let descriptor: MessageStore.ConversationDescriptor
+        if isFamilyMember || wasEverFamilyMember {
+            // Create family conversation
+            descriptor = .familyChat(peerId: newRecipient, displayName: displayName)
+        } else {
+            // Create direct (non-family) conversation
+            descriptor = .directChat(peerId: newRecipient, displayName: displayName)
+        }
+
         networkManager.messageStore.ensureConversation(descriptor)
 
         if networkManager.messageStore.activeConversationId != descriptor.id {
             networkManager.messageStore.selectConversation(descriptor.id)
         }
+        recipientId = newRecipient
     }
 
     private func syncRecipientWithActiveConversation() {
         if let descriptor = networkManager.messageStore.descriptor(for: networkManager.messageStore.activeConversationId) {
             recipientId = descriptor.defaultRecipientId
-            handleRecipientSelection(descriptor.defaultRecipientId)
+            // Don't call handleRecipientSelection here - it can change the active conversation
+            // Just sync the recipientId for the message composer
         } else {
             recipientId = "broadcast"
-            handleRecipientSelection("broadcast")
         }
     }
 
@@ -850,11 +922,26 @@ private struct DeviceSection: View {
 private struct MessagesSection: View {
     @ObservedObject var messageStore: MessageStore
     let localDeviceName: String
+    let connectedPeers: [MCPeerID]
     let onConversationSelected: (MessageStore.ConversationSummary) -> Void
 
     var body: some View {
         let messages = messageStore.messages
-        SectionCard(
+        let summaries = messageStore.conversationSummaries
+
+        let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        let _ = print("📨 MessagesSection RENDERING")
+        let _ = print("   Total summaries: \(summaries.count)")
+        let _ = print("   Active messages: \(messages.count)")
+        let _ = print("   Active conversation: \(messageStore.activeConversationId)")
+        let _ = print("   Connected peers: \(connectedPeers.map { $0.displayName })")
+        let _ = summaries.forEach { summary in
+            let isConnected = summary.participantId == nil || connectedPeers.contains { $0.displayName == summary.participantId }
+            print("   • \(summary.title) - Connected: \(isConnected), Messages: \(messageStore.messages(for: summary.id).count)")
+        }
+        let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        return SectionCard(
             title: "Mensajes",
             icon: "bubble.left.and.bubble.right",
             caption: messages.isEmpty
@@ -863,14 +950,17 @@ private struct MessagesSection: View {
         ) {
             VStack(alignment: .leading, spacing: 16) {
                 ConversationSelector(
-                    summaries: messageStore.conversationSummaries,
+                    summaries: summaries,
                     activeConversationId: messageStore.activeConversationId,
+                    connectedPeers: connectedPeers,
+                    messageStore: messageStore,
                     onSelect: { summary in
                         onConversationSelected(summary)
                     }
                 )
 
                 if messages.isEmpty {
+                    let _ = print("⚠️ MessagesSection: No messages to display for active conversation")
                     VStack(spacing: 12) {
                         Image(systemName: "text.bubble")
                             .font(.title3)
@@ -882,6 +972,10 @@ private struct MessagesSection: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
                 } else {
+                    let _ = print("💬 MessagesSection: Rendering \(messages.count) message bubbles")
+                    let _ = messages.forEach { msg in
+                        print("   • [\(msg.id)] \(msg.sender): \(msg.content.prefix(30))...")
+                    }
                     LazyVStack(spacing: 12) {
                         ForEach(messages) { message in
                             MessageBubble(
@@ -995,24 +1089,104 @@ private struct AdvancedControlsCard: View {
                                 }
                             }
 
-                            // Other connected peers (not in family)
-                            let nonFamilyPeers = connectedPeers.filter { peer in
-                                !networkManager.familyGroupManager.isFamilyMember(peerID: peer.displayName)
-                            }
+                            // Other peers with conversations (connected or disconnected)
+                            // IMPORTANT: Show ALL peers we have conversations with, not just connected ones
+                            // This prevents SwiftUI from auto-changing the Picker selection when a peer disconnects
+                            let peersWithConversations = messageStore.conversationSummaries
+                                .filter { summary in
+                                    // Filter: has a participantId (not public chat) AND not in family
+                                    guard let participantId = summary.participantId else { return false }
+                                    return !networkManager.familyGroupManager.isFamilyMember(peerID: participantId)
+                                }
+                                .map { $0.participantId! }
 
-                            if !nonFamilyPeers.isEmpty {
+                            if !peersWithConversations.isEmpty {
                                 Section(header: Text("Otros dispositivos")) {
-                                    ForEach(nonFamilyPeers, id: \.self) { peer in
-                                        Text(peer.displayName).tag(peer.displayName)
+                                    ForEach(peersWithConversations, id: \.self) { peerId in
+                                        HStack {
+                                            Text(peerId)
+                                            Spacer()
+                                            // Show connection status indicator
+                                            if connectedPeers.contains(where: { $0.displayName == peerId }) {
+                                                Image(systemName: "circlebadge.fill")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.green)
+                                            } else if networkManager.routingTable.isReachable(peerId) {
+                                                Image(systemName: "circle.dotted")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.orange)
+                                            } else {
+                                                Image(systemName: "circle")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.gray)
+                                            }
+                                        }
+                                        .tag(peerId)
                                     }
                                 }
                             }
                         }
                         .pickerStyle(.menu)
-                        .onChange(of: recipientId) { newValue in
-                            if newValue != "broadcast" && networkManager.familyGroupManager.isFamilyMember(peerID: newValue) {
+                        .onChange(of: recipientId) { oldValue, newValue in
+                            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            print("⚠️ PICKER: recipientId changed")
+                            print("   Old value: \(oldValue)")
+                            print("   New value: \(newValue)")
+                            print("   Active conversation: \(messageStore.activeConversationId)")
+                            print("   Was triggered by: \(oldValue == newValue ? "programmatic (same)" : "user interaction or SwiftUI invalidation")")
+
+                            // Check if the new value is valid
+                            let allAvailableRecipients: [String] = {
+                                var recipients = ["broadcast"]
+
+                                // Add family members
+                                if let familyMembers = networkManager.familyGroupManager.currentGroup?.members {
+                                    recipients.append(contentsOf: familyMembers
+                                        .filter { $0.peerID != networkManager.localDeviceName }
+                                        .map { $0.peerID })
+                                }
+
+                                // Add peers with conversations
+                                recipients.append(contentsOf: messageStore.conversationSummaries
+                                    .compactMap { $0.participantId }
+                                    .filter { !networkManager.familyGroupManager.isFamilyMember(peerID: $0) })
+
+                                return recipients
+                            }()
+
+                            print("   Available recipients: \(allAvailableRecipients)")
+                            print("   Is new value valid: \(allAvailableRecipients.contains(newValue))")
+
+                            // CRITICAL FIX: Prevent unwanted conversation switching
+                            // If the change is from a specific peer to "broadcast" AND we're viewing a private conversation,
+                            // this is likely SwiftUI invalidation (peer disconnected). Don't change the active conversation.
+                            let isLikelySwiftUIInvalidation = (
+                                newValue == "broadcast" &&
+                                oldValue != "broadcast" &&
+                                messageStore.activeConversationId != ConversationIdentifier.public.rawValue
+                            )
+
+                            if isLikelySwiftUIInvalidation {
+                                print("   🛡️ PREVENTED: Automatic switch to broadcast (likely SwiftUI invalidation)")
+                                print("   Keeping active conversation: \(messageStore.activeConversationId)")
+                                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                                // Don't call onRecipientChange - just keep the current state
+                                return
+                            }
+
+                            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                            if newValue != "broadcast" {
+                                // Create private conversation (family or direct)
                                 let displayName = networkManager.familyGroupManager.getMember(withPeerID: newValue)?.displayName ?? newValue
-                                let descriptor = MessageStore.ConversationDescriptor.familyChat(peerId: newValue, displayName: displayName)
+                                let isFamilyMember = networkManager.familyGroupManager.isFamilyMember(peerID: newValue)
+
+                                let descriptor: MessageStore.ConversationDescriptor
+                                if isFamilyMember {
+                                    descriptor = .familyChat(peerId: newValue, displayName: displayName)
+                                } else {
+                                    descriptor = .directChat(peerId: newValue, displayName: displayName)
+                                }
                                 messageStore.ensureConversation(descriptor)
                             }
                             onRecipientChange(newValue)
@@ -1119,47 +1293,199 @@ private struct AdvancedControlsCard: View {
 private struct ConversationSelector: View {
     let summaries: [MessageStore.ConversationSummary]
     let activeConversationId: String
+    let connectedPeers: [MCPeerID]
+    @ObservedObject var messageStore: MessageStore
     let onSelect: (MessageStore.ConversationSummary) -> Void
+    @State private var showDeleteAlert = false
+    @State private var conversationToDelete: MessageStore.ConversationSummary?
+
+    private func isConnected(_ participantId: String?) -> Bool {
+        guard let participantId = participantId else { return true } // Public chat is always "connected"
+        return connectedPeers.contains { $0.displayName == participantId }
+    }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        let _ = print("🎨 ConversationSelector RENDERING")
+        let _ = print("   Total summaries: \(summaries.count)")
+        let _ = print("   Active conversation ID: \(activeConversationId)")
+        let _ = summaries.enumerated().forEach { index, summary in
+            let connected = isConnected(summary.participantId)
+            print("   [\(index)] \(summary.title)")
+            print("       ID: \(summary.id)")
+            print("       Active: \(activeConversationId == summary.id)")
+            print("       Connected: \(connected)")
+            print("       ParticipantID: \(summary.participantId ?? "nil")")
+        }
+        let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
                 ForEach(summaries) { summary in
-                    Button(action: {
-                        onSelect(summary)
-                    }) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 6) {
-                                Image(systemName: summary.isFamily ? "person.2.fill" : "megaphone.fill")
-                                    .font(.caption)
-                                    .foregroundColor(summary.isFamily ? .orange : .blue)
-
-                                Text(summary.title)
-                                    .font(.caption)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                            }
-
-                            Text(summary.lastMessagePreview ?? "Sin mensajes todavía")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
+                    ConversationCard(
+                        summary: summary,
+                        isActive: activeConversationId == summary.id,
+                        isConnected: isConnected(summary.participantId),
+                        onSelect: { onSelect(summary) },
+                        onDelete: {
+                            conversationToDelete = summary
+                            showDeleteAlert = true
                         }
-                        .frame(width: 160, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(activeConversationId == summary.id ? Color.accentColor.opacity(0.2) : Color.meshRowBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(activeConversationId == summary.id ? Color.accentColor : Color.primary.opacity(0.05), lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
+                    )
                 }
             }
             .padding(.horizontal, 2)
+        }
+        .id(summaries.map { $0.id }.joined(separator: "-"))  // Force rebuild when summaries change
+        .alert("Eliminar conversación", isPresented: $showDeleteAlert) {
+            Button("Cancelar", role: .cancel) {}
+            Button("Eliminar", role: .destructive) {
+                if let conversation = conversationToDelete {
+                    messageStore.deleteConversation(conversation.id)
+                }
+            }
+        } message: {
+            if let conversation = conversationToDelete {
+                Text("¿Estás seguro de que quieres eliminar la conversación con \(conversation.title)? Esta acción no se puede deshacer.")
+            }
+        }
+    }
+}
+
+private struct ConversationCard: View {
+    let summary: MessageStore.ConversationSummary
+    let isActive: Bool
+    let isConnected: Bool
+    let onSelect: () -> Void
+    let onDelete: () -> Void
+
+    @State private var offset: CGFloat = 0
+    @State private var showDeleteButton = false
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            // Delete button background
+            if showDeleteButton && summary.id != ConversationIdentifier.public.rawValue {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        offset = 0
+                        showDeleteButton = false
+                    }
+                    onDelete()
+                }) {
+                    VStack {
+                        Image(systemName: "trash.fill")
+                            .font(.caption)
+                            .foregroundColor(.white)
+                        Text("Eliminar")
+                            .font(.caption2)
+                            .foregroundColor(.white)
+                    }
+                    .frame(width: 60, height: 54)
+                    .background(Color.red)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Main card
+            Button(action: onSelect) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        // Connection status indicator
+                        Circle()
+                            .fill(isConnected ? Color.green : Color.gray)
+                            .frame(width: 6, height: 6)
+
+                        // Icon based on conversation type
+                        Image(systemName: conversationIcon(for: summary))
+                            .font(.caption)
+                            .foregroundColor(conversationColor(for: summary))
+
+                        Text(summary.title)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+
+                    HStack(spacing: 4) {
+                        if !isConnected && summary.participantId != nil {
+                            Text("Desconectado")
+                                .font(.caption2)
+                                .foregroundColor(.red)
+                        } else {
+                            Text(summary.lastMessagePreview ?? "Sin mensajes todavía")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .lineLimit(1)
+                }
+                .frame(width: 160, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(isActive ? Color.accentColor.opacity(0.2) : Color.meshRowBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(isActive ? Color.accentColor : Color.primary.opacity(0.05), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .offset(x: offset)
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        // Only allow swipe for non-public conversations
+                        if summary.id != ConversationIdentifier.public.rawValue {
+                            if value.translation.width < 0 {
+                                // Swiping left
+                                offset = max(value.translation.width, -60)
+                            } else if showDeleteButton {
+                                // Swiping right when delete button is shown
+                                offset = min(value.translation.width - 60, 0)
+                            }
+                        }
+                    }
+                    .onEnded { value in
+                        if summary.id != ConversationIdentifier.public.rawValue {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                if value.translation.width < -30 {
+                                    // Show delete button
+                                    offset = -60
+                                    showDeleteButton = true
+                                } else {
+                                    // Hide delete button
+                                    offset = 0
+                                    showDeleteButton = false
+                                }
+                            }
+                        }
+                    }
+            )
+        }
+    }
+
+    // MARK: - Helper Functions
+
+    private func conversationIcon(for summary: MessageStore.ConversationSummary) -> String {
+        if summary.isFamily {
+            return "person.2.fill"  // Family group icon
+        } else if summary.isDirect {
+            return "person.fill"     // Direct/individual icon
+        } else {
+            return "megaphone.fill"  // Public broadcast icon
+        }
+    }
+
+    private func conversationColor(for summary: MessageStore.ConversationSummary) -> Color {
+        if summary.isFamily {
+            return .orange  // Family = orange
+        } else if summary.isDirect {
+            return .purple  // Direct = purple
+        } else {
+            return .blue    // Public = blue
         }
     }
 }

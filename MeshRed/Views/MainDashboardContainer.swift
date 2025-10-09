@@ -44,6 +44,7 @@ struct MainDashboardContainer: View {
 
 // MARK: - Stadium Dashboard Content (Home)
 struct StadiumDashboardViewContent: View {
+    @EnvironmentObject var networkManager: NetworkManager
     @Binding var selectedTab: DashboardTab
     @State private var showSettings = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -140,7 +141,8 @@ struct StadiumDashboardViewContent: View {
         }
         .background(Color(red: 0.98, green: 0.98, blue: 0.99).ignoresSafeArea())
         .sheet(isPresented: $showSettings) {
-            SettingsPlaceholderView()
+            StadiumModeSettingsView()
+                .environmentObject(networkManager)
         }
     }
 
