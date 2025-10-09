@@ -429,6 +429,10 @@ class MessageStore: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
+            // FORCE SwiftUI to re-render by sending objectWillChange notification
+            // This is critical for immediate UI updates when messages arrive via MultipeerConnectivity
+            self.objectWillChange.send()
+
             self.messages = currentMessages
             self.conversationSummaries = currentSummaries
 

@@ -885,6 +885,9 @@ class NetworkManager: NSObject, ObservableObject {
                 return
             }
             DispatchQueue.main.async {
+                // FORCE immediate UI update - critical for legacy messages
+                self.messageStore.objectWillChange.send()
+
                 let identifier = ConversationIdentifier(rawValue: message.conversationId)
                 let descriptor: MessageStore.ConversationDescriptor
 
@@ -954,6 +957,9 @@ class NetworkManager: NSObject, ObservableObject {
             let route = message.routePath.joined(separator: " → ")
 
             DispatchQueue.main.async {
+                // FORCE immediate UI update - critical for messages received via MultipeerConnectivity
+                self.messageStore.objectWillChange.send()
+
                 // CRITICAL: Auto-switch to conversation when receiving messages
                 self.messageStore.addMessage(simpleMessage, context: conversationDescriptor, autoSwitch: true)
                 print("📨 ✅ DELIVERED - Type: \(messageTypeDisplayName), Hops: \(hopCount), Route: \(route)")
