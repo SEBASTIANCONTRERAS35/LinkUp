@@ -1944,6 +1944,7 @@ private struct MessageListView: View {
             if shouldShowDateDivider(for: message, at: index) {
                 DateDivider(dateLabel: message.dateGroupLabel)
                     .padding(.vertical, 8)
+                    .transition(.opacity)
             }
 
             MessageBubble(
@@ -1952,6 +1953,8 @@ private struct MessageListView: View {
                 showSenderName: shouldShowSenderName(for: message, at: index)
             )
             .id(message.id)
+            .transition(.scale(scale: 0.5).combined(with: .opacity))
+            .animation(.spring(response: 0.4, dampingFraction: 0.6), value: message.id)
         }
     }
 
@@ -1997,6 +2000,16 @@ struct MessageBubble: View {
                         .padding(.top, 4)
                 }
 
+                // For local messages: time on top
+                if isFromLocal {
+                    Text(message.formattedTime)
+                        .font(.caption2)
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .padding(.trailing, 12)
+                        .padding(.bottom, 2)
+                }
+
+                // Message bubble
                 HStack(alignment: .bottom, spacing: 4) {
                     Text(message.content)
                         .font(.body)
@@ -2006,10 +2019,12 @@ struct MessageBubble: View {
                         .foregroundColor(isFromLocal ? .white : .primary)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-                    // Time stamp next to bubble (WhatsApp style)
-                    Text(message.formattedTime)
-                        .font(.caption2)
-                        .foregroundColor(.secondary.opacity(0.7))
+                    // Time stamp next to bubble for received messages only
+                    if !isFromLocal {
+                        Text(message.formattedTime)
+                            .font(.caption2)
+                            .foregroundColor(.secondary.opacity(0.7))
+                    }
                 }
             }
             .frame(maxWidth: 280, alignment: isFromLocal ? .trailing : .leading)
@@ -2025,7 +2040,8 @@ struct MessageBubble: View {
         if isFromLocal {
             return Color.accentColor
         } else {
-            return Color.meshRowBackground
+            // WhatsApp-style gray for received messages
+            return Color(UIColor.systemGray5)
         }
     }
 }
