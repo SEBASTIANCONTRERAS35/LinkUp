@@ -501,110 +501,160 @@ struct ChatConversationView: View {
     @StateObject private var mockGroupsManager = MockFamilyGroupsManager.shared
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 12) {
-                // Show mock messages for demo
-                ForEach(MockDataManager.mockConversationMessages(for: chat.id)) { mockMsg in
-                    MockMessageBubble(
-                        message: mockMsg,
-                        isFromLocal: mockMsg.type == .sent
-                    )
-                }
-
-                // Show simulated messages if this is a simulated group
-                if chat.type == .familyGroup, let groupData = mockGroupsManager.activeGroupData {
-                    ForEach(groupData.members.filter { !$0.recentMessages.isEmpty }, id: \.peerID) { member in
-                        ForEach(member.recentMessages) { simMsg in
-                            SimulatedMessageBubble(
-                                message: simMsg,
-                                senderName: member.nickname,
-                                isFromLocal: simMsg.senderId == networkManager.localDeviceName
-                            )
+        messageScrollView
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                composerBar
+            }
+            .onAppear {
+                markMessagesAsRead()
+            }
+            .navigationTitle(chat.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if chat.type == .individual, chat.peerID != nil {
+                        Button(action: {
+                            openUWBNavigation()
+                        }) {
+                            Image(systemName: "location.fill")
+                                .foregroundColor(Mundial2026Colors.azul)
                         }
                     }
                 }
-
-                // Show real messages if peer is connected
-                if chat.peerID != nil {
-                    ForEach(filteredMessages) { message in
-                        MessageBubble(
-                            message: message,
-                            isFromLocal: message.sender == networkManager.localDeviceName,
-                            showSenderName: true
-                        )
-                    }
-                }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            HStack(spacing: 12) {
-                TextField("Mensaje...", text: $messageText)
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(24)
-                    .submitLabel(.send)
-                    .onSubmit {
-                        sendMessage()
-                    }
-
-                Button(action: sendMessage) {
-                    Image(systemName: "paperplane.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
-                        .background(Circle().fill(messageText.isEmpty ? Color.gray : Mundial2026Colors.verde))
-                }
-                .disabled(messageText.isEmpty)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(
-                Color.white
-                    .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: -2)
-            )
-        }
-        .onAppear {
-            markMessagesAsRead()
-        }
-        .navigationTitle(chat.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if chat.type == .individual, chat.peerID != nil {
-                    Button(action: {
-                        openUWBNavigation()
-                    }) {
-                        Image(systemName: "location.fill")
-                            .foregroundColor(Mundial2026Colors.azul)
-                    }
-                }
-            }
-        }
-        .fullScreenCover(isPresented: $showUWBNavigation) {
-            if let peerID = chat.peerID,
-               let uwbManager = networkManager.uwbSessionManager {
-                LinkFinderNavigationView(
-                    targetName: chat.title,
-                    targetPeerID: peerID,
-                    uwbManager: uwbManager,
-                    locationService: networkManager.locationService,
-                    peerLocationTracker: networkManager.peerLocationTracker,
-                    networkManager: networkManager,
-                    onDismiss: {
+            .fullScreenCover(isPresented: $showUWBNavigation) {
+                if let peerID = chat.peerID,
+                   let uwbManager = networkManager.uwbSessionManager {
+                    LinkFinderNavigationView(
+                        targetName: chat.title,
+                        targetPeerID: peerID,
+                        uwbManager: uwbManager,
+                        locationService: networkManager.locationService,
+                        peerLocationTracker: networkManager.peerLocationTracker,
+                        networkManager: networkManager,
+                        onDismiss: {
+                            showUWBNavigation = false
+                        }
+                    )
+                } else {
+                    UWBNotAvailableView(onDismiss: {
                         showUWBNavigation = false
-                    }
-                )
-            } else {
-                // Fallback: LinkFinder not available
-                UWBNotAvailableView(onDismiss: {
-                    showUWBNavigation = false
-                })
+                    })
+                }
+            }
+    }
+
+    private var messageScrollView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                messagesContent
+            }
+            .onChange(of: filteredMessages.count) { oldCount, newCount in
+                scrollToBottom(proxy: proxy)
+            }
+            .onAppear {
+                scrollToBottom(proxy: proxy)
             }
         }
+    }
+
+    private var messagesContent: some View {
+        LazyVStack(spacing: 12) {
+            // Show mock messages for demo
+            ForEach(MockDataManager.mockConversationMessages(for: chat.id)) { mockMsg in
+                let isFromLocal = mockMsg.type == .sent
+                MockMessageBubble(
+                    message: mockMsg,
+                    isFromLocal: isFromLocal
+                )
+                .id(mockMsg.id)
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.85)
+                        .combined(with: .move(edge: isFromLocal ? .trailing : .leading))
+                        .combined(with: .opacity),
+                    removal: .opacity
+                ))
+                .animation(.spring(response: 0.35, dampingFraction: 0.7), value: mockMsg.id)
+            }
+
+            // Show simulated messages if this is a simulated group
+            if chat.type == .familyGroup, let groupData = mockGroupsManager.activeGroupData {
+                ForEach(groupData.members.filter { !$0.recentMessages.isEmpty }, id: \.peerID) { member in
+                    ForEach(member.recentMessages) { simMsg in
+                        let isFromLocal = simMsg.senderId == networkManager.localDeviceName
+                        SimulatedMessageBubble(
+                            message: simMsg,
+                            senderName: member.nickname,
+                            isFromLocal: isFromLocal
+                        )
+                        .id(simMsg.id)
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.85)
+                                .combined(with: .move(edge: isFromLocal ? .trailing : .leading))
+                                .combined(with: .opacity),
+                            removal: .opacity
+                        ))
+                        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: simMsg.id)
+                    }
+                }
+            }
+
+            // Show real messages if peer is connected
+            if chat.peerID != nil {
+                ForEach(filteredMessages) { message in
+                    let isFromLocal = message.sender == networkManager.localDeviceName
+                    MessageBubble(
+                        message: message,
+                        isFromLocal: isFromLocal,
+                        showSenderName: true
+                    )
+                    .id(message.id)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.85)
+                            .combined(with: .move(edge: isFromLocal ? .trailing : .leading))
+                            .combined(with: .opacity),
+                        removal: .opacity
+                    ))
+                    .animation(.spring(response: 0.35, dampingFraction: 0.7), value: message.id)
+                }
+            }
+
+            // Extra padding to ensure last message is visible
+            Color.clear.frame(height: 120)
+                .id("bottomSpacer")
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+    }
+
+    private var composerBar: some View {
+        HStack(spacing: 12) {
+            TextField("Mensaje...", text: $messageText)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(24)
+                .submitLabel(.send)
+                .onSubmit {
+                    sendMessage()
+                }
+
+            Button(action: sendMessage) {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(messageText.isEmpty ? Color.gray : Mundial2026Colors.verde))
+            }
+            .disabled(messageText.isEmpty)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            Color.white
+                .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: -2)
+        )
     }
 
     private var filteredMessages: [Message] {
@@ -648,6 +698,15 @@ struct ChatConversationView: View {
         )
 
         messageText = ""
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        // Scroll to the bottom spacer element
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            withAnimation(.easeOut(duration: 0.3)) {
+                proxy.scrollTo("bottomSpacer", anchor: .bottom)
+            }
+        }
     }
 
     private func openUWBNavigation() {
