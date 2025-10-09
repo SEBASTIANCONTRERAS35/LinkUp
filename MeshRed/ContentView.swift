@@ -1935,6 +1935,10 @@ private struct MessageListView: View {
             ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                 messageRow(for: message, at: index)
             }
+
+            // Bottom spacer to ensure last message is visible above composer
+            Color.clear.frame(height: 20)
+                .id("bottomSpacer")
         }
     }
 
@@ -1968,9 +1972,11 @@ private struct MessageListView: View {
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy) {
-        guard let lastMessage = messages.last else { return }
-        withAnimation {
-            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+        // Scroll to the bottom spacer element with delay to ensure layout is complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            withAnimation(.easeOut(duration: 0.3)) {
+                proxy.scrollTo("bottomSpacer", anchor: .bottom)
+            }
         }
     }
 }
