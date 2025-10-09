@@ -38,8 +38,8 @@ struct MessagingDashboardView: View {
                         // Individual chats section
                         individualChatsSection
 
-                        // Extra spacing for bottom nav
-                        Color.clear.frame(height: 20)
+                        // Extra spacing for bottom nav (increased to account for bottom bar)
+                        Color.clear.frame(height: 100)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
@@ -501,88 +501,74 @@ struct ChatConversationView: View {
     @StateObject private var mockGroupsManager = MockFamilyGroupsManager.shared
 
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                // Messages list
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        // Show mock messages for demo
-                        ForEach(MockDataManager.mockConversationMessages(for: chat.id)) { mockMsg in
-                            MockMessageBubble(
-                                message: mockMsg,
-                                isFromLocal: mockMsg.type == .sent
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                // Show mock messages for demo
+                ForEach(MockDataManager.mockConversationMessages(for: chat.id)) { mockMsg in
+                    MockMessageBubble(
+                        message: mockMsg,
+                        isFromLocal: mockMsg.type == .sent
+                    )
+                }
+
+                // Show simulated messages if this is a simulated group
+                if chat.type == .familyGroup, let groupData = mockGroupsManager.activeGroupData {
+                    ForEach(groupData.members.filter { !$0.recentMessages.isEmpty }, id: \.peerID) { member in
+                        ForEach(member.recentMessages) { simMsg in
+                            SimulatedMessageBubble(
+                                message: simMsg,
+                                senderName: member.nickname,
+                                isFromLocal: simMsg.senderId == networkManager.localDeviceName
                             )
                         }
-
-                        // Show simulated messages if this is a simulated group
-                        if chat.type == .familyGroup, let groupData = mockGroupsManager.activeGroupData {
-                            ForEach(groupData.members.filter { !$0.recentMessages.isEmpty }, id: \.peerID) { member in
-                                ForEach(member.recentMessages) { simMsg in
-                                    SimulatedMessageBubble(
-                                        message: simMsg,
-                                        senderName: member.nickname,
-                                        isFromLocal: simMsg.senderId == networkManager.localDeviceName
-                                    )
-                                }
-                            }
-                        }
-
-                        // Show real messages if peer is connected
-                        if chat.peerID != nil {
-                            ForEach(filteredMessages) { message in
-                                MessageBubble(
-                                    message: message,
-                                    isFromLocal: message.sender == networkManager.localDeviceName,
-                                    showSenderName: true
-                                )
-                            }
-                        }
-
-                        // Extra padding at bottom for composer
-                        Color.clear.frame(height: 20)
                     }
+                }
+
+                // Show real messages if peer is connected
+                if chat.peerID != nil {
+                    ForEach(filteredMessages) { message in
+                        MessageBubble(
+                            message: message,
+                            isFromLocal: message.sender == networkManager.localDeviceName,
+                            showSenderName: true
+                        )
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            HStack(spacing: 12) {
+                TextField("Mensaje...", text: $messageText)
+                    .textFieldStyle(.plain)
                     .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                }
-
-                Spacer()
-            }
-            .onAppear {
-                markMessagesAsRead()
-            }
-
-            // Message composer (floating above bottom nav)
-            VStack {
-                Spacer()
-
-                HStack(spacing: 12) {
-                    TextField("Mensaje...", text: $messageText)
-                        .textFieldStyle(.plain)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(24)
-                        .submitLabel(.send)
-                        .onSubmit {
-                            sendMessage()
-                        }
-
-                    Button(action: sendMessage) {
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .background(Circle().fill(messageText.isEmpty ? Color.gray : Mundial2026Colors.verde))
+                    .padding(.vertical, 12)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(24)
+                    .submitLabel(.send)
+                    .onSubmit {
+                        sendMessage()
                     }
-                    .disabled(messageText.isEmpty)
+
+                Button(action: sendMessage) {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Circle().fill(messageText.isEmpty ? Color.gray : Mundial2026Colors.verde))
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(
-                    Color.white
-                        .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: -2)
-                )
+                .disabled(messageText.isEmpty)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                Color.white
+                    .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: -2)
+            )
+        }
+        .onAppear {
+            markMessagesAsRead()
         }
         .navigationTitle(chat.title)
         .navigationBarTitleDisplayMode(.inline)

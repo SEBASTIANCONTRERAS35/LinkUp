@@ -51,95 +51,94 @@ struct ContentView: View {
     }
 
     private var mainContent: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                LazyVStack(spacing: 20) {
-                    StatusOverviewCard(
-                        deviceName: networkManager.localDeviceName,
-                        statusText: connectionStatusText,
-                        statusColor: connectionStatusColor,
-                        connectionQuality: networkManager.connectionQuality,
-                        relayingMessage: networkManager.relayingMessage,
-                        availablePeers: networkManager.availablePeers.count,
-                        connectedPeers: networkManager.connectedPeers.count,
-                        pendingAcks: networkManager.pendingAcksCount,
-                        blockedPeers: networkManager.networkStats.blocked,
-                        locationStatusText: locationStatusText,
-                        locationStatusColor: locationStatusColor,
-                        onRequestPermissions: networkManager.locationService.authorizationStatus == .notDetermined ? {
-                            networkManager.locationService.requestPermissions()
-                        } : nil,
-                        onOpenFamilyGroup: { showFamilyGroup = true },
-                        hasFamilyGroup: networkManager.familyGroupManager.hasActiveGroup,
-                        familyMemberCount: networkManager.familyGroupManager.memberCount,
-                        onOpenGeofenceMap: { showGeofenceMap = true },
-                        hasActiveGeofence: networkManager.linkfenceManager?.activeGeofence != nil
-                    )
+        ScrollView {
+            LazyVStack(spacing: 20) {
+                StatusOverviewCard(
+                    deviceName: networkManager.localDeviceName,
+                    statusText: connectionStatusText,
+                    statusColor: connectionStatusColor,
+                    connectionQuality: networkManager.connectionQuality,
+                    relayingMessage: networkManager.relayingMessage,
+                    availablePeers: networkManager.availablePeers.count,
+                    connectedPeers: networkManager.connectedPeers.count,
+                    pendingAcks: networkManager.pendingAcksCount,
+                    blockedPeers: networkManager.networkStats.blocked,
+                    locationStatusText: locationStatusText,
+                    locationStatusColor: locationStatusColor,
+                    onRequestPermissions: networkManager.locationService.authorizationStatus == .notDetermined ? {
+                        networkManager.locationService.requestPermissions()
+                    } : nil,
+                    onOpenFamilyGroup: { showFamilyGroup = true },
+                    hasFamilyGroup: networkManager.familyGroupManager.hasActiveGroup,
+                    familyMemberCount: networkManager.familyGroupManager.memberCount,
+                    onOpenGeofenceMap: { showGeofenceMap = true },
+                    hasActiveGeofence: networkManager.linkfenceManager?.activeGeofence != nil
+                )
 
-                    DeviceSection(
-                        localDeviceName: networkManager.localDeviceName,
-                        availablePeers: networkManager.availablePeers,
-                        connectedPeers: networkManager.connectedPeers,
-                        locationResponseProvider: { peerId in
-                            networkManager.locationRequestManager.getResponse(for: peerId)
-                        },
-                        uwbSessionChecker: { peer in
-                            hasUWBSession(with: peer)
-                        },
-                        isFamilyMember: { peer in
-                            networkManager.familyGroupManager.isFamilyMember(peerID: peer.displayName)
-                        },
-                        reachableFamilyMembers: getReachableFamilyMembers(),
-                        onRequestLocation: requestLocation,
-                        onNavigate: startNavigation,
-                        onReconnectTap: networkManager.restartServicesIfNeeded,
-                        onStartChat: startChat(with:)
-                    )
+                DeviceSection(
+                    localDeviceName: networkManager.localDeviceName,
+                    availablePeers: networkManager.availablePeers,
+                    connectedPeers: networkManager.connectedPeers,
+                    locationResponseProvider: { peerId in
+                        networkManager.locationRequestManager.getResponse(for: peerId)
+                    },
+                    uwbSessionChecker: { peer in
+                        hasUWBSession(with: peer)
+                    },
+                    isFamilyMember: { peer in
+                        networkManager.familyGroupManager.isFamilyMember(peerID: peer.displayName)
+                    },
+                    reachableFamilyMembers: getReachableFamilyMembers(),
+                    onRequestLocation: requestLocation,
+                    onNavigate: startNavigation,
+                    onReconnectTap: networkManager.restartServicesIfNeeded,
+                    onStartChat: startChat(with:)
+                )
 
-                    MessagesSection(
-                        messageStore: networkManager.messageStore,
-                        localDeviceName: networkManager.localDeviceName,
-                        connectedPeers: networkManager.connectedPeers,
-                        onConversationSelected: { summary in
-                            // Directly select conversation without going through handleRecipientSelection
-                            // to avoid unwanted redirections
-                            recipientId = summary.defaultRecipientId
-                            if networkManager.messageStore.activeConversationId != summary.id {
-                                networkManager.messageStore.selectConversation(summary.id)
-                            }
+                MessagesSection(
+                    messageStore: networkManager.messageStore,
+                    localDeviceName: networkManager.localDeviceName,
+                    connectedPeers: networkManager.connectedPeers,
+                    onConversationSelected: { summary in
+                        // Directly select conversation without going through handleRecipientSelection
+                        // to avoid unwanted redirections
+                        recipientId = summary.defaultRecipientId
+                        if networkManager.messageStore.activeConversationId != summary.id {
+                            networkManager.messageStore.selectConversation(summary.id)
                         }
-                    )
+                    }
+                )
 
-                    AdvancedControlsCard(
-                        showAdvancedOptions: $showAdvancedOptions,
-                        selectedMessageType: $selectedMessageType,
-                        requiresAck: $requiresAck,
-                        recipientId: $recipientId,
-                        connectedPeers: networkManager.connectedPeers,
-                        networkStats: networkManager.networkStats,
-                        locationStatusText: locationStatusText,
-                        locationStatusColor: locationStatusColor,
-                        authorizationStatus: networkManager.locationService.authorizationStatus,
-                        networkManager: networkManager,
-                        messageStore: networkManager.messageStore,
-                        onRequestPermissions: {
-                            networkManager.locationService.requestPermissions()
-                        },
-                        onClearConnections: clearConnections,
-                        onRecipientChange: { newRecipient in
-                            // Only change conversation if we're selecting a different recipient
-                            if newRecipient != recipientId {
-                                recipientId = newRecipient
-                                handleRecipientSelection(newRecipient)
-                            }
+                AdvancedControlsCard(
+                    showAdvancedOptions: $showAdvancedOptions,
+                    selectedMessageType: $selectedMessageType,
+                    requiresAck: $requiresAck,
+                    recipientId: $recipientId,
+                    connectedPeers: networkManager.connectedPeers,
+                    networkStats: networkManager.networkStats,
+                    locationStatusText: locationStatusText,
+                    locationStatusColor: locationStatusColor,
+                    authorizationStatus: networkManager.locationService.authorizationStatus,
+                    networkManager: networkManager,
+                    messageStore: networkManager.messageStore,
+                    onRequestPermissions: {
+                        networkManager.locationService.requestPermissions()
+                    },
+                    onClearConnections: clearConnections,
+                    onRecipientChange: { newRecipient in
+                        // Only change conversation if we're selecting a different recipient
+                        if newRecipient != recipientId {
+                            recipientId = newRecipient
+                            handleRecipientSelection(newRecipient)
                         }
-                    )
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 24)
-                .padding(.bottom, 32)
+                    }
+                )
             }
-
+            .padding(.horizontal, 20)
+            .padding(.top, 24)
+            .padding(.bottom, 16)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             MessageComposerBar(
                 messageText: $messageText,
                 canSend: !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !networkManager.connectedPeers.isEmpty,
@@ -1936,9 +1935,6 @@ private struct MessageListView: View {
             ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                 messageRow(for: message, at: index)
             }
-
-            // Extra padding at bottom so last message is not covered by composer
-            Color.clear.frame(height: 80)
         }
     }
 
