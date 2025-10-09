@@ -347,8 +347,26 @@ extension NetworkManager {
             .sink { [weak self] messages in
                 guard let self = self, !messages.isEmpty else { return }
                 let latestMsg = messages.last
-                self.updateLiveActivity()
-                print("💬 Live Activity updated with latest message from: \(latestMsg?.sender ?? "unknown")")
+
+                // Check if the latest message is from someone else (not from local device)
+                let isIncomingMessage = latestMsg?.sender != self.localDeviceName
+
+                if isIncomingMessage && latestMsg != nil {
+                    // New incoming message - update with alert for non-Dynamic Island devices
+                    let senderName = latestMsg!.sender
+                    let messagePreview = String(latestMsg!.content.prefix(50))
+
+                    self.updateLiveActivity(
+                        withAlert: "Nuevo mensaje de \(senderName)",
+                        body: messagePreview,
+                        sound: .default
+                    )
+                    print("💬🔔 Live Activity updated WITH ALERT for message from: \(senderName)")
+                } else {
+                    // Own message or other update - regular update without alert
+                    self.updateLiveActivity()
+                    print("💬 Live Activity updated (no alert) for: \(latestMsg?.sender ?? "unknown")")
+                }
             }
             .store(in: &LiveActivityStorage.activityCancellables)
 

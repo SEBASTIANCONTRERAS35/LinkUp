@@ -51,95 +51,94 @@ struct ContentView: View {
     }
 
     private var mainContent: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                LazyVStack(spacing: 20) {
-                    StatusOverviewCard(
-                        deviceName: networkManager.localDeviceName,
-                        statusText: connectionStatusText,
-                        statusColor: connectionStatusColor,
-                        connectionQuality: networkManager.connectionQuality,
-                        relayingMessage: networkManager.relayingMessage,
-                        availablePeers: networkManager.availablePeers.count,
-                        connectedPeers: networkManager.connectedPeers.count,
-                        pendingAcks: networkManager.pendingAcksCount,
-                        blockedPeers: networkManager.networkStats.blocked,
-                        locationStatusText: locationStatusText,
-                        locationStatusColor: locationStatusColor,
-                        onRequestPermissions: networkManager.locationService.authorizationStatus == .notDetermined ? {
-                            networkManager.locationService.requestPermissions()
-                        } : nil,
-                        onOpenFamilyGroup: { showFamilyGroup = true },
-                        hasFamilyGroup: networkManager.familyGroupManager.hasActiveGroup,
-                        familyMemberCount: networkManager.familyGroupManager.memberCount,
-                        onOpenGeofenceMap: { showGeofenceMap = true },
-                        hasActiveGeofence: networkManager.linkfenceManager?.activeGeofence != nil
-                    )
+        ScrollView {
+            LazyVStack(spacing: 20) {
+                StatusOverviewCard(
+                    deviceName: networkManager.localDeviceName,
+                    statusText: connectionStatusText,
+                    statusColor: connectionStatusColor,
+                    connectionQuality: networkManager.connectionQuality,
+                    relayingMessage: networkManager.relayingMessage,
+                    availablePeers: networkManager.availablePeers.count,
+                    connectedPeers: networkManager.connectedPeers.count,
+                    pendingAcks: networkManager.pendingAcksCount,
+                    blockedPeers: networkManager.networkStats.blocked,
+                    locationStatusText: locationStatusText,
+                    locationStatusColor: locationStatusColor,
+                    onRequestPermissions: networkManager.locationService.authorizationStatus == .notDetermined ? {
+                        networkManager.locationService.requestPermissions()
+                    } : nil,
+                    onOpenFamilyGroup: { showFamilyGroup = true },
+                    hasFamilyGroup: networkManager.familyGroupManager.hasActiveGroup,
+                    familyMemberCount: networkManager.familyGroupManager.memberCount,
+                    onOpenGeofenceMap: { showGeofenceMap = true },
+                    hasActiveGeofence: networkManager.linkfenceManager?.activeGeofence != nil
+                )
 
-                    DeviceSection(
-                        localDeviceName: networkManager.localDeviceName,
-                        availablePeers: networkManager.availablePeers,
-                        connectedPeers: networkManager.connectedPeers,
-                        locationResponseProvider: { peerId in
-                            networkManager.locationRequestManager.getResponse(for: peerId)
-                        },
-                        uwbSessionChecker: { peer in
-                            hasUWBSession(with: peer)
-                        },
-                        isFamilyMember: { peer in
-                            networkManager.familyGroupManager.isFamilyMember(peerID: peer.displayName)
-                        },
-                        reachableFamilyMembers: getReachableFamilyMembers(),
-                        onRequestLocation: requestLocation,
-                        onNavigate: startNavigation,
-                        onReconnectTap: networkManager.restartServicesIfNeeded,
-                        onStartChat: startChat(with:)
-                    )
+                DeviceSection(
+                    localDeviceName: networkManager.localDeviceName,
+                    availablePeers: networkManager.availablePeers,
+                    connectedPeers: networkManager.connectedPeers,
+                    locationResponseProvider: { peerId in
+                        networkManager.locationRequestManager.getResponse(for: peerId)
+                    },
+                    uwbSessionChecker: { peer in
+                        hasUWBSession(with: peer)
+                    },
+                    isFamilyMember: { peer in
+                        networkManager.familyGroupManager.isFamilyMember(peerID: peer.displayName)
+                    },
+                    reachableFamilyMembers: getReachableFamilyMembers(),
+                    onRequestLocation: requestLocation,
+                    onNavigate: startNavigation,
+                    onReconnectTap: networkManager.restartServicesIfNeeded,
+                    onStartChat: startChat(with:)
+                )
 
-                    MessagesSection(
-                        messageStore: networkManager.messageStore,
-                        localDeviceName: networkManager.localDeviceName,
-                        connectedPeers: networkManager.connectedPeers,
-                        onConversationSelected: { summary in
-                            // Directly select conversation without going through handleRecipientSelection
-                            // to avoid unwanted redirections
-                            recipientId = summary.defaultRecipientId
-                            if networkManager.messageStore.activeConversationId != summary.id {
-                                networkManager.messageStore.selectConversation(summary.id)
-                            }
+                MessagesSection(
+                    messageStore: networkManager.messageStore,
+                    localDeviceName: networkManager.localDeviceName,
+                    connectedPeers: networkManager.connectedPeers,
+                    onConversationSelected: { summary in
+                        // Directly select conversation without going through handleRecipientSelection
+                        // to avoid unwanted redirections
+                        recipientId = summary.defaultRecipientId
+                        if networkManager.messageStore.activeConversationId != summary.id {
+                            networkManager.messageStore.selectConversation(summary.id)
                         }
-                    )
+                    }
+                )
 
-                    AdvancedControlsCard(
-                        showAdvancedOptions: $showAdvancedOptions,
-                        selectedMessageType: $selectedMessageType,
-                        requiresAck: $requiresAck,
-                        recipientId: $recipientId,
-                        connectedPeers: networkManager.connectedPeers,
-                        networkStats: networkManager.networkStats,
-                        locationStatusText: locationStatusText,
-                        locationStatusColor: locationStatusColor,
-                        authorizationStatus: networkManager.locationService.authorizationStatus,
-                        networkManager: networkManager,
-                        messageStore: networkManager.messageStore,
-                        onRequestPermissions: {
-                            networkManager.locationService.requestPermissions()
-                        },
-                        onClearConnections: clearConnections,
-                        onRecipientChange: { newRecipient in
-                            // Only change conversation if we're selecting a different recipient
-                            if newRecipient != recipientId {
-                                recipientId = newRecipient
-                                handleRecipientSelection(newRecipient)
-                            }
+                AdvancedControlsCard(
+                    showAdvancedOptions: $showAdvancedOptions,
+                    selectedMessageType: $selectedMessageType,
+                    requiresAck: $requiresAck,
+                    recipientId: $recipientId,
+                    connectedPeers: networkManager.connectedPeers,
+                    networkStats: networkManager.networkStats,
+                    locationStatusText: locationStatusText,
+                    locationStatusColor: locationStatusColor,
+                    authorizationStatus: networkManager.locationService.authorizationStatus,
+                    networkManager: networkManager,
+                    messageStore: networkManager.messageStore,
+                    onRequestPermissions: {
+                        networkManager.locationService.requestPermissions()
+                    },
+                    onClearConnections: clearConnections,
+                    onRecipientChange: { newRecipient in
+                        // Only change conversation if we're selecting a different recipient
+                        if newRecipient != recipientId {
+                            recipientId = newRecipient
+                            handleRecipientSelection(newRecipient)
                         }
-                    )
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 24)
-                .padding(.bottom, 32)
+                    }
+                )
             }
-
+            .padding(.horizontal, 20)
+            .padding(.top, 24)
+            .padding(.bottom, 16)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             MessageComposerBar(
                 messageText: $messageText,
                 canSend: !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !networkManager.connectedPeers.isEmpty,
@@ -357,6 +356,13 @@ struct ContentView: View {
             networkManager.messageStore.selectConversation(descriptor.id)
         }
         recipientId = newRecipient
+
+        // CRITICAL FIX: Force refresh after creating new conversation
+        // This ensures the UI is ready to display messages
+        print("🔄 Forcing UI refresh after creating new conversation")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            networkManager.messageStore.refreshPublishedState()
+        }
     }
 
     private func syncRecipientWithActiveConversation() {
@@ -976,14 +982,8 @@ private struct MessagesSection: View {
                     let _ = messages.forEach { msg in
                         print("   • [\(msg.id)] \(msg.sender): \(msg.content.prefix(30))...")
                     }
-                    LazyVStack(spacing: 12) {
-                        ForEach(messages) { message in
-                            MessageBubble(
-                                message: message,
-                                isFromLocal: message.sender == localDeviceName
-                            )
-                        }
-                    }
+
+                    MessageListView(messages: messages, localDeviceName: localDeviceName)
                 }
             }
         }
@@ -1916,50 +1916,167 @@ struct LocationResponseView: View {
     }
 }
 
+// MARK: - Message List with Auto-Scroll
+
+private struct MessageListView: View {
+    let messages: [Message]
+    let localDeviceName: String
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                messageListContent
+                    .padding(.horizontal, 4)
+            }
+            .onChange(of: messages.count) { oldCount, newCount in
+                scrollToBottom(proxy: proxy)
+            }
+            .onAppear {
+                scrollToBottom(proxy: proxy)
+            }
+        }
+    }
+
+    private var messageListContent: some View {
+        LazyVStack(spacing: 4) {
+            ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                messageRow(for: message, at: index)
+            }
+
+            // Bottom spacer to ensure last message is visible above composer
+            Color.clear.frame(height: 20)
+                .id("bottomSpacer")
+        }
+    }
+
+    private func messageRow(for message: Message, at index: Int) -> some View {
+        VStack(spacing: 4) {
+            if shouldShowDateDivider(for: message, at: index) {
+                DateDivider(dateLabel: message.dateGroupLabel)
+                    .padding(.vertical, 8)
+                    .transition(.opacity)
+            }
+
+            MessageBubble(
+                message: message,
+                isFromLocal: message.sender == localDeviceName,
+                showSenderName: shouldShowSenderName(for: message, at: index)
+            )
+            .id(message.id)
+            .transition(.scale(scale: 0.5).combined(with: .opacity))
+            .animation(.spring(response: 0.4, dampingFraction: 0.6), value: message.id)
+        }
+    }
+
+    private func shouldShowDateDivider(for message: Message, at index: Int) -> Bool {
+        guard index > 0 else { return true }
+        return !message.isSameDay(as: messages[index - 1])
+    }
+
+    private func shouldShowSenderName(for message: Message, at index: Int) -> Bool {
+        guard index > 0 else { return true }
+        return !message.shouldGroupWith(messages[index - 1])
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        // Scroll to the bottom spacer element with delay to ensure layout is complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            withAnimation(.easeOut(duration: 0.3)) {
+                proxy.scrollTo("bottomSpacer", anchor: .bottom)
+            }
+        }
+    }
+}
+
+// MARK: - Message Bubble
+
 struct MessageBubble: View {
     let message: Message
     let isFromLocal: Bool
+    let showSenderName: Bool
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 12) {
+        HStack(alignment: .bottom, spacing: 8) {
             if isFromLocal {
                 Spacer(minLength: 0)
             }
 
-            VStack(alignment: isFromLocal ? .trailing : .leading, spacing: 6) {
-                if !isFromLocal {
+            VStack(alignment: isFromLocal ? .trailing : .leading, spacing: 2) {
+                // Show sender name only if showSenderName is true and not from local
+                if !isFromLocal && showSenderName {
                     Text(message.sender)
                         .font(.caption2)
                         .fontWeight(.semibold)
                         .foregroundColor(.secondary)
+                        .padding(.leading, 12)
+                        .padding(.top, 4)
                 }
 
-                Text(message.content)
-                    .font(.body)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(bubbleColor)
-                    .foregroundColor(isFromLocal ? .white : .primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                // For local messages: time on top
+                if isFromLocal {
+                    Text(message.formattedTime)
+                        .font(.caption2)
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .padding(.trailing, 12)
+                        .padding(.bottom, 2)
+                }
 
-                Text(message.formattedTime)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                // Message bubble
+                HStack(alignment: .bottom, spacing: 4) {
+                    Text(message.content)
+                        .font(.body)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(bubbleColor)
+                        .foregroundColor(isFromLocal ? .white : .primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                    // Time stamp next to bubble for received messages only
+                    if !isFromLocal {
+                        Text(message.formattedTime)
+                            .font(.caption2)
+                            .foregroundColor(.secondary.opacity(0.7))
+                    }
+                }
             }
-            .frame(maxWidth: 260, alignment: isFromLocal ? .trailing : .leading)
+            .frame(maxWidth: 280, alignment: isFromLocal ? .trailing : .leading)
 
             if !isFromLocal {
                 Spacer(minLength: 0)
             }
         }
+        .padding(.vertical, 1)
     }
 
     private var bubbleColor: Color {
         if isFromLocal {
             return Color.accentColor
         } else {
-            return Color.meshRowBackground
+            // WhatsApp-style gray for received messages
+            return Color(UIColor.systemGray5)
         }
+    }
+}
+
+// MARK: - Date Divider Component
+
+struct DateDivider: View {
+    let dateLabel: String
+
+    var body: some View {
+        HStack {
+            VStack { Divider() }
+            Text(dateLabel)
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .background(Color.meshCardBackground)
+                .clipShape(Capsule())
+            VStack { Divider() }
+        }
+        .padding(.vertical, 4)
     }
 }
 

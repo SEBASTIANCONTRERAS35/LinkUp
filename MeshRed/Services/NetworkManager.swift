@@ -509,7 +509,7 @@ class NetworkManager: NSObject, ObservableObject {
             conversationId: conversationDescriptor.id,
             conversationName: conversationDescriptor.title
         )
-        messageStore.addMessage(message, context: conversationDescriptor)
+        messageStore.addMessage(message, context: conversationDescriptor, localDeviceName: self.localDeviceName)
 
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("📤 SENDING NEW MESSAGE")
@@ -885,6 +885,9 @@ class NetworkManager: NSObject, ObservableObject {
                 return
             }
             DispatchQueue.main.async {
+                // FORCE immediate UI update - critical for legacy messages
+                self.messageStore.objectWillChange.send()
+
                 let identifier = ConversationIdentifier(rawValue: message.conversationId)
                 let descriptor: MessageStore.ConversationDescriptor
 
@@ -895,7 +898,7 @@ class NetworkManager: NSObject, ObservableObject {
                     descriptor = .publicChat()
                 }
 
-                self.messageStore.addMessage(message, context: descriptor)
+                self.messageStore.addMessage(message, context: descriptor, localDeviceName: self.localDeviceName)
                 print("📥 Legacy message from \(peerID.displayName): \(message.content)")
             }
         }
@@ -952,11 +955,31 @@ class NetworkManager: NSObject, ObservableObject {
             let messageTypeDisplayName = message.messageType.displayName
             let hopCount = message.hopCount
             let route = message.routePath.joined(separator: " → ")
+            let senderId = message.senderId
+            let content = message.content
+            let conversationId = conversationDescriptor.id
 
             DispatchQueue.main.async {
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("📨 NetworkManager: MESSAGE FOR ME - Delivering to MessageStore")
+                print("   Thread: MAIN (via DispatchQueue.main.async)")
+                print("   Sender: \(senderId)")
+                print("   Content: \"\(content)\"")
+                print("   Type: \(messageTypeDisplayName)")
+                print("   Hops: \(hopCount)")
+                print("   Route: \(route)")
+                print("   Conversation: \(conversationId)")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                // FORCE immediate UI update - critical for messages received via MultipeerConnectivity
+                print("   📢 Sending objectWillChange to MessageStore...")
+                self.messageStore.objectWillChange.send()
+
                 // CRITICAL: Auto-switch to conversation when receiving messages
-                self.messageStore.addMessage(simpleMessage, context: conversationDescriptor, autoSwitch: true)
-                print("📨 ✅ DELIVERED - Type: \(messageTypeDisplayName), Hops: \(hopCount), Route: \(route)")
+                print("   📥 Calling messageStore.addMessage()...")
+                self.messageStore.addMessage(simpleMessage, context: conversationDescriptor, autoSwitch: true, localDeviceName: self.localDeviceName)
+                print("✅ NetworkManager: Message delivered to MessageStore")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
 
             if message.requiresAck {
@@ -1346,12 +1369,16 @@ class NetworkManager: NSObject, ObservableObject {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("📥 LinkFinder TOKEN RECEIVED")
         print("   From: \(peerID.displayName)")
+        print("   Token sender ID: \(tokenMessage.senderId)")
+        print("   Token data size: \(tokenMessage.tokenData.count) bytes")
+        print("   Current exchange state: \(uwbTokenExchangeState[peerID.displayName] ?? .none)")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         guard #available(iOS 14.0, *),
               let uwbManager = uwbSessionManager,
               uwbManager.isLinkFinderSupported else {
             print("   ✗ LinkFinder not supported on this device")
+            print("   ❌ FAILED: Device doesn't support UWB")
             return
         }
 
@@ -1388,37 +1415,62 @@ class NetworkManager: NSObject, ObservableObject {
             } else {
                 // SLAVE receives MASTER's initial token
                 print("   📥 SLAVE received MASTER's token")
+                print("   🎭 Role: SLAVE (will send token back)")
 
                 // Step 1: Prepare our session (if not already prepared)
                 // This will create session and extract our token
                 guard let myToken = uwbManager.prepareSession(for: peerID) else {
-                    print("   ❌ Failed to prepare session")
+                    print("   ❌ Failed to prepare session - cannot create local token")
+                    uwbTokenExchangeState[peerID.displayName] = .none
                     return
                 }
 
+                print("   ✅ Session prepared, local token extracted")
+                print("   📊 Local token size: \(String(describing: myToken).count) chars")
+
                 // Step 2: Run our session with master's token
                 uwbManager.startSession(with: peerID, remotePeerToken: remotePeerToken)
+                print("   🚀 Session started with MASTER's token")
 
                 // Step 3: Send our token back to master
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    guard let self = self else { return }
+                    guard let self = self else {
+                        print("   ❌ Self deallocated - cannot send token back")
+                        return
+                    }
 
-                    print("   📤 SLAVE sending token back to MASTER")
+                    print("   📤 SLAVE attempting to send token back to MASTER...")
+                    print("   📊 Peer connection state: \(self.connectedPeers.contains(peerID) ? "Connected" : "Disconnected")")
 
                     // Manually encode and send (can't use sendUWBDiscoveryToken since session is already prepared)
                     do {
                         let tokenData = try NSKeyedArchiver.archivedData(withRootObject: myToken, requiringSecureCoding: true)
+                        print("   ✅ Token serialized: \(tokenData.count) bytes")
+
                         let message = LinkFinderDiscoveryTokenMessage(senderId: self.localPeerID.displayName, tokenData: tokenData)
                         let payload = NetworkPayload.uwbDiscoveryToken(message)
 
                         let encoder = JSONEncoder()
                         let data = try encoder.encode(payload)
+                        print("   📦 Payload encoded: \(data.count) bytes")
+
+                        // Check if peer is still connected before sending
+                        guard self.connectedPeers.contains(peerID) else {
+                            print("   ❌ FAILED: Peer \(peerID.displayName) disconnected before token could be sent")
+                            self.uwbTokenExchangeState[peerID.displayName] = .none
+                            return
+                        }
+
                         try self.session.send(data, toPeers: [peerID], with: .reliable)
+                        print("   📨 Token sent to \(peerID.displayName) via reliable channel")
 
                         self.uwbTokenExchangeState[peerID.displayName] = .exchangeComplete
-                        print("   ✅ SLAVE sent token - exchange complete")
+                        print("   ✅ SLAVE sent token - exchange marked complete")
                     } catch {
-                        print("   ❌ Failed to send token back: \(error.localizedDescription)")
+                        print("   ❌ CRITICAL ERROR sending token back:")
+                        print("      Error: \(error)")
+                        print("      Description: \(error.localizedDescription)")
+                        self.uwbTokenExchangeState[peerID.displayName] = .none
                     }
                 }
             }
@@ -1729,6 +1781,14 @@ extension NetworkManager: MCSessionDelegate {
                 self.manageBrowsing()  // Stop browsing if configured
                 print("✅ NetworkManager: Connected to peer: \(peerID.displayName) | Total peers: \(self.connectedPeers.count)")
 
+                // Auto-start Live Activity when first peer connects
+                if #available(iOS 16.1, *) {
+                    if self.connectedPeers.count == 1 && !self.hasActiveLiveActivity {
+                        print("🎬 Auto-starting Live Activity for first peer connection")
+                        self.startLiveActivity()
+                    }
+                }
+
                 // ACCESSIBILITY: Announce connection + haptic feedback
                 AudioManager.shared.announceConnectionChange(connected: true, peerName: peerID.displayName)
                 HapticManager.shared.playPattern(.peerConnected, priority: .notification)
@@ -1809,6 +1869,14 @@ extension NetworkManager: MCSessionDelegate {
                 self.connectedPeers.removeAll { $0 == peerID }
                 self.sessionManager.recordDisconnection(from: peerID)
                 self.healthMonitor.removePeer(peerID)
+
+                // Auto-stop Live Activity when last peer disconnects
+                if #available(iOS 16.1, *) {
+                    if self.connectedPeers.isEmpty && self.hasActiveLiveActivity {
+                        print("🛑 Auto-stopping Live Activity - no peers connected")
+                        self.stopLiveActivity()
+                    }
+                }
 
                 // Remove from routing table
                 self.routingTable.removePeer(peerID.displayName)
@@ -2414,7 +2482,7 @@ extension NetworkManager: LinkFinderSessionManagerDelegate {
         )
 
         // Add to message store (this will trigger Live Activity update)
-        messageStore.addMessage(simulatedMessage, context: testContext)
+        messageStore.addMessage(simulatedMessage, context: testContext, localDeviceName: self.localDeviceName)
 
         print("✅ Simulated message added to MessageStore")
         print("   Message ID: \(simulatedMessage.id)")

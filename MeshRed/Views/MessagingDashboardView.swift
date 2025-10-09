@@ -11,6 +11,7 @@ import Combine
 
 struct MessagingDashboardView: View {
     @EnvironmentObject var networkManager: NetworkManager
+    @Binding var hideBottomBar: Bool
 
     // MARK: - State
     @State private var showBroadcastComposer = false
@@ -37,7 +38,7 @@ struct MessagingDashboardView: View {
                         // Individual chats section
                         individualChatsSection
 
-                        // Extra spacing for bottom nav
+                        // Extra spacing for bottom nav (increased to account for bottom bar)
                         Color.clear.frame(height: 100)
                     }
                     .padding(.horizontal, 16)
@@ -49,6 +50,22 @@ struct MessagingDashboardView: View {
             .background(appBackgroundColor.ignoresSafeArea())
             .navigationDestination(for: ChatItem.self) { chat in
                 ChatConversationView(chat: chat, networkManager: networkManager)
+                    .onAppear {
+                        withAnimation {
+                            hideBottomBar = true
+                        }
+                    }
+                    .onDisappear {
+                        withAnimation {
+                            hideBottomBar = false
+                        }
+                    }
+            }
+            .onChange(of: navigationPath) { oldPath, newPath in
+                // Hide bottom bar when navigating to a conversation
+                withAnimation {
+                    hideBottomBar = !newPath.isEmpty
+                }
             }
             .sheet(isPresented: $showBroadcastComposer) {
                 BroadcastMessageComposer(networkManager: networkManager)
@@ -193,56 +210,25 @@ struct MessagingDashboardView: View {
                 .buttonStyle(.plain)
             }
 
-            // Connected peers (if any) - show below mock data
-            ForEach(networkManager.connectedPeers, id: \.self) { peer in
-                let isFamilyMember = networkManager.familyGroupManager.isFamilyMember(peerID: peer.displayName)
-                let displayName = isFamilyMember ?
-                    (networkManager.familyGroupManager.getMember(withPeerID: peer.displayName)?.displayName ?? peer.displayName) :
-                    peer.displayName
-
-                let chatItem = ChatItem(
-                    id: peer.displayName,
-                    type: .individual,
-                    title: displayName,
-                    subtitle: "Conectado",
-                    peerID: peer
+            // PERSISTENT CONVERSATIONS from MessageStore
+            // This shows ALL conversations (connected or disconnected peers)
+            ForEach(networkManager.messageStore.conversationSummaries.filter { summary in
+                // Filter out public chat and show only individual/family conversations
+                summary.id != ConversationIdentifier.public.rawValue
+            }) { summary in
+                ChatListPersistentConversationRow(
+                    summary: summary,
+                    networkManager: networkManager
                 )
-
-                NavigationLink(value: chatItem) {
-                    ChatRowItemView(
-                        icon: "person.circle.fill",
-                        title: displayName,
-                        subtitle: isFamilyMember ? "Familia • Conectado" : "Conectado ✅",
-                        iconColor: .white,
-                        backgroundColor: isFamilyMember ? Mundial2026Colors.verde : Color.purple,
-                        showBadge: false
-                    )
-                }
-                .buttonStyle(.plain)
             }
 
             // Reachable family members (indirect connection)
             let reachableMembers = getReachableFamilyMembers()
             ForEach(reachableMembers, id: \.peerID) { member in
-                let chatItem = ChatItem(
-                    id: member.peerID,
-                    type: .individual,
-                    title: member.displayName,
-                    subtitle: "Indirecto",
-                    peerID: nil
+                ChatListReachableMemberRow(
+                    member: member,
+                    networkManager: networkManager
                 )
-
-                NavigationLink(value: chatItem) {
-                    ChatRowItemView(
-                        icon: "person.circle.fill",
-                        title: member.displayName,
-                        subtitle: "Familia • Via \(member.route.first ?? "red")",
-                        iconColor: .white,
-                        backgroundColor: Color.pink.opacity(0.5),
-                        showBadge: false
-                    )
-                }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -295,6 +281,7 @@ struct ChatRowItemView: View {
     var showBadge: Bool = false
     var badgeCount: Int = 0
     var lastMessageTime: Date? = nil
+    var showConnectionIndicator: Bool = false
 
     var body: some View {
             HStack(spacing: 16) {
@@ -330,6 +317,13 @@ struct ChatRowItemView: View {
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
+                }
+
+                // Connection indicator (green circle for connected users)
+                if showConnectionIndicator {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 12, height: 12)
                 }
 
                 // Badge
@@ -376,6 +370,200 @@ struct ChatItem: Identifiable, Hashable {
 
     static func == (lhs: ChatItem, rhs: ChatItem) -> Bool {
         lhs.id == rhs.id
+    }
+}
+
+// MARK: - Connected Peer Row Component (for chat list)
+struct ChatListConnectedPeerRow: View {
+    let peer: MCPeerID
+    @ObservedObject var networkManager: NetworkManager
+
+    private var isFamilyMember: Bool {
+        networkManager.familyGroupManager.isFamilyMember(peerID: peer.displayName)
+    }
+
+    private var displayName: String {
+        isFamilyMember ?
+            (networkManager.familyGroupManager.getMember(withPeerID: peer.displayName)?.displayName ?? peer.displayName) :
+            peer.displayName
+    }
+
+    private var subtitle: String {
+        // Get last message for this peer (WhatsApp-style preview)
+        let lastMessage = networkManager.messageStore.getLastMessage(forPeerID: peer.displayName)
+        if let lastMessage = lastMessage {
+            // Show last message with "Tú:" prefix if from local device
+            return networkManager.messageStore.formatLastMessagePreview(
+                message: lastMessage,
+                localDeviceName: networkManager.localDeviceName
+            )
+        } else {
+            // Fallback to connection status if no messages
+            return isFamilyMember ? "Familia • Conectado" : "Conectado ✅"
+        }
+    }
+
+    private var unreadCount: Int {
+        networkManager.messageStore.getUnreadCount(forPeerID: peer.displayName)
+    }
+
+    var body: some View {
+        let chatItem = ChatItem(
+            id: peer.displayName,
+            type: .individual,
+            title: displayName,
+            subtitle: subtitle,
+            peerID: peer
+        )
+
+        NavigationLink(value: chatItem) {
+            ChatRowItemView(
+                icon: "person.circle.fill",
+                title: displayName,
+                subtitle: subtitle,
+                iconColor: .white,
+                backgroundColor: isFamilyMember ? Mundial2026Colors.verde : Color.purple,
+                showBadge: unreadCount > 0,  // Show badge if unread messages exist
+                badgeCount: unreadCount,
+                showConnectionIndicator: true  // Show green circle for connected peers
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Persistent Conversation Row Component (for saved conversations)
+struct ChatListPersistentConversationRow: View {
+    let summary: MessageStore.ConversationSummary
+    @ObservedObject var networkManager: NetworkManager
+
+    private var isConnected: Bool {
+        // Check if the peer from this conversation is currently connected
+        guard let participantId = summary.participantId else { return false }
+        return networkManager.connectedPeers.contains { $0.displayName == participantId }
+    }
+
+    private var subtitle: String {
+        // Show last message preview if available
+        if let preview = summary.lastMessagePreview {
+            // Check if we have messages to determine if last was from local
+            if let participantId = summary.participantId {
+                let lastMessage = networkManager.messageStore.getLastMessage(forPeerID: participantId)
+                if let lastMessage = lastMessage {
+                    return networkManager.messageStore.formatLastMessagePreview(
+                        message: lastMessage,
+                        localDeviceName: networkManager.localDeviceName
+                    )
+                } else {
+                    return preview
+                }
+            } else {
+                return preview
+            }
+        } else {
+            // Show connection status as fallback
+            if isConnected {
+                return summary.isFamily ? "Familia • Conectado ✅" : "Conectado ✅"
+            } else {
+                return summary.isFamily ? "Familia • Sin conexión" : "Sin conexión"
+            }
+        }
+    }
+
+    private var unreadCount: Int {
+        networkManager.messageStore.getUnreadCount(for: summary.id)
+    }
+
+    private var backgroundColor: Color {
+        if summary.isFamily {
+            return Mundial2026Colors.verde
+        } else if summary.isDirect {
+            return isConnected ? Color.purple : Color.gray
+        } else {
+            return Mundial2026Colors.azul
+        }
+    }
+
+    var body: some View {
+        // Create MCPeerID if peer is connected (needed for navigation)
+        let peerID: MCPeerID? = if let participantId = summary.participantId,
+                                   let peer = networkManager.connectedPeers.first(where: { $0.displayName == participantId }) {
+            peer
+        } else {
+            nil
+        }
+
+        let chatItem = ChatItem(
+            id: summary.participantId ?? summary.id,
+            type: summary.isFamily ? .familyGroup : .individual,
+            title: summary.title,
+            subtitle: subtitle,
+            peerID: peerID
+        )
+
+        NavigationLink(value: chatItem) {
+            ChatRowItemView(
+                icon: summary.isFamily ? "person.3.fill" : "person.circle.fill",
+                title: summary.title,
+                subtitle: subtitle,
+                iconColor: .white,
+                backgroundColor: backgroundColor,
+                showBadge: unreadCount > 0,
+                badgeCount: unreadCount,
+                lastMessageTime: summary.lastMessageDate,
+                showConnectionIndicator: isConnected  // Show green dot only if connected
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Reachable Member Row Component (for chat list)
+struct ChatListReachableMemberRow: View {
+    let member: (peerID: String, displayName: String, route: [String])
+    @ObservedObject var networkManager: NetworkManager
+
+    private var subtitle: String {
+        // Get last message for this peer (WhatsApp-style preview)
+        let lastMessage = networkManager.messageStore.getLastMessage(forPeerID: member.peerID)
+        if let lastMessage = lastMessage {
+            // Show last message with "Tú:" prefix if from local device
+            return networkManager.messageStore.formatLastMessagePreview(
+                message: lastMessage,
+                localDeviceName: networkManager.localDeviceName
+            )
+        } else {
+            // Fallback to indirect connection info if no messages
+            return "Familia • Via \(member.route.first ?? "red")"
+        }
+    }
+
+    private var unreadCount: Int {
+        networkManager.messageStore.getUnreadCount(forPeerID: member.peerID)
+    }
+
+    var body: some View {
+        let chatItem = ChatItem(
+            id: member.peerID,
+            type: .individual,
+            title: member.displayName,
+            subtitle: subtitle,
+            peerID: nil
+        )
+
+        NavigationLink(value: chatItem) {
+            ChatRowItemView(
+                icon: "person.circle.fill",
+                title: member.displayName,
+                subtitle: subtitle,
+                iconColor: .white,
+                backgroundColor: Color.pink.opacity(0.5),
+                showBadge: unreadCount > 0,  // Show badge if unread messages exist
+                badgeCount: unreadCount,
+                showConnectionIndicator: false  // No green circle for indirect connections
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -484,143 +672,183 @@ struct ChatConversationView: View {
     @StateObject private var mockGroupsManager = MockFamilyGroupsManager.shared
 
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                // Messages list
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        // Show mock messages for demo
-                        ForEach(MockDataManager.mockConversationMessages(for: chat.id)) { mockMsg in
-                            MockMessageBubble(
-                                message: mockMsg,
-                                isFromLocal: mockMsg.type == .sent
-                            )
-                        }
-
-                        // Show simulated messages if this is a simulated group
-                        if chat.type == .familyGroup, let groupData = mockGroupsManager.activeGroupData {
-                            ForEach(groupData.members.filter { !$0.recentMessages.isEmpty }, id: \.peerID) { member in
-                                ForEach(member.recentMessages) { simMsg in
-                                    SimulatedMessageBubble(
-                                        message: simMsg,
-                                        senderName: member.nickname,
-                                        isFromLocal: simMsg.senderId == networkManager.localDeviceName
-                                    )
-                                }
-                            }
-                        }
-
-                        // Show real messages if peer is connected
-                        if chat.peerID != nil {
-                            ForEach(filteredMessages) { message in
-                                MessageBubble(
-                                    message: message,
-                                    isFromLocal: message.sender == networkManager.localDeviceName
-                                )
-                            }
-                        }
-
-                        // Extra padding at bottom for composer
-                        Color.clear.frame(height: 80)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                }
-
-                Spacer()
+        messageScrollView
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                composerBar
             }
             .onAppear {
                 markMessagesAsRead()
             }
-
-            // Message composer (floating above bottom nav)
-            VStack {
-                Spacer()
-
-                HStack(spacing: 12) {
-                    TextField("Mensaje...", text: $messageText)
-                        .textFieldStyle(.plain)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(24)
-                        .submitLabel(.send)
-                        .onSubmit {
-                            sendMessage()
+            .navigationTitle(chat.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if chat.type == .individual, chat.peerID != nil {
+                        Button(action: {
+                            openUWBNavigation()
+                        }) {
+                            Image(systemName: "location.fill")
+                                .foregroundColor(Mundial2026Colors.azul)
                         }
-
-                    Button(action: sendMessage) {
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .background(Circle().fill(messageText.isEmpty ? Color.gray : Mundial2026Colors.verde))
-                    }
-                    .disabled(messageText.isEmpty)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(
-                    Color.white
-                        .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: -2)
-                )
-                .padding(.bottom, 100) // Space for bottom nav bar
-            }
-        }
-        .navigationTitle(chat.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if chat.type == .individual, chat.peerID != nil {
-                    Button(action: {
-                        openUWBNavigation()
-                    }) {
-                        Image(systemName: "location.fill")
-                            .foregroundColor(Mundial2026Colors.azul)
                     }
                 }
             }
-        }
-        .fullScreenCover(isPresented: $showUWBNavigation) {
-            if let peerID = chat.peerID,
-               let uwbManager = networkManager.uwbSessionManager {
-                LinkFinderNavigationView(
-                    targetName: chat.title,
-                    targetPeerID: peerID,
-                    uwbManager: uwbManager,
-                    locationService: networkManager.locationService,
-                    peerLocationTracker: networkManager.peerLocationTracker,
-                    networkManager: networkManager,
-                    onDismiss: {
+            .fullScreenCover(isPresented: $showUWBNavigation) {
+                if let peerID = chat.peerID,
+                   let uwbManager = networkManager.uwbSessionManager {
+                    LinkFinderNavigationView(
+                        targetName: chat.title,
+                        targetPeerID: peerID,
+                        uwbManager: uwbManager,
+                        locationService: networkManager.locationService,
+                        peerLocationTracker: networkManager.peerLocationTracker,
+                        networkManager: networkManager,
+                        onDismiss: {
+                            showUWBNavigation = false
+                        }
+                    )
+                } else {
+                    UWBNotAvailableView(onDismiss: {
                         showUWBNavigation = false
-                    }
-                )
-            } else {
-                // Fallback: LinkFinder not available
-                UWBNotAvailableView(onDismiss: {
-                    showUWBNavigation = false
-                })
+                    })
+                }
+            }
+    }
+
+    private var messageScrollView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                messagesContent
+            }
+            .onChange(of: filteredMessages.count) { oldCount, newCount in
+                scrollToBottom(proxy: proxy)
+            }
+            .onAppear {
+                scrollToBottom(proxy: proxy)
             }
         }
     }
 
+    private var messagesContent: some View {
+        let messageCount = filteredMessages.count
+
+        return LazyVStack(spacing: 12) {
+            // Show mock messages for demo
+            ForEach(MockDataManager.mockConversationMessages(for: chat.id)) { mockMsg in
+                let isFromLocal = mockMsg.type == .sent
+                MockMessageBubble(
+                    message: mockMsg,
+                    isFromLocal: isFromLocal
+                )
+                .id(mockMsg.id)
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.85)
+                        .combined(with: .move(edge: isFromLocal ? .trailing : .leading))
+                        .combined(with: .opacity),
+                    removal: .opacity
+                ))
+            }
+
+            // Show simulated messages if this is a simulated group
+            if chat.type == .familyGroup, let groupData = mockGroupsManager.activeGroupData {
+                ForEach(groupData.members.filter { !$0.recentMessages.isEmpty }, id: \.peerID) { member in
+                    ForEach(member.recentMessages) { simMsg in
+                        let isFromLocal = simMsg.senderId == networkManager.localDeviceName
+                        SimulatedMessageBubble(
+                            message: simMsg,
+                            senderName: member.nickname,
+                            isFromLocal: isFromLocal
+                        )
+                        .id(simMsg.id)
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.85)
+                                .combined(with: .move(edge: isFromLocal ? .trailing : .leading))
+                                .combined(with: .opacity),
+                            removal: .opacity
+                        ))
+                    }
+                }
+            }
+
+            // Show real messages if peer is connected
+            if chat.peerID != nil {
+                ForEach(filteredMessages) { message in
+                    let isFromLocal = message.sender == networkManager.localDeviceName
+                    MessageBubble(
+                        message: message,
+                        isFromLocal: isFromLocal,
+                        showSenderName: true
+                    )
+                    .id(message.id)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.85)
+                            .combined(with: .move(edge: isFromLocal ? .trailing : .leading))
+                            .combined(with: .opacity),
+                        removal: .opacity
+                    ))
+                }
+            }
+
+            // Extra padding to ensure last message is visible
+            Color.clear.frame(height: 120)
+                .id("bottomSpacer")
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: messageCount)
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+    }
+
+    private var composerBar: some View {
+        HStack(spacing: 12) {
+            TextField("Mensaje...", text: $messageText)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(24)
+                .submitLabel(.send)
+                .onSubmit {
+                    sendMessage()
+                }
+
+            Button(action: sendMessage) {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(messageText.isEmpty ? Color.gray : Mundial2026Colors.verde))
+            }
+            .disabled(messageText.isEmpty)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            Color.white
+                .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: -2)
+        )
+    }
+
     private var filteredMessages: [Message] {
+        let allMessages = networkManager.messageStore.messages
+
         switch chat.type {
         case .familyGroup:
             // Show family group messages
-            return networkManager.messageStore.messages.filter { message in
+            return allMessages.filter { message in
                 // This would need proper family group message filtering
                 true
             }
         case .individual:
             // Show messages from specific peer
-            guard let peerID = chat.peerID else { return [] }
-            return networkManager.messageStore.messages.filter { message in
+            guard let peerID = chat.peerID else {
+                return []
+            }
+            return allMessages.filter { message in
                 message.sender == peerID.displayName ||
                 (message.sender == networkManager.localDeviceName && message.recipientId == peerID.displayName)
             }
         case .broadcast:
-            return networkManager.messageStore.messages.filter { $0.recipientId == "broadcast" }
+            return allMessages.filter { $0.recipientId == "broadcast" }
         }
     }
 
@@ -645,6 +873,14 @@ struct ChatConversationView: View {
         )
 
         messageText = ""
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            withAnimation(.easeOut(duration: 0.3)) {
+                proxy.scrollTo("bottomSpacer", anchor: .bottom)
+            }
+        }
     }
 
     private func openUWBNavigation() {
@@ -679,45 +915,79 @@ struct ChatConversationView: View {
     private func markMessagesAsRead() {
         print("🔍 [MarkAsRead] Called - chat.type: \(chat.type), chat.id: \(chat.id)")
 
-        // Only mark messages as read for simulated groups
-        guard chat.type == .familyGroup else {
-            print("⚠️ [MarkAsRead] Not a family group, skipping")
-            return
-        }
-
-        guard let groupData = mockGroupsManager.activeGroupData else {
-            print("⚠️ [MarkAsRead] No active group data, skipping")
-            return
-        }
-
-        // Use the actual group ID from the active simulation
-        let groupId = groupData.id
-        print("📋 [MarkAsRead] Group ID: \(groupId), Name: \(groupData.name)")
-
-        // Build dictionary of member messages
-        var memberMessages: [String: [UUID]] = [:]
-        for member in groupData.members {
-            if !member.recentMessages.isEmpty {
-                memberMessages[member.peerID] = member.recentMessages.map { $0.id }
-                print("   - \(member.nickname): \(member.recentMessages.count) messages")
+        switch chat.type {
+        case .familyGroup:
+            // Mark simulated family group messages as read
+            guard let groupData = mockGroupsManager.activeGroupData else {
+                print("⚠️ [MarkAsRead] No active group data, skipping")
+                return
             }
-        }
 
-        let totalMessages = memberMessages.values.flatMap { $0 }.count
-        print("📊 [MarkAsRead] Total messages to mark: \(totalMessages)")
+            let groupId = groupData.id
+            print("📋 [MarkAsRead] Family Group ID: \(groupId), Name: \(groupData.name)")
 
-        // Mark all as read
-        readStateManager.markAllGroupMessagesAsRead(
-            groupId: groupId,
-            memberMessages: memberMessages
-        )
+            // Build dictionary of member messages
+            var memberMessages: [String: [UUID]] = [:]
+            for member in groupData.members {
+                if !member.recentMessages.isEmpty {
+                    memberMessages[member.peerID] = member.recentMessages.map { $0.id }
+                    print("   - \(member.nickname): \(member.recentMessages.count) messages")
+                }
+            }
 
-        print("✅ [MarkAsRead] Marked \(totalMessages) messages as read for group \(groupId)")
+            let totalMessages = memberMessages.values.flatMap { $0 }.count
+            print("📊 [MarkAsRead] Total messages to mark: \(totalMessages)")
 
-        // Force refresh of parent view
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            print("🔄 [MarkAsRead] Triggering UI refresh...")
-            self.mockGroupsManager.objectWillChange.send()
+            // Mark all as read
+            readStateManager.markAllGroupMessagesAsRead(
+                groupId: groupId,
+                memberMessages: memberMessages
+            )
+
+            print("✅ [MarkAsRead] Marked \(totalMessages) messages as read for group \(groupId)")
+
+            // Force refresh of parent view
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                print("🔄 [MarkAsRead] Triggering UI refresh...")
+                self.mockGroupsManager.objectWillChange.send()
+            }
+
+        case .individual:
+            // CRITICAL FIX: Mark individual chat messages as read
+            guard let peerID = chat.peerID else {
+                print("⚠️ [MarkAsRead] No peerID for individual chat")
+                return
+            }
+
+            print("📋 [MarkAsRead] Individual chat with peer: \(peerID.displayName)")
+
+            // Try both direct and family conversation IDs (peer could be family member or direct)
+            let directConvId = ConversationIdentifier.direct(peerId: peerID.displayName).rawValue
+            let familyConvId = ConversationIdentifier.family(peerId: peerID.displayName).rawValue
+
+            let directUnread = networkManager.messageStore.getUnreadCount(for: directConvId)
+            let familyUnread = networkManager.messageStore.getUnreadCount(for: familyConvId)
+
+            print("   Direct conv (\(directConvId)): \(directUnread) unread")
+            print("   Family conv (\(familyConvId)): \(familyUnread) unread")
+
+            // Mark both as read (only one should have messages)
+            networkManager.messageStore.markConversationAsRead(conversationId: directConvId)
+            networkManager.messageStore.markConversationAsRead(conversationId: familyConvId)
+
+            print("✅ [MarkAsRead] Marked individual chat messages as read")
+
+        case .broadcast:
+            // Mark broadcast messages as read
+            print("📋 [MarkAsRead] Broadcast conversation")
+            let publicConvId = ConversationIdentifier.public.rawValue
+            let unreadCount = networkManager.messageStore.getUnreadCount(for: publicConvId)
+
+            print("   Public conv (\(publicConvId)): \(unreadCount) unread")
+
+            networkManager.messageStore.markConversationAsRead(conversationId: publicConvId)
+
+            print("✅ [MarkAsRead] Marked broadcast messages as read")
         }
     }
 }
@@ -907,6 +1177,6 @@ struct MockMessageBubble: View {
 
 // MARK: - Preview
 #Preview {
-    MessagingDashboardView()
+    MessagingDashboardView(hideBottomBar: .constant(false))
         .environmentObject(NetworkManager())
 }
