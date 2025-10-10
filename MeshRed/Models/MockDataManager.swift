@@ -123,32 +123,14 @@ class MockDataManager {
             return MockMember(name: member.nickname, status: status)
         }
 
-        // Get last message from any member
-        let lastMessage = groupData.members
-            .filter { !$0.recentMessages.isEmpty }
-            .compactMap { $0.recentMessages.first?.content }
-            .first ?? "Sin mensajes"
-
-        // Calculate last message time (most recent member activity)
-        let mostRecentMessageTime = groupData.members
-            .compactMap { $0.recentMessages.first?.timestamp }
-            .max() ?? Date().addingTimeInterval(-300)
-
-        // Calculate unread count using MessageReadStateManager
-        let readStateManager = MessageReadStateManager.shared
-        var memberMessages: [String: [SimulatedMessage]] = [:]
-        for member in groupData.members {
-            if !member.recentMessages.isEmpty {
-                memberMessages[member.peerID] = member.recentMessages
-            }
-        }
-        let unreadCount = readStateManager.getTotalUnreadCount(
-            groupId: groupData.id,
-            memberMessages: memberMessages
-        )
+        // SIMPLIFICADO: Sin mensajes simulados
+        // Los grupos simulados no tendrán mensajes ni badges
+        let lastMessage = "Sin mensajes"
+        let mostRecentMessageTime = Date().addingTimeInterval(-300)
+        let unreadCount = 0  // Siempre 0 para grupos simulados
 
         #if DEBUG
-        print("📊 [MockDataManager] Converting group '\(groupData.name)' - unreadCount: \(unreadCount)")
+        print("📊 [MockDataManager] Converting group '\(groupData.name)' - No messages")
         #endif
 
         return MockFamilyGroup(
@@ -262,10 +244,7 @@ class MockDataManager {
             ]
 
         default:
-            return [
-                MockMessage(id: UUID().uuidString, sender: "Tú", content: "Hola!", timestamp: Date().addingTimeInterval(-300), type: .sent),
-                MockMessage(id: UUID().uuidString, sender: "Usuario", content: "¿Qué tal?", timestamp: Date().addingTimeInterval(-240), type: .received)
-            ]
+            return []
         }
     }
 

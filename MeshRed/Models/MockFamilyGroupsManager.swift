@@ -64,13 +64,21 @@ class MockFamilyGroupsManager: ObservableObject {
             loadSimulatedGroupIntoManager(realGroup, manager: familyGroupManager)
         }
 
-        // Generate initial activity
-        generateInitialActivity()
-
-        // Start activity timers if auto-generation is enabled
-        if autoGenerateActivity {
-            startActivityGeneration()
+        // IMPORTANTE: Limpiar cualquier mensaje antiguo y marcarlo como leído
+        if let groupData = activeGroupData {
+            let conversationId = ConversationIdentifier.familyGroup(groupId: groupData.id).rawValue
+            // Marcar TODOS los mensajes existentes como leídos antes de generar nuevos
+            MessageStore.shared.markConversationAsRead(conversationId: conversationId)
+            print("🧹 Cleaned any old unread messages for group: \(groupData.name)")
         }
+
+        // DESHABILITADO: No generar mensajes simulados
+        // generateInitialActivity()
+
+        // DESHABILITADO: No generar actividad automática
+        // if autoGenerateActivity {
+        //     startActivityGeneration()
+        // }
 
         saveSettings()
         logEvent(.simulationStarted(scenario: scenario.rawValue))
@@ -132,6 +140,13 @@ class MockFamilyGroupsManager: ObservableObject {
             startActivityGeneration()
         }
 
+        // Marcar INMEDIATAMENTE todos los mensajes como leídos después del reset
+        if let groupData = activeGroupData {
+            let conversationId = ConversationIdentifier.familyGroup(groupId: groupData.id).rawValue
+            MessageStore.shared.markConversationAsRead(conversationId: conversationId)
+            print("✅ Marked all messages as read after reset for group: \(groupData.name)")
+        }
+
         logEvent(.simulationReset)
     }
 
@@ -159,14 +174,19 @@ class MockFamilyGroupsManager: ObservableObject {
         }
     }
 
-    /// Manually generate a message from a specific member
+    /// DESHABILITADO: No generar mensajes simulados
     func generateMessage(fromMember memberPeerID: String, message: String) {
+        // ELIMINADO: Ya no generamos mensajes simulados
+        return
         guard var groupData = activeGroupData,
               let memberIndex = groupData.members.firstIndex(where: { $0.peerID == memberPeerID }) else {
             return
         }
 
-        // Create new SimulatedMessage
+        // SIMPLIFICADO: Ya no necesitamos SimulatedMessage ni recentMessages
+        // Todo se maneja directamente a través del MessageStore
+
+        // Opcionalmente: mantener recentMessages para compatibilidad temporal
         let newMessage = SimulatedMessage(
             content: message,
             timestamp: Date(),
@@ -175,13 +195,43 @@ class MockFamilyGroupsManager: ObservableObject {
         )
 
         groupData.members[memberIndex].recentMessages.insert(newMessage, at: 0)
-
-        // Keep only last 5 messages
         if groupData.members[memberIndex].recentMessages.count > 5 {
             groupData.members[memberIndex].recentMessages.removeLast()
         }
 
         activeGroupData = groupData
+
+        // Crear un Message regular directamente para el MessageStore
+        let realMessage = Message(
+            sender: groupData.members[memberIndex].nickname,
+            content: message,
+            recipientId: nil, // Mensaje grupal
+            conversationId: ConversationIdentifier.familyGroup(groupId: groupData.id).rawValue,
+            conversationName: groupData.name
+        )
+
+        // Crear el descriptor de la conversación del grupo familiar
+        let conversationContext = MessageStore.ConversationDescriptor(
+            id: ConversationIdentifier.familyGroup(groupId: groupData.id).rawValue,
+            title: groupData.name,
+            isFamily: true,
+            isDirect: false,
+            participantId: nil,
+            defaultRecipientId: "family-group-\(groupData.id.uuidString)"
+        )
+
+        // Añadir al MessageStore para persistencia y manejo real de lectura
+        MessageStore.shared.addMessage(
+            realMessage,
+            context: conversationContext,
+            autoSwitch: false, // No cambiar automáticamente a esta conversación
+            localDeviceName: ProcessInfo.processInfo.hostName
+        )
+
+        // IMPORTANTE: Marcar INMEDIATAMENTE los mensajes simulados como leídos
+        // Sin delay para evitar race conditions con la UI
+        MessageStore.shared.markAsRead(messageId: realMessage.id)
+
         totalMessagesGenerated += 1
 
         logEvent(.messageGenerated(
@@ -294,6 +344,8 @@ class MockFamilyGroupsManager: ObservableObject {
     // MARK: - Private Methods - Activity Generation
 
     private func generateInitialActivity() {
+        // DESHABILITADO: No generar mensajes iniciales
+        return
         guard let groupData = activeGroupData else { return }
 
         print("🎭 Generating initial activity for: \(groupData.name)")
@@ -308,6 +360,12 @@ class MockFamilyGroupsManager: ObservableObject {
                 generateMessage(fromMember: randomMember.peerID, message: contextualMessage)
             }
         }
+
+        // IMPORTANTE: Marcar INMEDIATAMENTE todos los mensajes del grupo como leídos
+        // Sin delay para evitar que la UI muestre badges
+        let conversationId = ConversationIdentifier.familyGroup(groupId: groupData.id).rawValue
+        MessageStore.shared.markConversationAsRead(conversationId: conversationId)
+        print("✅ Marked all initial messages as read for group: \(groupData.name)")
     }
 
     private func startActivityGeneration() {
@@ -340,6 +398,8 @@ class MockFamilyGroupsManager: ObservableObject {
     }
 
     private func generateRandomActivity() {
+        // DESHABILITADO: No generar actividad aleatoria
+        return
         guard let groupData = activeGroupData else { return }
 
         // 60% chance to generate a message

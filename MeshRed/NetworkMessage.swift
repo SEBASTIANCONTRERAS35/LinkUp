@@ -6,6 +6,7 @@ enum MessageType: String, Codable, CaseIterable {
     case location = "location"
     case meetup = "meetup"
     case alert = "alert"
+    case messageRequest = "messageRequest"  // New type for first message requests
 
     var displayName: String {
         switch self {
@@ -14,6 +15,7 @@ enum MessageType: String, Codable, CaseIterable {
         case .location: return "Ubicación"
         case .meetup: return "Reunión"
         case .alert: return "Alerta"
+        case .messageRequest: return "Solicitud"
         }
     }
 
@@ -23,6 +25,7 @@ enum MessageType: String, Codable, CaseIterable {
         case .alert: return 1
         case .meetup: return 2
         case .location: return 3
+        case .messageRequest: return 3  // Same priority as location
         case .chat: return 4
         }
     }

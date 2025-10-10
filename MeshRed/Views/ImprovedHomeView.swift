@@ -38,6 +38,16 @@ struct ImprovedHomeView: View {
     @State private var batteryLevel: Float = 0.87 // Will be replaced with real data
     @State private var currentGeofenceZone: String? = nil
 
+    // First message popup state
+    @State private var showFirstMessagePopup = false
+    @State private var selectedPeerForMessage: MCPeerID? = nil
+    @StateObject private var firstMessageTracker = FirstMessageTracker.shared
+
+    // Request approval popup state
+    @State private var showRequestApprovalPopup = false
+    @State private var selectedRequest: FirstMessageTracker.PendingRequest? = nil
+    @State private var showAllRequestsList = false
+
     // Match data (from StadiumDashboardView)
     @State private var stadiumName = "Estadio Azteca"
     @State private var sectionNumber = "Sección 4B"
@@ -115,6 +125,56 @@ struct ImprovedHomeView: View {
         .sheet(isPresented: $showSettings) {
             AccessibilitySettingsView()
                 .environmentObject(networkManager)
+        }
+        .overlay(
+            // Popups overlay
+            ZStack {
+                // First message popup
+                if showFirstMessagePopup, let peer = selectedPeerForMessage {
+                    FirstMessagePopup(
+                        recipientName: peer.displayName,
+                        onSend: { messageText in
+                            sendFirstMessage(to: peer, message: messageText)
+                        },
+                        onCancel: {
+                            showFirstMessagePopup = false
+                            selectedPeerForMessage = nil
+                        }
+                    )
+                }
+
+                // Request approval popup
+                if showRequestApprovalPopup, let request = selectedRequest {
+                    RequestApprovalPopup(
+                        request: request,
+                        onAccept: {
+                            handleRequestAccept(request: request)
+                        },
+                        onReject: {
+                            handleRequestReject(request: request)
+                        },
+                        onDefer: {
+                            handleRequestDefer(request: request)
+                        },
+                        onClose: {
+                            showRequestApprovalPopup = false
+                            selectedRequest = nil
+                        }
+                    )
+                }
+            }
+        )
+        .sheet(isPresented: $showAllRequestsList) {
+            PendingRequestsListView(
+                onSelectRequest: { request in
+                    selectedRequest = request
+                    showRequestApprovalPopup = true
+                    showAllRequestsList = false
+                },
+                onDismiss: {
+                    showAllRequestsList = false
+                }
+            )
         }
         .onAppear {
             updateGeofenceZone()
@@ -648,15 +708,42 @@ struct ImprovedHomeView: View {
         VStack(alignment: .leading, spacing: 16) {
             // Section header
             HStack {
-                Text("Personas Cercanas")
-                    .font(.title3) // Dynamic Type
-                    .fontWeight(.bold)
-                    .foregroundColor(ThemeColors.textPrimary)
+                HStack(spacing: 8) {
+                    Text("Nuevas Conexiones Disponibles")
+                        .font(.title3) // Dynamic Type
+                        .fontWeight(.bold)
+                        .foregroundColor(ThemeColors.textPrimary)
+
+                    // Badge for pending requests
+                    if firstMessageTracker.getPendingRequestsCount() > 0 {
+                        Button(action: {
+                            showAllRequestsList = true
+                            HapticManager.shared.play(.medium, priority: .ui)
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "envelope.badge.fill")
+                                    .font(.caption)
+                                Text("\(firstMessageTracker.getPendingRequestsCount())")
+                                    .font(.caption2)
+                                    .fontWeight(.bold)
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.red)
+                            .cornerRadius(10)
+                            .modifier(PulsingAnimation())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(firstMessageTracker.getPendingRequestsCount()) pending message requests")
+                        .accessibilityHint("Double tap to view all requests")
+                    }
+                }
 
                 Spacer()
 
-                // Peer count badge
-                Text("\(networkManager.connectedPeers.count)")
+                // Peer count badge - muestra solo las nuevas conexiones disponibles
+                Text("\(availableNewPeers.count)")
                     .font(.caption) // Dynamic Type
                     .fontWeight(.bold)
                     .foregroundColor(.white)
@@ -668,20 +755,20 @@ struct ImprovedHomeView: View {
             }
             .accessibilityAddTraits(.isHeader)
 
-            if networkManager.connectedPeers.isEmpty {
+            if availableNewPeers.isEmpty {
                 // Empty state
                 VStack(spacing: 12) {
-                    Image(systemName: "person.2.slash")
+                    Image(systemName: "person.badge.plus")
                         .font(.largeTitle)
                         .foregroundColor(ThemeColors.textSecondary)
                         .accessibilityHidden(true)
 
-                    Text("No hay personas conectadas cerca")
+                    Text("No hay nuevas conexiones disponibles")
                         .font(.body) // Dynamic Type
                         .foregroundColor(ThemeColors.textSecondary)
                         .multilineTextAlignment(.center)
 
-                    Text("Acércate a otros usuarios con la app para conectar")
+                    Text("Las personas conectadas ya están en tus mensajes")
                         .font(.caption) // Dynamic Type
                         .foregroundColor(ThemeColors.textTertiary)
                         .multilineTextAlignment(.center)
@@ -689,10 +776,10 @@ struct ImprovedHomeView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 32)
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("No people connected nearby. Move closer to other app users to connect.")
+                .accessibilityLabel("No new connections available. All connected people are already in your messages.")
             } else {
-                // Peer list
-                ForEach(networkManager.connectedPeers, id: \.self) { peer in
+                // Peer list - solo muestra nuevas conexiones disponibles
+                ForEach(availableNewPeers, id: \.self) { peer in
                     AccessiblePeerRow(
                         peerName: peer.displayName,
                         distance: getDistance(for: peer),
@@ -702,14 +789,15 @@ struct ImprovedHomeView: View {
                         },
                         onMessage: {
                             startChat(with: peer)
-                        }
+                        },
+                        conversationState: getConversationState(for: peer.displayName)
                     )
                 }
             }
         }
         // ACCESSIBILITY: Custom rotor for peer navigation
-        .accessibilityRotor("Nearby People") {
-            ForEach(networkManager.connectedPeers, id: \.self) { peer in
+        .accessibilityRotor("New Connections") {
+            ForEach(availableNewPeers, id: \.self) { peer in
                 AccessibilityRotorEntry(peer.displayName, id: peer) {
                     // Focus on this peer when selected via rotor
                     Text(peer.displayName)
@@ -757,6 +845,22 @@ struct ImprovedHomeView: View {
     }
 
     // MARK: - Computed Properties
+
+    /// Peers que NO tienen conversación activa (nuevas conexiones disponibles)
+    private var availableNewPeers: [MCPeerID] {
+        let existingConversations = networkManager.messageStore.conversationSummaries
+
+        return networkManager.connectedPeers.filter { peer in
+            // Verificar si este peer ya tiene una conversación
+            let hasDirectChat = existingConversations.contains { summary in
+                summary.id == ConversationIdentifier.direct(peerId: peer.displayName).rawValue ||
+                summary.id == ConversationIdentifier.family(peerId: peer.displayName).rawValue
+            }
+
+            // Solo mostrar si NO tiene conversación existente
+            return !hasDirectChat
+        }
+    }
 
     private var connectionStatusText: String {
         switch networkManager.connectionStatus {
@@ -876,11 +980,75 @@ struct ImprovedHomeView: View {
     }
 
     private func startChat(with peer: MCPeerID) {
-        // TODO: Navigate to messaging view with peer pre-selected
-        showMessaging = true
+        let peerID = peer.displayName
+        let state = getConversationState(for: peerID)
 
-        // ACCESSIBILITY: Announce action using AudioManager
-        AudioManager.shared.speak("Abriendo chat con \(peer.displayName)", priority: .normal)
+        switch state {
+        case .noContact:
+            // First message - show popup to send
+            selectedPeerForMessage = peer
+            showFirstMessagePopup = true
+            AudioManager.shared.speak("Enviando primer mensaje a \(peer.displayName)", priority: .normal)
+
+        case .active:
+            // Conversation is active, open regular messaging
+            showMessaging = true
+            AudioManager.shared.speak("Abriendo chat con \(peer.displayName)", priority: .normal)
+
+        case .pendingIncoming, .deferred:
+            // Show the request approval popup
+            if let request = firstMessageTracker.getPendingRequest(from: peerID) {
+                selectedRequest = request
+                showRequestApprovalPopup = true
+                AudioManager.shared.speak("Viendo solicitud de mensaje de \(peer.displayName)", priority: .normal)
+            }
+
+        case .waitingResponse:
+            // Cannot send more messages
+            AudioManager.shared.speak("Esperando respuesta de \(peer.displayName). No puedes enviar más mensajes hasta que responda.", priority: .important)
+            HapticManager.shared.play(.error, priority: .ui)
+
+        case .rejected:
+            // Request was rejected, no further action allowed
+            AudioManager.shared.speak("La solicitud fue rechazada. No se permiten más mensajes con \(peer.displayName).", priority: .important)
+            HapticManager.shared.play(.error, priority: .ui)
+        }
+    }
+
+    private func sendFirstMessage(to peer: MCPeerID, message: String) {
+        let peerID = peer.displayName
+
+        print("📤 Sending first message request to \(peerID): \(message)")
+
+        // Mark that we've sent a first message to this peer
+        firstMessageTracker.markFirstMessageSent(to: peerID)
+
+        // Send the message as a request type (so recipient knows it's a first message)
+        networkManager.sendMessage(message, type: .messageRequest, recipientId: peerID, requiresAck: true)
+
+        // Store the message locally in MessageStore
+        let conversationDescriptor = MessageStore.ConversationDescriptor.directChat(
+            peerId: peerID,
+            displayName: peerID
+        )
+        let localMessage = Message(
+            sender: networkManager.localDeviceName,
+            content: message,
+            recipientId: peerID,
+            conversationId: conversationDescriptor.id,
+            conversationName: conversationDescriptor.title
+        )
+        networkManager.messageStore.addMessage(localMessage, context: conversationDescriptor, localDeviceName: networkManager.localDeviceName)
+
+        // Close popup
+        showFirstMessagePopup = false
+        selectedPeerForMessage = nil
+
+        // Show success feedback
+        HapticManager.shared.play(.success, priority: .ui)
+
+        // ACCESSIBILITY: Announce success
+        AudioManager.shared.speak("Mensaje enviado a \(peerID). Esperando respuesta.", priority: .normal)
     }
 
     private func updateGeofenceZone() {
@@ -891,6 +1059,35 @@ struct ImprovedHomeView: View {
             // Demo data
             currentGeofenceZone = "Sección 4B, Nivel Inferior"
         }
+    }
+
+    private func getConversationState(for peerID: String) -> AccessiblePeerRow.ConversationState {
+        // Check if peer was rejected
+        if firstMessageTracker.isRejected(peerID) {
+            return .rejected
+        }
+
+        // Check if there's a pending incoming request
+        if firstMessageTracker.hasPendingRequest(from: peerID) {
+            // Check if it's deferred
+            if firstMessageTracker.isDeferred(peerID) {
+                return .deferred
+            }
+            return .pendingIncoming
+        }
+
+        // Check if conversation is active
+        if firstMessageTracker.isConversationActive(with: peerID) {
+            return .active
+        }
+
+        // Check if we sent a message and waiting for response
+        if firstMessageTracker.hasSentFirstMessage(to: peerID) {
+            return .waitingResponse
+        }
+
+        // No contact yet
+        return .noContact
     }
 
     private func updateBatteryLevel() {
@@ -906,6 +1103,72 @@ struct ImprovedHomeView: View {
         #else
         batteryLevel = 0.87 // Default for non-iOS platforms
         #endif
+    }
+
+    // MARK: - Request Handling Functions
+
+    private func handleRequestAccept(request: FirstMessageTracker.PendingRequest) {
+        print("✅ Accepting request from \(request.fromPeerID)")
+
+        // Accept the request
+        firstMessageTracker.acceptRequest(from: request.fromPeerID)
+
+        // Create conversation in MessageStore
+        let conversationDescriptor = MessageStore.ConversationDescriptor.directChat(
+            peerId: request.fromPeerID,
+            displayName: request.fromPeerID
+        )
+
+        // Save the original message to MessageStore
+        let message = Message(
+            sender: request.fromPeerID,
+            content: request.message,
+            recipientId: networkManager.localDeviceName,
+            conversationId: conversationDescriptor.id,
+            conversationName: conversationDescriptor.title
+        )
+        networkManager.messageStore.addMessage(message, context: conversationDescriptor, localDeviceName: networkManager.localDeviceName)
+
+        // Close popup
+        showRequestApprovalPopup = false
+        selectedRequest = nil
+
+        // Open messaging view
+        showMessaging = true
+
+        // Feedback
+        HapticManager.shared.play(.success, priority: .ui)
+        AudioManager.shared.speak("Solicitud aceptada. Ahora puedes chatear con \(request.fromPeerID)", priority: .normal)
+    }
+
+    private func handleRequestReject(request: FirstMessageTracker.PendingRequest) {
+        print("❌ Rejecting request from \(request.fromPeerID)")
+
+        // Reject the request
+        firstMessageTracker.rejectRequest(from: request.fromPeerID)
+
+        // Close popup
+        showRequestApprovalPopup = false
+        selectedRequest = nil
+
+        // Feedback
+        HapticManager.shared.play(.warning, priority: .ui)
+        AudioManager.shared.speak("Solicitud rechazada de \(request.fromPeerID)", priority: .normal)
+    }
+
+    private func handleRequestDefer(request: FirstMessageTracker.PendingRequest) {
+        print("🟡 Deferring request from \(request.fromPeerID)")
+
+        // Defer the request
+        firstMessageTracker.deferRequest(from: request.fromPeerID)
+
+        // Close popup
+        showRequestApprovalPopup = false
+        selectedRequest = nil
+
+        // Feedback
+        HapticManager.shared.play(.light, priority: .ui)
+        AudioManager.shared.speak("Solicitud pospuesta de \(request.fromPeerID)", priority: .normal)
     }
 
     private func announceNetworkChange(peerCount: Int) {

@@ -22,6 +22,11 @@ struct ConversationIdentifier: RawRepresentable, Codable, Hashable, Equatable {
         return ConversationIdentifier(rawValue: "conversation.direct.\(peerId)")
     }
 
+    /// Family group conversation (for simulated groups)
+    static func familyGroup(groupId: UUID) -> ConversationIdentifier {
+        return ConversationIdentifier(rawValue: "conversation.familyGroup.\(groupId.uuidString)")
+    }
+
     // MARK: - Type Detection
 
     /// True if this is the public broadcast conversation
@@ -39,9 +44,14 @@ struct ConversationIdentifier: RawRepresentable, Codable, Hashable, Equatable {
         return rawValue.hasPrefix("conversation.direct.")
     }
 
-    /// True if this is any private conversation (family or direct)
+    /// True if this is a family group conversation
+    var isFamilyGroup: Bool {
+        return rawValue.hasPrefix("conversation.familyGroup.")
+    }
+
+    /// True if this is any private conversation (family, direct, or group)
     var isPrivate: Bool {
-        return isFamily || isDirect
+        return isFamily || isDirect || isFamilyGroup
     }
 
     // MARK: - Peer ID Extraction
@@ -68,6 +78,7 @@ struct ConversationIdentifier: RawRepresentable, Codable, Hashable, Equatable {
     /// Human-readable conversation type
     var displayType: String {
         if isPublic { return "Público" }
+        if isFamilyGroup { return "Grupo Familiar" }
         if isFamily { return "Familia" }
         if isDirect { return "Directo" }
         return "Desconocido"

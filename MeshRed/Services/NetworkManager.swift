@@ -975,9 +975,25 @@ class NetworkManager: NSObject, ObservableObject {
                 print("   📢 Sending objectWillChange to MessageStore...")
                 self.messageStore.objectWillChange.send()
 
-                // CRITICAL: Auto-switch to conversation when receiving messages
-                print("   📥 Calling messageStore.addMessage()...")
-                self.messageStore.addMessage(simpleMessage, context: conversationDescriptor, autoSwitch: true, localDeviceName: self.localDeviceName)
+                // Special handling for message requests
+                if messageTypeDisplayName == "Solicitud" {
+                    // This is a first message request - add to pending requests instead of conversations
+                    FirstMessageTracker.shared.addIncomingRequest(
+                        from: senderId,
+                        message: content,
+                        localDeviceName: self.localDeviceName
+                    )
+                    print("📨 NetworkManager: Added message request to pending - NOT added to MessageStore")
+                    // Don't add to MessageStore yet - wait for acceptance
+                } else {
+                    // Regular message - add to MessageStore normally
+                    print("   📥 Calling messageStore.addMessage()...")
+                    self.messageStore.addMessage(simpleMessage, context: conversationDescriptor, autoSwitch: true, localDeviceName: self.localDeviceName)
+
+                    // Check if this activates a conversation
+                    FirstMessageTracker.shared.handleIncomingMessage(from: senderId, localDeviceName: self.localDeviceName)
+                }
+
                 print("✅ NetworkManager: Message delivered to MessageStore")
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }

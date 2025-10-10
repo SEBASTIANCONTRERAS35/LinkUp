@@ -10,6 +10,9 @@ import Foundation
 import Combine
 
 class MessageStore: ObservableObject {
+    // MARK: - Shared Instance
+    static let shared = MessageStore()
+
     // MARK: - Nested Types
 
     struct ConversationDescriptor: Codable, Identifiable, Equatable {
@@ -405,6 +408,11 @@ class MessageStore: ObservableObject {
         return conversations[conversationId] ?? []
     }
 
+    // Alias para compatibilidad con el nuevo código
+    func getMessages(for conversationId: String) -> [Message] {
+        return messages(for: conversationId)
+    }
+
     var sortedMessages: [Message] {
         return messages
     }
@@ -702,6 +710,68 @@ class MessageStore: ObservableObject {
         if let data = try? JSONEncoder().encode(lastReadTimestamps) {
             UserDefaults.standard.set(data, forKey: lastReadKey)
         }
+    }
+
+    // MARK: - First Message Tracking Support
+
+    /// Check if a conversation has received any replies from a specific peer
+    /// - Parameters:
+    ///   - peerID: The peer's identifier to check
+    ///   - localDeviceName: The local device name to distinguish sent vs received messages
+    /// - Returns: True if the peer has sent at least one message
+    func hasReceivedReply(from peerID: String, localDeviceName: String) -> Bool {
+        // Check both direct and family conversations
+        let conversationIds = [
+            ConversationIdentifier.direct(peerId: peerID).rawValue,
+            ConversationIdentifier.family(peerId: peerID).rawValue
+        ]
+
+        for conversationId in conversationIds {
+            if let messages = conversations[conversationId] {
+                // Check if there's at least one message from the peer (not from us)
+                let hasReply = messages.contains { (message: Message) in
+                    // Message is from the peer (not from us)
+                    return message.sender == peerID && !message.isFromLocalDevice(deviceName: localDeviceName)
+                }
+
+                if hasReply {
+                    print("✅ MessageStore: Found reply from \(peerID) in conversation \(conversationId)")
+                    return true
+                }
+            }
+        }
+
+        print("❌ MessageStore: No replies found from \(peerID)")
+        return false
+    }
+
+    /// Get the first message sent to a peer
+    /// - Parameters:
+    ///   - peerID: The peer's identifier
+    ///   - localDeviceName: The local device name to identify sent messages
+    /// - Returns: The first message sent to this peer, if any
+    func getFirstMessageSent(to peerID: String, localDeviceName: String) -> Message? {
+        // Check both direct and family conversations
+        let conversationIds = [
+            ConversationIdentifier.direct(peerId: peerID).rawValue,
+            ConversationIdentifier.family(peerId: peerID).rawValue
+        ]
+
+        var firstMessage: Message? = nil
+
+        for conversationId in conversationIds {
+            if let messages = conversations[conversationId] {
+                // Find the first message sent by us to this peer
+                let ourMessages = messages.filter { $0.isFromLocalDevice(deviceName: localDeviceName) }
+                if let earliest = ourMessages.min(by: { $0.timestamp < $1.timestamp }) {
+                    if firstMessage == nil || earliest.timestamp < firstMessage!.timestamp {
+                        firstMessage = earliest
+                    }
+                }
+            }
+        }
+
+        return firstMessage
     }
 }
 
