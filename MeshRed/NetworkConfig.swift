@@ -37,6 +37,14 @@ enum NetworkMode: String, CaseIterable, Codable {
         case .highAvailability: return 0.5
         }
     }
+
+    var messageQueueSize: Int {
+        switch self {
+        case .standard: return 100
+        case .powerSaving: return 50
+        case .highAvailability: return 500  // For stadiums and large events
+        }
+    }
 }
 
 class NetworkConfig: ObservableObject {

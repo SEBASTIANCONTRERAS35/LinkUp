@@ -2,7 +2,10 @@ import Foundation
 
 class MessageQueue {
     private var heap: [NetworkMessage] = []
-    private let maxSize = 100
+    private var maxSize: Int {
+        // Dynamic queue size based on network mode
+        return NetworkConfig.shared.networkMode.messageQueueSize
+    }
     private let queue = DispatchQueue(label: "com.meshred.messagequeue", attributes: .concurrent)
 
     var count: Int {

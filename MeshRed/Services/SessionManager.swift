@@ -55,10 +55,10 @@ struct PeerConnectionInfo {
 
 class SessionManager {
     static let maxRetryAttempts = 10  // Increased for more persistent reconnection
-    static let connectionTimeout: TimeInterval = 3.0  // Very quick timeout
+    static let connectionTimeout: TimeInterval = 15.0  // Increased for TLS handshake with .required encryption
     static let blockDuration: TimeInterval = 10.0  // Only block for 10s
     static let cleanupInterval: TimeInterval = 5.0  // Aggressive cleanup every 5s
-    static let disconnectionCooldown: TimeInterval = 0.1  // Almost instant reconnection
+    static let disconnectionCooldown: TimeInterval = 2.0  // Increased to allow message exchange completion
     static let connectionGracePeriod: TimeInterval = 2.0  // Very short grace period
     static let unstablePeerCooldown: TimeInterval = 5.0   // Even unstable peers get quick retry
 
@@ -138,18 +138,30 @@ class SessionManager {
                     }
                 }
 
-                // Check disconnection cooldown (longer for unstable peers)
-                // BUT: If the peer was stable before (positive score), allow quick reconnection
+                // Check disconnection cooldown (adaptive based on stability score)
                 if let lastDisconnection = info.lastDisconnection {
                     let timeSinceDisconnection = Date().timeIntervalSince(lastDisconnection)
 
-                    // Always use minimal cooldown for instant reconnection
-                    let requiredCooldown: TimeInterval = 0.1  // Almost instant reconnection always
+                    // Adaptive cooldown based on stability score
+                    let requiredCooldown: TimeInterval
+                    if info.connectionStabilityScore >= 3 {
+                        // Very stable peer - quick reconnect allowed
+                        requiredCooldown = 0.5
+                    } else if info.connectionStabilityScore >= 0 {
+                        // Neutral to slightly stable - moderate cooldown
+                        requiredCooldown = SessionManager.disconnectionCooldown  // 2.0 seconds
+                    } else if info.connectionStabilityScore >= -2 {
+                        // Slightly unstable - longer cooldown
+                        requiredCooldown = 5.0
+                    } else {
+                        // Very unstable - longest cooldown
+                        requiredCooldown = 10.0
+                    }
 
                     if timeSinceDisconnection < requiredCooldown {
                         let waitTime = requiredCooldown - timeSinceDisconnection
                         let waitTimeStr = waitTime.isFinite ? "\(Int(max(0, waitTime)))" : "0"
-                        print("🆒 Cooldown after disconnect: \(peerKey). Wait \(waitTimeStr)s (stability: \(info.connectionStabilityScore))")
+                        print("🆒 Adaptive cooldown for \(peerKey): \(waitTimeStr)s (stability: \(info.connectionStabilityScore))")
                         return false
                     }
                 }

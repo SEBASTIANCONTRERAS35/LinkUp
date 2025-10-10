@@ -320,13 +320,19 @@ class NetworkManager: NSObject, ObservableObject {
 
         print("⚠️ Connection failure #\(failedConnectionAttempts[peerKey] ?? 1) for \(peerKey)")
 
-        if consecutiveFailures >= 3 {
-            print("⚠️ Multiple connection failures detected. Initiating recovery...")
+        if consecutiveFailures >= 5 {
+            print("⚠️ Multiple connection failures detected (5+). Initiating recovery...")
             restartServicesIfNeeded()
             failedConnectionAttempts.removeAll()  // Reset after restart
         } else {
-            // Try to reconnect after a delay
-            let delay = Double(consecutiveFailures) * 2.0
+            // Try to reconnect after a delay using exponential backoff
+            // Backoff: 2s, 4s, 8s, 16s (capped at 16s)
+            let baseDelay: TimeInterval = 2.0
+            let exponentialDelay = baseDelay * pow(2.0, Double(min(consecutiveFailures - 1, 3)))
+            let delay = min(exponentialDelay, 16.0)
+
+            print("⏳ Will retry connection to \(peerKey) in \(Int(delay))s (attempt #\(failedConnectionAttempts[peerKey] ?? 1))")
+
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self = self else { return }
 
@@ -334,7 +340,7 @@ class NetworkManager: NSObject, ObservableObject {
                    !self.connectedPeers.contains(peerID) &&
                    self.sessionManager.shouldAttemptConnection(to: peerID) {
                     print("🔄 Retrying connection to \(peerID.displayName) after failure")
-                    self.browser?.invitePeer(peerID, to: self.session, withContext: nil, timeout: SessionManager.connectionTimeout)
+                    self.connectToPeer(peerID)  // Use proper connection method with SessionManager tracking
                 }
             }
         }
@@ -620,58 +626,102 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     func connectToPeer(_ peerID: MCPeerID, forceIgnoreConflictResolution: Bool = false) {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🔗 CONNECT TO PEER - STEP 1: Entry")
+        print("   Peer: \(peerID.displayName)")
+        print("   Force: \(forceIgnoreConflictResolution)")
+        print("   Timestamp: \(Date())")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
         guard let browser = browser else {
-            print("❌ NetworkManager: Browser not available")
+            print("❌ CONNECT FAILED: Browser not available")
             return
         }
+        print("   ✓ Browser available")
 
         // Check if peer is manually blocked
+        print("   Step 2: Checking manual blocking...")
         if connectionManager.isPeerBlocked(peerID.displayName) {
-            print("🚫 NetworkManager: Peer \(peerID.displayName) is manually blocked - skipping connection")
+            print("🚫 CONNECT ABORTED: Peer \(peerID.displayName) is manually blocked")
             return
         }
+        print("   ✓ Not manually blocked")
 
         // Check conflict resolution (unless forcing)
+        print("   Step 3: Checking conflict resolution...")
         if !forceIgnoreConflictResolution {
-            guard ConnectionConflictResolver.shouldInitiateConnection(localPeer: localPeerID, remotePeer: peerID) else {
-                print("🆔 Deferring to peer \(peerID.displayName) for connection initiation")
+            let shouldInitiate = ConnectionConflictResolver.shouldInitiateConnection(localPeer: localPeerID, remotePeer: peerID)
+            print("      Should initiate: \(shouldInitiate)")
+            print("      Local ID: \(localPeerID.displayName)")
+            print("      Remote ID: \(peerID.displayName)")
+            guard shouldInitiate else {
+                print("🆔 CONNECT ABORTED: Conflict resolution says we should defer to \(peerID.displayName)")
                 return
             }
         } else {
-            print("⚡ FORCING connection to \(peerID.displayName) - bypassing conflict resolution")
+            print("⚡ FORCING connection - bypassing conflict resolution")
         }
+        print("   ✓ Conflict resolution passed")
 
         // Acquire mutex lock to serialize invites
+        print("   Step 4: Acquiring ConnectionMutex lock...")
         guard connectionMutex.tryAcquireLock(for: peerID, operation: .browserInvite) else {
-            print("🔒 Connection operation already in progress for \(peerID.displayName)")
+            print("🔒 CONNECT ABORTED: Connection operation already in progress for \(peerID.displayName)")
             return
         }
+        print("   ✓ Mutex lock acquired")
 
         var lockReleased = false
         let releaseLock: () -> Void = { [weak self] in
             guard let self = self, !lockReleased else { return }
             lockReleased = true
             self.connectionMutex.releaseLock(for: peerID)
+            print("   🔓 Mutex lock released for \(peerID.displayName)")
         }
 
-        guard sessionManager.shouldAttemptConnection(to: peerID) else {
-            print("⏸️ Skipping connection attempt to \(peerID.displayName)")
+        print("   Step 5: Checking SessionManager...")
+        let sessionManagerAllows = sessionManager.shouldAttemptConnection(to: peerID)
+        print("      SessionManager allows: \(sessionManagerAllows)")
+        guard sessionManagerAllows else {
+            print("⏸️ CONNECT ABORTED: SessionManager blocking connection to \(peerID.displayName)")
             releaseLock()
             return
         }
+        print("   ✓ SessionManager allows")
 
+        print("   Step 6: Recording connection attempt...")
         sessionManager.recordConnectionAttempt(to: peerID)
-        print("🔗 NetworkManager: Attempting to connect to peer: \(peerID.displayName)")
+        print("   ✓ Attempt recorded")
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📤 BROWSER.INVITEPEER() - STEP 7: Calling iOS API")
+        print("   Peer: \(peerID.displayName)")
+        print("   Timeout: \(SessionManager.connectionTimeout)s")
+        print("   Timestamp: \(Date())")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
         browser.invitePeer(peerID, to: session, withContext: nil, timeout: SessionManager.connectionTimeout)
+
+        print("   ✓ invitePeer() called")
+        print("   Waiting for remote peer to accept invitation...")
+        print("   If accepted, session(_:peer:didChange: .connecting) will be called")
 
         // Watchdog: if the session never transitions, clear the lock to avoid deadlocks
         let handshakeTimeout = SessionManager.connectionTimeout + 4.0
+        print("   ⏰ Watchdog timer set for \(handshakeTimeout)s")
+
         DispatchQueue.main.asyncAfter(deadline: .now() + handshakeTimeout) { [weak self] in
             guard let self = self else { return }
             if self.connectionMutex.hasActiveOperation(for: peerID) {
-                print("⏳ Connection handshake timeout for \(peerID.displayName) - releasing lock")
-                // Note: Browser doesn't have cancelConnectPeer - session handles timeouts
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("⏳ WATCHDOG TIMEOUT")
+                print("   Peer: \(peerID.displayName)")
+                print("   Timeout: \(handshakeTimeout)s elapsed")
+                print("   Action: Releasing mutex lock")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 releaseLock()
+            } else {
+                print("   ✓ Watchdog: Lock already released normally")
             }
         }
     }
@@ -1768,24 +1818,50 @@ class NetworkManager: NSObject, ObservableObject {
 
 extension NetworkManager: MCSessionDelegate {
     func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🔄 SESSION STATE CHANGE CALLBACK")
+        print("   Peer: \(peerID.displayName)")
+        print("   New State: \(state == .connected ? "CONNECTED" : state == .connecting ? "CONNECTING" : "NOT_CONNECTED")")
+        print("   Timestamp: \(Date())")
+        print("   Thread: \(Thread.current)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
         DispatchQueue.main.async {
             switch state {
             case .connected:
+                print("🔍 DEBUG: Handling .connected state...")
+
                 // Release any connection locks
+                print("   Step 1: Releasing connection mutex...")
                 self.connectionMutex.releaseLock(for: peerID)
+                print("   ✓ Mutex released")
 
                 // Clear failure counters on successful connection
+                print("   Step 2: Clearing failure counters...")
                 self.failedConnectionAttempts[peerID.displayName] = 0
                 self.consecutiveFailures = 0
+                print("   ✓ Failure counters cleared")
 
                 // Remove any stale entries for this displayName first
+                print("   Step 3: Cleaning stale peer entries...")
+                let previousCount = self.connectedPeers.count
                 self.connectedPeers.removeAll { $0.displayName == peerID.displayName }
+                print("   ✓ Removed \(previousCount - self.connectedPeers.count) stale entries")
 
                 // Now add the fresh connection
+                print("   Step 4: Adding peer to connectedPeers array...")
                 self.connectedPeers.append(peerID)
-                print("🆕 NEW CONNECTION ESTABLISHED: \(peerID.displayName)")
+                print("   ✓ Peer added. Total connected: \(self.connectedPeers.count)")
 
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("🆕 NEW CONNECTION ESTABLISHED")
+                print("   Peer: \(peerID.displayName)")
+                print("   Total Connections: \(self.connectedPeers.count)")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                print("   Step 5: Recording successful connection in SessionManager...")
                 self.sessionManager.recordSuccessfulConnection(to: peerID)
+                print("   ✓ Recorded in SessionManager")
 
                 if !TestingConfig.disableHealthMonitoring {
                     self.healthMonitor.addPeer(peerID)
@@ -1809,15 +1885,21 @@ extension NetworkManager: MCSessionDelegate {
                 AudioManager.shared.announceConnectionChange(connected: true, peerName: peerID.displayName)
                 HapticManager.shared.playPattern(.peerConnected, priority: .notification)
 
+                // Stagger topology and family sync broadcasts based on peer ID comparison
+                // This prevents message collision when both peers try to send at the same time
+                let shouldInitiateMessages = self.localPeerID.displayName > peerID.displayName
+
                 // Broadcast updated topology after connection stabilizes
-                // STABILITY FIX: Increased from 0.5s to 2.0s to allow connection to fully establish
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                // Higher ID sends at 2.0s, lower ID at 2.5s to avoid collision
+                let topologyDelay = shouldInitiateMessages ? 2.0 : 2.5
+                DispatchQueue.main.asyncAfter(deadline: .now() + topologyDelay) { [weak self] in
                     self?.broadcastTopology()
                 }
 
                 // Send family sync if we have an active group
-                // STABILITY FIX: Increased from 1.0s to 3.0s to space out initial messages
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                // Higher ID sends at 3.0s, lower ID at 3.5s
+                let familySyncDelay = shouldInitiateMessages ? 3.0 : 3.5
+                DispatchQueue.main.asyncAfter(deadline: .now() + familySyncDelay) { [weak self] in
                     guard let self = self else { return }
                     if self.familyGroupManager.hasActiveGroup {
                         self.sendFamilySync(to: peerID)
@@ -1858,10 +1940,14 @@ extension NetworkManager: MCSessionDelegate {
                 }
 
             case .connecting:
+                print("🔍 DEBUG: Handling .connecting state...")
                 self.connectionStatus = .connecting
-                // Track this state change with mutex
-                _ = self.connectionMutex.tryAcquireLock(for: peerID, operation: .sessionConnecting)
-                print("🔄 NetworkManager: State changed to CONNECTING for peer: \(peerID.displayName)")
+                // No longer need mutex here - iOS handles connection serialization
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("🔄 PEER STATE: CONNECTING")
+                print("   Peer: \(peerID.displayName)")
+                print("   Handshake in progress...")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             case .notConnected:
                 // Aggressively release any connection locks
@@ -2003,50 +2089,69 @@ extension NetworkManager: MCSessionDelegate {
 extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
     func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📨 INVITATION RECEIVED")
+        print("📨 INVITATION RECEIVED - STEP 1: Initial Reception")
         print("   From: \(peerID.displayName)")
         print("   To: \(localPeerID.displayName)")
         print("   Connected Peers: \(connectedPeers.count)/\(config.maxConnections)")
+        print("   Timestamp: \(Date())")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Check TestingConfig blocking
+        print("🔍 DEBUG STEP 2: Checking TestingConfig blocking...")
         if TestingConfig.shouldBlockDirectConnection(from: localPeerID.displayName, to: peerID.displayName) {
             print("🧪 TEST MODE: Declining invitation from \(peerID.displayName) - blocked by TestingConfig")
             invitationHandler(false, nil)
             sessionManager.recordConnectionDeclined(to: peerID, reason: "blocked by TestingConfig")
             return
         }
+        print("   ✓ TestingConfig: Not blocked")
 
         // Check if peer is manually blocked
+        print("🔍 DEBUG STEP 3: Checking manual blocking...")
         if connectionManager.isPeerBlocked(peerID.displayName) {
             print("🚫 NetworkManager: Declining invitation from \(peerID.displayName) - peer is manually blocked")
             invitationHandler(false, nil)
             sessionManager.recordConnectionDeclined(to: peerID, reason: "manually blocked")
             return
         }
+        print("   ✓ Manual blocking: Not blocked")
 
         // Check if already connected
+        print("🔍 DEBUG STEP 4: Checking if already connected...")
         if connectedPeers.contains(peerID) {
             print("⛔ Declining invitation from \(peerID.displayName) - already connected")
+            print("   Current connected peers: \(connectedPeers.map { $0.displayName }.joined(separator: ", "))")
             invitationHandler(false, nil)
             return
         }
+        print("   ✓ Already connected: No")
 
         // Check if we've reached max connections
+        print("🔍 DEBUG STEP 5: Checking max connections...")
         if hasReachedMaxConnections() {
             print("⛔ Declining invitation from \(peerID.displayName) - max connections reached (\(connectedPeers.count)/\(config.maxConnections))")
             invitationHandler(false, nil)
             return
         }
+        print("   ✓ Max connections: \(connectedPeers.count)/\(config.maxConnections) - OK")
 
         // Check conflict resolution - should we accept based on ID comparison?
         // BUT: If we've had failures trying to connect to this peer OR SessionManager is blocking us, accept the invitation anyway
+        print("🔍 DEBUG STEP 6: Checking conflict resolution...")
         let peerKey = peerID.displayName
         let hasFailedConnections = (failedConnectionAttempts[peerKey] ?? 0) > 0
         let sessionManagerBlocking = !sessionManager.shouldAttemptConnection(to: peerID)
+        let conflictResolutionSaysAccept = ConnectionConflictResolver.shouldAcceptInvitation(localPeer: localPeerID, fromPeer: peerID)
 
-        if !hasFailedConnections && !sessionManagerBlocking && !ConnectionConflictResolver.shouldAcceptInvitation(localPeer: localPeerID, fromPeer: peerID) {
+        print("   Failed connections count: \(failedConnectionAttempts[peerKey] ?? 0)")
+        print("   SessionManager blocking: \(sessionManagerBlocking)")
+        print("   Conflict resolution says accept: \(conflictResolutionSaysAccept)")
+
+        if !hasFailedConnections && !sessionManagerBlocking && !conflictResolutionSaysAccept {
             print("🆔 Declining invitation - we should initiate to \(peerID.displayName)")
+            print("   Local ID: \(localPeerID.displayName)")
+            print("   Remote ID: \(peerID.displayName)")
+            print("   Comparison: \(localPeerID.displayName < peerID.displayName ? "Local < Remote" : "Local > Remote")")
             invitationHandler(false, nil)
             sessionManager.recordConnectionDeclined(to: peerID, reason: "conflict resolution says we should initiate")
             return
@@ -2054,50 +2159,74 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
             print("🔄 Accepting invitation despite conflict resolution - previous failures detected for \(peerKey)")
         } else if sessionManagerBlocking {
             print("🔄 Accepting invitation despite conflict resolution - SessionManager is blocking our attempts")
+        } else {
+            print("   ✓ Conflict resolution: Accept invitation (we are slave)")
         }
 
-        // Try to acquire mutex lock
-        // BUT: If we have failures or SessionManager is blocking us, force accept even with pending operations
-        if !connectionMutex.tryAcquireLock(for: peerID, operation: .acceptInvitation) {
+        // CRITICAL FIX: Don't hold mutex across iOS callback boundary
+        // MultipeerConnectivity already handles connection serialization internally
+        // The mutex was causing deadlock when iOS tried to deliver session callbacks
+
+        // Check if another operation is in progress
+        print("🔍 DEBUG STEP 7: Checking ConnectionMutex...")
+        let mutexHasOperation = connectionMutex.hasActiveOperation(for: peerID)
+        print("   Mutex has active operation: \(mutexHasOperation)")
+
+        if mutexHasOperation {
             if hasFailedConnections || sessionManagerBlocking {
-                print("⚠️ Forcing invitation acceptance despite mutex - breaking deadlock")
-                // Release any existing lock and acquire new one
+                print("⚠️ Force accepting invitation to break potential deadlock")
+                print("   Releasing stuck mutex lock...")
                 connectionMutex.releaseLock(for: peerID)
-                _ = connectionMutex.tryAcquireLock(for: peerID, operation: .acceptInvitation)
+                print("   ✓ Mutex lock released")
             } else {
                 print("🔒 Declining invitation - connection operation in progress for \(peerID.displayName)")
                 invitationHandler(false, nil)
                 return
             }
-        }
-
-        // Schedule lock release
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.connectionMutex.releaseLock(for: peerID)
+        } else {
+            print("   ✓ Mutex: No active operation")
         }
 
         // Accept invitation if we have failures OR SessionManager is blocking us (deadlock breaker)
+        print("🔍 DEBUG STEP 8: Final acceptance decision...")
         let shouldAccept = hasFailedConnections || sessionManagerBlocking || sessionManager.shouldAttemptConnection(to: peerID)
+        print("   Should accept: \(shouldAccept)")
+        print("   Reason: \(hasFailedConnections ? "Failed connections" : sessionManagerBlocking ? "SessionManager blocking" : "SessionManager allows")")
 
         guard shouldAccept else {
             print("⛔ Declining invitation from \(peerID.displayName) - connection not allowed")
-            connectionMutex.releaseLock(for: peerID)
             invitationHandler(false, nil)
             sessionManager.recordConnectionDeclined(to: peerID, reason: "session manager not allowing")
             return
         }
 
         if sessionManagerBlocking {
-            print("⚠️ Accepting invitation to break deadlock - clearing SessionManager cooldown")
+            print("⚠️ DEBUG STEP 9: Clearing SessionManager cooldown to break deadlock...")
             sessionManager.clearCooldown(for: peerID)
+            print("   ✓ Cooldown cleared")
         } else if hasFailedConnections && !sessionManager.shouldAttemptConnection(to: peerID) {
-            print("⚠️ Accepting invitation despite session manager - compensating for previous failures")
+            print("⚠️ DEBUG STEP 9: Accepting despite session manager - compensating for failures")
         }
 
-        // Record attempt and accept
+        // Record attempt BEFORE accepting (but don't hold mutex)
+        print("🔍 DEBUG STEP 10: Recording connection attempt...")
         sessionManager.recordConnectionAttempt(to: peerID)
+        print("   ✓ Connection attempt recorded")
+
+        // Accept invitation WITHOUT holding mutex - iOS handles serialization
+        print("🔍 DEBUG STEP 11: Calling invitationHandler(true, session)...")
+        print("   Session ID: \(session)")
+        print("   Session connected peers: \(session.connectedPeers.map { $0.displayName })")
+        print("   About to accept invitation at: \(Date())")
+
         invitationHandler(true, session)
-        print("✅ NetworkManager: Accepted invitation from: \(peerID.displayName)")
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("✅ INVITATION ACCEPTED (mutex-free)")
+        print("   From: \(peerID.displayName)")
+        print("   Waiting for iOS to complete handshake...")
+        print("   Next: session(_:peer:didChange:) will be called")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: Error) {
@@ -2113,6 +2242,13 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
 
 extension NetworkManager: MCNearbyServiceBrowserDelegate {
     func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String : String]?) {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🔍 BROWSER: PEER DISCOVERED")
+        print("   Peer: \(peerID.displayName)")
+        print("   Discovery Info: \(info ?? [:])")
+        print("   Timestamp: \(Date())")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
         let peerKey = peerID.displayName
         let now = Date()
 
@@ -2120,11 +2256,14 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
         lastPeerDiscoveryTime = now
 
         // Check for recent found event
+        print("🔍 DEBUG: Checking for duplicate discovery events...")
         if let lastFound = peerEventTimes[peerKey]?.found,
            now.timeIntervalSince(lastFound) < eventDeduplicationWindow {
             print("🔇 Ignoring duplicate found event for \(peerKey)")
+            print("   Last found: \(String(format: "%.1f", now.timeIntervalSince(lastFound)))s ago")
             return
         }
+        print("   ✓ Not a duplicate")
 
         // Update event time
         if peerEventTimes[peerKey] != nil {
@@ -2134,18 +2273,23 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
         }
 
         DispatchQueue.main.async {
+            print("🔍 DEBUG: Adding peer to availablePeers...")
+
             // Remove any existing entries for this displayName first (handles stale entries)
+            let previousCount = self.availablePeers.count
             self.availablePeers.removeAll { $0.displayName == peerID.displayName }
+            if previousCount != self.availablePeers.count {
+                print("   Removed \(previousCount - self.availablePeers.count) stale entries")
+            }
 
             // Now add the peer (fresh entry)
             if peerID != self.localPeerID {
                 self.availablePeers.append(peerID)
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("🔍 PEER DISCOVERED")
-                print("   Name: \(peerID.displayName)")
-                print("   Discovery Info: \(info ?? [:])")
-                print("   Available Peers: \(self.availablePeers.count)")
-                print("   Connected Peers: \(self.connectedPeers.count)")
+                print("✅ PEER ADDED TO AVAILABLE LIST")
+                print("   Peer: \(peerID.displayName)")
+                print("   Total Available Peers: \(self.availablePeers.count)")
+                print("   Total Connected Peers: \(self.connectedPeers.count)")
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 // Minimal delay for instant reconnection
@@ -2155,52 +2299,77 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
                 DispatchQueue.main.asyncAfter(deadline: .now() + jitter) { [weak self] in
                     guard let self = self else { return }
 
-                    // Only auto-connect if:
-                    // - Not already connected to this peer
-                    // - Haven't reached max connections
-                    // - Peer still available
-                    // - Should initiate based on conflict resolution
-                    // - Session manager allows it
-                    // - Not blocked by TestingConfig
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("🔍 AUTO-CONNECTION EVALUATION")
+                    print("   Peer: \(peerID.displayName)")
+                    print("   Timestamp: \(Date())")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                     // Check TestingConfig blocking first
+                    print("   Step 1: Checking TestingConfig...")
                     if TestingConfig.shouldBlockDirectConnection(from: self.localPeerID.displayName, to: peerID.displayName) {
                         print("🧪 TEST MODE: Blocked direct connection to \(peerID.displayName)")
                         return
                     }
+                    print("   ✓ TestingConfig: Not blocked")
 
                     let shouldInitiate = ConnectionConflictResolver.shouldInitiateConnection(localPeer: self.localPeerID, remotePeer: peerID)
                     let peerKey = peerID.displayName
-
-                    // Note: Force connection is now handled by checkStuckWaitingStates()
-                    // This prevents duplicate force connection logic
                     let isWaitingForInvitation = self.waitingForInvitationFrom[peerKey] != nil
 
-                    print("🔍 Auto-connection check for \(peerID.displayName):")
-                    print("   Already connected? \(self.connectedPeers.contains(where: { $0.displayName == peerID.displayName }))")
-                    print("   Max connections reached? \(self.hasReachedMaxConnections())")
-                    print("   Still available? \(self.availablePeers.contains(where: { $0.displayName == peerID.displayName }))")
-                    print("   Should initiate? \(shouldInitiate)")
-                    print("   Already waiting? \(isWaitingForInvitation)")
-                    print("   Session manager allows? \(self.sessionManager.shouldAttemptConnection(to: peerID))")
+                    let alreadyConnected = self.connectedPeers.contains(where: { $0.displayName == peerID.displayName })
+                    let maxConnectionsReached = self.hasReachedMaxConnections()
+                    let stillAvailable = self.availablePeers.contains(where: { $0.displayName == peerID.displayName })
+                    let sessionManagerAllows = self.sessionManager.shouldAttemptConnection(to: peerID)
 
-                    if !self.connectedPeers.contains(where: { $0.displayName == peerID.displayName }) &&
-                       !self.hasReachedMaxConnections() &&
-                       self.availablePeers.contains(where: { $0.displayName == peerID.displayName }) &&
+                    print("   Step 2: Connection criteria check:")
+                    print("      Already connected? \(alreadyConnected)")
+                    print("      Max connections reached? \(maxConnectionsReached) (\(self.connectedPeers.count)/\(self.config.maxConnections))")
+                    print("      Still available? \(stillAvailable)")
+                    print("      Should initiate (conflict resolution)? \(shouldInitiate)")
+                    print("         Local ID: \(self.localPeerID.displayName)")
+                    print("         Remote ID: \(peerID.displayName)")
+                    print("         Comparison: \(self.localPeerID.displayName > peerID.displayName ? "Local > Remote (WE INITIATE)" : "Local < Remote (WAIT)")")
+                    print("      Already waiting for invitation? \(isWaitingForInvitation)")
+                    print("      Session manager allows? \(sessionManagerAllows)")
+
+                    if !alreadyConnected &&
+                       !maxConnectionsReached &&
+                       stillAvailable &&
                        shouldInitiate &&
-                       self.sessionManager.shouldAttemptConnection(to: peerID) {
+                       sessionManagerAllows {
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        print("✅ INITIATING CONNECTION")
+                        print("   To: \(peerID.displayName)")
+                        print("   Reason: All criteria met")
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         self.waitingForInvitationFrom.removeValue(forKey: peerKey)  // Clear waiting status
                         self.connectToPeer(peerID)
-                    } else if self.hasReachedMaxConnections() {
-                        print("⏸️ Skipping auto-connect to \(peerID.displayName) - max connections reached")
-                    } else if !shouldInitiate {
-                        // Record that we're waiting for an invitation
-                        if self.waitingForInvitationFrom[peerKey] == nil {
-                            self.waitingForInvitationFrom[peerKey] = Date()
-                            print("⏰ Starting to wait for invitation from \(peerKey)")
+                    } else {
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        print("⏸️ SKIPPING CONNECTION")
+                        print("   To: \(peerID.displayName)")
+                        if alreadyConnected {
+                            print("   Reason: Already connected")
+                        } else if maxConnectionsReached {
+                            print("   Reason: Max connections reached (\(self.connectedPeers.count)/\(self.config.maxConnections))")
+                        } else if !stillAvailable {
+                            print("   Reason: Peer no longer available")
+                        } else if !shouldInitiate {
+                            print("   Reason: Conflict resolution - waiting for them to initiate")
+                            // Record that we're waiting for an invitation
+                            if self.waitingForInvitationFrom[peerKey] == nil {
+                                self.waitingForInvitationFrom[peerKey] = Date()
+                                print("   ⏰ Started waiting for invitation")
+                            }
+                        } else if !sessionManagerAllows {
+                            print("   Reason: SessionManager blocking (cooldown/retry limit)")
                         }
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     }
                 }
+            } else {
+                print("   ⚠️ Discovered self - ignoring")
             }
         }
     }

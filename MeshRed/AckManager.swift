@@ -23,10 +23,20 @@ class AckManager {
 
     private var pendingAcks: [UUID: PendingMessage] = [:]
     private let maxRetries = 3
-    private let ackTimeout: TimeInterval = 5.0
+    private let baseAckTimeout: TimeInterval = 5.0  // Base timeout for direct connections
     private let checkInterval: TimeInterval = 3.0
     private let queue = DispatchQueue(label: "com.meshred.ackmanager", attributes: .concurrent)
     private var retryTimer: Timer?
+
+    // Calculate adaptive timeout based on message TTL (potential hop count)
+    private func getAckTimeout(for message: NetworkMessage) -> TimeInterval {
+        // Base timeout + 1.5 seconds per possible hop
+        // TTL of 1 = direct connection = 5s timeout
+        // TTL of 3 = up to 3 hops = 5s + (2 * 1.5s) = 8s timeout
+        // TTL of 5 = up to 5 hops = 5s + (4 * 1.5s) = 11s timeout
+        let hopPenalty = Double(max(0, message.ttl - 1)) * 1.5
+        return baseAckTimeout + hopPenalty
+    }
 
     init() {
         startRetryTimer()
@@ -94,8 +104,9 @@ class AckManager {
 
             for (messageId, pending) in self.pendingAcks {
                 let timeSinceSend = now.timeIntervalSince(pending.sendTime)
+                let adaptiveTimeout = self.getAckTimeout(for: pending.message)
 
-                if timeSinceSend > self.ackTimeout {
+                if timeSinceSend > adaptiveTimeout {
                     if pending.retryCount < self.maxRetries {
                         var updatedPending = pending
                         updatedPending.retryCount += 1
@@ -109,6 +120,7 @@ class AckManager {
                         print("   Message ID: \(messageId.uuidString.prefix(8))")
                         print("   Retry #\(updatedPending.retryCount) of \(self.maxRetries)")
                         print("   Time since send: \(String(format: "%.1f", timeSinceSend))s")
+                        print("   Timeout threshold: \(String(format: "%.1f", adaptiveTimeout))s (TTL: \(pending.message.ttl))")
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     } else {
                         messagesToRemove.append(messageId)
