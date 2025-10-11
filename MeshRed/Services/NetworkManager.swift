@@ -28,7 +28,7 @@ class NetworkManager: NSObject, ObservableObject {
 
     // MARK: - Core Components
     private let serviceType = "meshred-chat"
-    private let localPeerID: MCPeerID = {
+    internal let localPeerID: MCPeerID = {
         let deviceName = ProcessInfo.processInfo.hostName
         // Use public name from UserDisplayNameManager
         let displayNameManager = UserDisplayNameManager.shared
@@ -36,7 +36,7 @@ class NetworkManager: NSObject, ObservableObject {
         print("📡 [NetworkManager] Creating MCPeerID with public name: '\(publicName)'")
         return MCPeerID(displayName: publicName)
     }()
-    private var session: MCSession
+    internal var session: MCSession
     private var advertiser: MCNearbyServiceAdvertiser?
     private var browser: MCNearbyServiceBrowser?
 
@@ -59,7 +59,7 @@ class NetworkManager: NSObject, ObservableObject {
     private let messageQueue = MessageQueue()
     private let messageCache = MessageCache()
     private let ackManager = AckManager()
-    private let sessionManager = SessionManager()
+    internal let sessionManager = SessionManager()
     let healthMonitor = PeerHealthMonitor()
     private let connectionMutex = ConnectionMutex()
 
@@ -1302,7 +1302,7 @@ class NetworkManager: NSObject, ObservableObject {
         }
     }
 
-    private func hasReachedMaxConnections() -> Bool {
+    internal func hasReachedMaxConnections() -> Bool {
         return connectedPeers.count >= config.maxConnections
     }
 
@@ -2338,6 +2338,12 @@ extension NetworkManager: MCSessionDelegate {
                 self.manageBrowsing()  // Stop browsing if configured
                 print("✅ NetworkManager: Connected to peer: \(peerID.displayName) | Total peers: \(self.connectedPeers.count)")
 
+                // Record successful connection with orchestrator
+                if self.isOrchestratorEnabled {
+                    print("   🎯 Recording successful connection with Orchestrator")
+                    self.recordSuccessfulConnection(to: peerID)
+                }
+
                 // Auto-start Live Activity when first peer connects
                 if #available(iOS 16.1, *) {
                     if self.connectedPeers.count == 1 && !self.hasActiveLiveActivity {
@@ -2489,6 +2495,19 @@ extension NetworkManager: MCSessionDelegate {
                 }
                 self.updateConnectionStatus()
                 self.manageBrowsing()  // Restart browsing if no connections left
+
+                // Record disconnection with orchestrator
+                if self.isOrchestratorEnabled {
+                    print("   🎯 Recording disconnection with Orchestrator")
+                    let reason: PeerReputationSystem.DisconnectionReason
+                    if wasConnected, let connectionTime = self.sessionManager.getConnectionTime(for: peerID),
+                       Date().timeIntervalSince(connectionTime) < 20 {
+                        reason = .timeout
+                    } else {
+                        reason = .networkIssue
+                    }
+                    self.recordDisconnection(of: peerID, reason: reason)
+                }
 
                 // No longer waiting for this peer to invite us
                 self.waitingForInvitationFrom.removeValue(forKey: peerID.displayName)
@@ -2709,14 +2728,24 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
 
         // Accept invitation if we have failures OR SessionManager is blocking us (deadlock breaker)
         print("🔍 DEBUG STEP 8: Final acceptance decision...")
-        let shouldAccept = hasFailedConnections || sessionManagerBlocking || sessionManager.shouldAttemptConnection(to: peerID)
+
+        // Use orchestrator decision if enabled
+        let shouldAccept: Bool
+        if isOrchestratorEnabled {
+            print("   🎯 Using Orchestrator for invitation decision")
+            shouldAccept = shouldAcceptInvitationFromPeer(peerID)
+        } else {
+            // Legacy decision logic
+            shouldAccept = hasFailedConnections || sessionManagerBlocking || sessionManager.shouldAttemptConnection(to: peerID)
+        }
+
         print("   Should accept: \(shouldAccept)")
-        print("   Reason: \(hasFailedConnections ? "Failed connections" : sessionManagerBlocking ? "SessionManager blocking" : "SessionManager allows")")
+        print("   Decision source: \(isOrchestratorEnabled ? "Orchestrator" : "Legacy logic")")
 
         guard shouldAccept else {
             print("⛔ Declining invitation from \(peerID.displayName) - connection not allowed")
             invitationHandler(false, nil)
-            sessionManager.recordConnectionDeclined(to: peerID, reason: "session manager not allowing")
+            sessionManager.recordConnectionDeclined(to: peerID, reason: isOrchestratorEnabled ? "orchestrator declined" : "session manager not allowing")
             return
         }
 
@@ -2903,15 +2932,25 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
                     print("      Already waiting? \(isWaitingForInvitation)")
                     print("      Session manager allows? \(sessionManagerAllows)")
 
-                    if !alreadyConnected &&
-                       !maxConnectionsReached &&
-                       stillAvailable &&
-                       shouldInitiate &&
-                       sessionManagerAllows {
+                    // Use orchestrator decision if enabled
+                    let shouldConnect: Bool
+                    if self.isOrchestratorEnabled {
+                        print("   🎯 Using Orchestrator for decision")
+                        shouldConnect = self.shouldConnectToDiscoveredPeer(peerID, discoveryInfo: info)
+                    } else {
+                        // Legacy decision logic
+                        shouldConnect = !alreadyConnected &&
+                                      !maxConnectionsReached &&
+                                      stillAvailable &&
+                                      shouldInitiate &&
+                                      sessionManagerAllows
+                    }
+
+                    if shouldConnect {
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         print("✅ INITIATING CONNECTION")
                         print("   To: \(peerID.displayName)")
-                        print("   Reason: All criteria met")
+                        print("   Reason: \(self.isOrchestratorEnabled ? "Orchestrator approved" : "All criteria met")")
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         self.waitingForInvitationFrom.removeValue(forKey: peerKey)  // Clear waiting status
                         self.connectToPeer(peerID)
