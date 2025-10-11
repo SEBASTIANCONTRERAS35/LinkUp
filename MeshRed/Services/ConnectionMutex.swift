@@ -99,6 +99,27 @@ class ConnectionMutex {
         clearAll()
     }
 
+    /// Force release lock for a specific peer (use in recovery scenarios)
+    func forceRelease(for peerID: MCPeerID) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            let peerKey = peerID.displayName
+
+            // Remove from active operations
+            if self.activeOperations.contains(peerKey) {
+                self.activeOperations.remove(peerKey)
+                print("🔓 Connection mutex: FORCE released lock for \(peerKey)")
+            }
+
+            // Remove from pending connections
+            if self.pendingConnections[peerKey] != nil {
+                self.pendingConnections.removeValue(forKey: peerKey)
+                print("🔓 Connection mutex: Cleared pending connection for \(peerKey)")
+            }
+        }
+    }
+
     /// Get current status
     func getStatus() -> (activeCount: Int, pendingCount: Int) {
         return queue.sync {
@@ -116,13 +137,23 @@ class ConnectionConflictResolver {
         let localName = localPeer.displayName
         let remoteName = remotePeer.displayName
 
-        // Use lexicographic string comparison for deterministic resolution
-        // This ensures both devices get the same result when comparing the same strings
-        // The device with the lexicographically "greater" name will initiate
-        let shouldInitiate = localName > remoteName
+        // Use hash-based comparison for uniform distribution (50/50 chance)
+        // This prevents alphabetic bias where some names always lose
+        let localHash = localName.hashValue
+        let remoteHash = remoteName.hashValue
 
-        print("🎯 Conflict resolver: Local(\(localName)) \(shouldInitiate ? "INITIATES" : "WAITS") with Remote(\(remoteName))")
-        print("   Comparison: '\(localName)' \(shouldInitiate ? ">" : "<=") '\(remoteName)'")
+        let shouldInitiate: Bool
+        if localHash != remoteHash {
+            // Normal case: compare hash values
+            shouldInitiate = localHash > remoteHash
+        } else {
+            // Extremely rare case: identical hashes, use random tiebreaker
+            shouldInitiate = UUID().uuidString > UUID().uuidString
+        }
+
+        print("🎯 Conflict resolver: Local(\(localName)) \(shouldInitiate ? "INITIATES 🟢" : "WAITS 🟡") with Remote(\(remoteName))")
+        print("   Hash comparison: \(localHash) vs \(remoteHash)")
+        print("   Decision: Local hash \(shouldInitiate ? ">" : "<=") Remote hash")
 
         return shouldInitiate
     }

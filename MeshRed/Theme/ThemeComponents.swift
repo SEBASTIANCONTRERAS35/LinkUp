@@ -186,12 +186,10 @@ struct AccessibleStatusBadge: View {
 }
 
 // MARK: - Accessible Peer Row
-/// Shows connected peer with distance and actions
+/// Shows connected peer with messaging actions
 struct AccessiblePeerRow: View {
     let peerName: String
-    let distance: String?
     let signalStrength: String // "excellent", "good", "poor"
-    let onLocate: () -> Void
     let onMessage: () -> Void
     var conversationState: ConversationState = .noContact
 
@@ -271,38 +269,12 @@ struct AccessiblePeerRow: View {
                     }
                 }
 
-                if let distance = distance {
-                    HStack(spacing: 4) {
-                        Image(systemName: "location.fill")
-                            .font(.caption2)
-                        Text(distance)
-                            .font(.caption) // Dynamic Type
-                    }
-                    .foregroundColor(ThemeColors.textSecondary)
-                }
             }
 
             Spacer(minLength: 12)
 
             // Action buttons
             HStack(spacing: 8) {
-                // Locate button
-                Button(action: {
-                    #if os(iOS)
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred()
-                    #endif
-                    onLocate()
-                }) {
-                    Image(systemName: "location.circle.fill")
-                        .font(.title3)
-                        .foregroundColor(ThemeColors.primaryBlue)
-                        .frame(width: 44, height: 44) // Minimum touch target
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Locate \(peerName)")
-                .accessibilityHint("Double tap to see precise location using Ultra Wideband")
-
                 // Message button with state-based appearance
                 Button(action: {
                     // Different behaviors based on state

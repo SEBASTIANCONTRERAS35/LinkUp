@@ -142,20 +142,20 @@ class SessionManager {
                 if let lastDisconnection = info.lastDisconnection {
                     let timeSinceDisconnection = Date().timeIntervalSince(lastDisconnection)
 
-                    // Adaptive cooldown based on stability score
+                    // Adaptive cooldown based on stability score (REDUCED for faster reconnection)
                     let requiredCooldown: TimeInterval
                     if info.connectionStabilityScore >= 3 {
-                        // Very stable peer - quick reconnect allowed
-                        requiredCooldown = 0.5
+                        // Very stable peer - almost instant reconnect
+                        requiredCooldown = 0.2  // Reduced from 0.5
                     } else if info.connectionStabilityScore >= 0 {
-                        // Neutral to slightly stable - moderate cooldown
-                        requiredCooldown = SessionManager.disconnectionCooldown  // 2.0 seconds
+                        // Neutral to slightly stable - short cooldown
+                        requiredCooldown = 1.0  // Reduced from 2.0
                     } else if info.connectionStabilityScore >= -2 {
-                        // Slightly unstable - longer cooldown
-                        requiredCooldown = 5.0
+                        // Slightly unstable - moderate cooldown
+                        requiredCooldown = 2.0  // Reduced from 5.0
                     } else {
-                        // Very unstable - longest cooldown
-                        requiredCooldown = 10.0
+                        // Very unstable - still reasonable cooldown
+                        requiredCooldown = 4.0  // Reduced from 10.0
                     }
 
                     if timeSinceDisconnection < requiredCooldown {

@@ -94,6 +94,17 @@ class NetworkManager: NSObject, ObservableObject {
     // Network configuration
     private let config = NetworkConfig.shared
 
+    // MARK: - Peer Connection State Management
+    /// Tracks the connection state of each peer for intelligent disconnection management
+    enum PeerConnectionState {
+        case active              // Normal connection, can send/receive messages
+        case pendingDisconnect   // User requested disconnect, waiting for alternative peer
+    }
+
+    /// Dictionary tracking connection state for each peer (by displayName)
+    /// Thread-safe access via processingQueue barriers
+    private var peerConnectionStates: [String: PeerConnectionState] = [:]
+
     // MARK: - Connection Status Enum
     enum ConnectionStatus {
         case disconnected
@@ -435,7 +446,7 @@ class NetworkManager: NSObject, ObservableObject {
             for peer in self.connectedPeers {
                 if let pingData = self.healthMonitor.createPingData(for: peer) {
                     do {
-                        try self.session.send(pingData, toPeers: [peer], with: .reliable)
+                        try self.safeSend(pingData, toPeers: [peer], with: .reliable, context: "healthPing")
                     } catch {
                         print("❌ Failed to send ping to \(peer.displayName): \(error.localizedDescription)")
                     }
@@ -488,12 +499,13 @@ class NetworkManager: NSObject, ObservableObject {
         for (peerKey, waitStartTime) in waitingForInvitationFrom {
             let waitDuration = now.timeIntervalSince(waitStartTime)
 
-            // Progressive timeout: 15s, 18s, 22s... (increased from 5s to reduce noise)
+            // Progressive timeout: 5s, 6s, 7s... (reduced for faster recovery)
             let failureCount = failedConnectionAttempts[peerKey] ?? 0
-            let timeoutThreshold = 15.0 + (Double(failureCount) * 3.0)
+            let baseTimeout = 5.0  // Reduced from 15s for faster detection
+            let timeoutThreshold = baseTimeout + (Double(min(failureCount, 3)) * 1.0)
 
-            // Cap maximum wait time at 30 seconds
-            let effectiveThreshold = min(timeoutThreshold, 30.0)
+            // Cap maximum wait time at 10 seconds (sockets timeout at ~10s)
+            let effectiveThreshold = min(timeoutThreshold, 10.0)
 
             if waitDuration > effectiveThreshold {
                 stuckPeers.append(peerKey)
@@ -548,6 +560,52 @@ class NetworkManager: NSObject, ObservableObject {
         waitingForInvitationFrom = waitingForInvitationFrom.filter { key, _ in
             availablePeerNames.contains(key)
         }
+    }
+
+    /// Force reset all connection state for a peer and attempt fresh connection
+    /// Use this in recovery scenarios when a peer is stuck
+    private func forceResetPeerConnection(_ peerID: MCPeerID) {
+        let peerKey = peerID.displayName
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🔄 FORCE RESET: Clearing all state for \(peerKey)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // 1. Cancel any pending connection operations
+        session.cancelConnectPeer(peerID)
+        print("   ✓ Cancelled pending connections")
+
+        // 2. Force release mutex lock
+        connectionMutex.forceRelease(for: peerID)
+        print("   ✓ Released mutex lock")
+
+        // 3. Clear waiting state
+        waitingForInvitationFrom.removeValue(forKey: peerKey)
+        print("   ✓ Cleared waiting state")
+
+        // 4. Clear session manager cooldown
+        sessionManager.clearCooldown(for: peerID)
+        print("   ✓ Cleared session cooldown")
+
+        // 5. Reset failure counts
+        failedConnectionAttempts.removeValue(forKey: peerKey)
+        print("   ✓ Reset failure count")
+
+        // 6. Attempt fresh connection if peer is still available
+        if availablePeers.contains(where: { $0.displayName == peerKey }) {
+            print("   🔄 Peer still available, attempting fresh connection...")
+
+            // Wait briefly for MultipeerConnectivity to clean up internal state
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self = self else { return }
+                print("   📤 Initiating fresh connection to \(peerKey)")
+                self.connectToPeer(peerID, forceIgnoreConflictResolution: true)
+            }
+        } else {
+            print("   ⚠️ Peer no longer available, reset complete")
+        }
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     func sendMessage(_ content: String, type: MessageType = .chat, recipientId: String = "broadcast", requiresAck: Bool = false) {
@@ -608,6 +666,179 @@ class NetworkManager: NSObject, ObservableObject {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
+    // MARK: - Safe Send Helper
+
+    /// Safely send data to peers by validating against actual session state
+    /// This prevents "Peers not connected" errors caused by race conditions
+    /// between local connectedPeers array and session.connectedPeers
+    private func safeSend(
+        _ data: Data,
+        toPeers peers: [MCPeerID],
+        with mode: MCSessionSendDataMode,
+        context: String = ""
+    ) throws {
+        // Validate peers against actual session state
+        let sessionPeers = session.connectedPeers
+        let validPeers = peers.filter { sessionPeers.contains($0) }
+
+        guard !validPeers.isEmpty else {
+            let contextStr = context.isEmpty ? "" : " (\(context))"
+            print("⚠️ safeSend\(contextStr): No valid peers in session")
+            print("   Requested: \(peers.map { $0.displayName })")
+            print("   Session has: \(sessionPeers.map { $0.displayName })")
+            throw NSError(
+                domain: "NetworkManager",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Peers (\(peers.map { $0.displayName })) not connected"]
+            )
+        }
+
+        // Log if we filtered out some peers
+        if validPeers.count < peers.count {
+            let filtered = peers.filter { !validPeers.contains($0) }
+            print("⚠️ safeSend: Filtered out \(filtered.count) disconnected peers: \(filtered.map { $0.displayName })")
+        }
+
+        // Send to validated peers only
+        try session.send(data, toPeers: validPeers, with: mode)
+    }
+
+    // MARK: - Transport Diagnostics
+
+    /// Track connection success/failure for transport layer diagnostics
+    private var connectionMetrics: [String: ConnectionMetrics] = [:]
+
+    private struct ConnectionMetrics {
+        var successfulSends: Int = 0
+        var failedSends: Int = 0
+        var lastSocketTimeout: Date?
+        var connectionEstablished: Date?
+        var lastDisconnect: Date?
+        var disconnectCount: Int = 0
+
+        var connectionDuration: TimeInterval? {
+            guard let established = connectionEstablished else { return nil }
+            return Date().timeIntervalSince(established)
+        }
+
+        var isUnstable: Bool {
+            // Connection is unstable if:
+            // 1. Disconnects within 30 seconds of connection
+            // 2. More than 3 disconnects
+            // 3. High failure rate in sends
+            if let established = connectionEstablished,
+               let lastDisconnect = lastDisconnect,
+               lastDisconnect.timeIntervalSince(established) < 30 {
+                return true
+            }
+            if disconnectCount > 3 {
+                return true
+            }
+            if failedSends > 0 && successfulSends > 0 {
+                let failureRate = Double(failedSends) / Double(successfulSends + failedSends)
+                return failureRate > 0.3  // More than 30% failure rate
+            }
+            return false
+        }
+    }
+
+    /// Log connection metrics for diagnostics
+    private func recordConnectionMetrics(peer: MCPeerID, event: ConnectionMetricEvent) {
+        let peerKey = peer.displayName
+
+        if connectionMetrics[peerKey] == nil {
+            connectionMetrics[peerKey] = ConnectionMetrics()
+        }
+
+        switch event {
+        case .sendSuccess:
+            connectionMetrics[peerKey]?.successfulSends += 1
+        case .sendFailure:
+            connectionMetrics[peerKey]?.failedSends += 1
+        case .socketTimeout:
+            connectionMetrics[peerKey]?.lastSocketTimeout = Date()
+            connectionMetrics[peerKey]?.disconnectCount += 1
+            logTransportDiagnostics(for: peer)
+        case .connected:
+            connectionMetrics[peerKey]?.connectionEstablished = Date()
+        case .disconnected:
+            connectionMetrics[peerKey]?.lastDisconnect = Date()
+            connectionMetrics[peerKey]?.disconnectCount += 1
+        }
+
+        // Log if connection is unstable
+        if let metrics = connectionMetrics[peerKey], metrics.isUnstable {
+            print("⚠️ UNSTABLE CONNECTION DETECTED: \(peer.displayName)")
+            logTransportDiagnostics(for: peer)
+        }
+    }
+
+    enum ConnectionMetricEvent {
+        case sendSuccess
+        case sendFailure
+        case socketTimeout
+        case connected
+        case disconnected
+    }
+
+    /// Log detailed transport layer diagnostics when issues are detected
+    private func logTransportDiagnostics(for peer: MCPeerID) {
+        let peerKey = peer.displayName
+        guard let metrics = connectionMetrics[peerKey] else { return }
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📊 TRANSPORT LAYER DIAGNOSTICS")
+        print("   Peer: \(peer.displayName)")
+        print("   Successful sends: \(metrics.successfulSends)")
+        print("   Failed sends: \(metrics.failedSends)")
+        print("   Disconnect count: \(metrics.disconnectCount)")
+        if let duration = metrics.connectionDuration {
+            print("   Connection duration: \(String(format: "%.1f", duration))s")
+        }
+        if let lastTimeout = metrics.lastSocketTimeout {
+            print("   Last socket timeout: \(lastTimeout)")
+        }
+        print("   Is unstable: \(metrics.isUnstable)")
+        print("   ")
+        print("🔍 PROBABLE CAUSES:")
+        print("   ")
+
+        // Diagnose based on metrics
+        if let established = metrics.connectionEstablished,
+           let lastDisconnect = metrics.lastDisconnect,
+           lastDisconnect.timeIntervalSince(established) < 15 {
+            print("   ❌ VERY SHORT CONNECTION (<15s)")
+            print("      → WiFi Direct transport likely failing")
+            print("      → TCP socket timing out after handshake")
+            print("      → Data channel establishment failing")
+        }
+
+        if metrics.lastSocketTimeout != nil {
+            print("   ❌ SOCKET TIMEOUT DETECTED")
+            print("      → TCP connection established but data transfer failed")
+            print("      → Network path switched mid-connection")
+            print("      → WiFi Direct → Bluetooth fallback not working")
+        }
+
+        if metrics.disconnectCount > 3 {
+            print("   ❌ MULTIPLE DISCONNECTS (\(metrics.disconnectCount))")
+            print("      → Connection establishment works")
+            print("      → But transport layer is unstable")
+            print("      → Likely WiFi interference or weak Bluetooth")
+        }
+
+        print("   ")
+        print("💡 RECOMMENDED ACTIONS:")
+        if hasNetworkConfigurationIssue {
+            print("   1. ⚠️ Fix WiFi configuration (connect to network or disable)")
+        } else {
+            print("   1. Try disabling WiFi to force Bluetooth-only mode")
+            print("   2. Move devices closer together (< 10m)")
+            print("   3. Check for WiFi/Bluetooth interference")
+        }
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
+
     private func sendNetworkMessage(_ message: NetworkMessage) {
         guard !connectedPeers.isEmpty else {
             print("⚠️ NetworkManager: No connected peers to send message to")
@@ -648,6 +879,24 @@ class NetworkManager: NSObject, ObservableObject {
             print("📢 Broadcasting to all peers")
         }
 
+        // INTELLIGENT DISCONNECTION: Filter out peers marked as pendingDisconnect
+        // These peers should not receive or relay messages
+        var blockedPeers: [String] = []
+        processingQueue.sync {
+            blockedPeers = peerConnectionStates.filter { $0.value == .pendingDisconnect }.map { $0.key }
+        }
+
+        if !blockedPeers.isEmpty {
+            let originalCount = targetPeers.count
+            targetPeers = targetPeers.filter { !blockedPeers.contains($0.displayName) }
+            let filteredCount = originalCount - targetPeers.count
+
+            if filteredCount > 0 {
+                print("🚫 Filtered \(filteredCount) peer(s) in pendingDisconnect state:")
+                print("   Blocked: [\(blockedPeers.joined(separator: ", "))]")
+            }
+        }
+
         // Testing multi-hop: Filter out blocked connections
         if TestingConfig.forceMultiHop && message.recipientId != "broadcast" {
             targetPeers = targetPeers.filter { peer in
@@ -667,7 +916,7 @@ class NetworkManager: NSObject, ObservableObject {
         do {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
-            try session.send(data, toPeers: targetPeers, with: .reliable)
+            try safeSend(data, toPeers: targetPeers, with: .reliable, context: "sendNetworkMessage")
             print("📤 Sent to \(targetPeers.count) peers - Type: \(message.messageType.displayName)")
         } catch {
             print("❌ Failed to send message: \(error.localizedDescription)")
@@ -685,7 +934,7 @@ class NetworkManager: NSObject, ObservableObject {
             let targetPeer = connectedPeers.first { $0.displayName == senderId }
             let peers = targetPeer != nil ? [targetPeer!] : connectedPeers
 
-            try session.send(data, toPeers: peers, with: .reliable)
+            try safeSend(data, toPeers: peers, with: .reliable, context: "sendAck")
             print("📬 ACK sent for message \(originalMessageId) to \(senderId)")
         } catch {
             print("❌ Failed to send ACK: \(error.localizedDescription)")
@@ -697,7 +946,7 @@ class NetworkManager: NSObject, ObservableObject {
     func sendRawData(_ data: Data, to peer: MCPeerID, reliable: Bool = false) {
         do {
             let mode: MCSessionSendDataMode = reliable ? .reliable : .unreliable
-            try session.send(data, toPeers: [peer], with: mode)
+            try safeSend(data, toPeers: [peer], with: mode, context: "sendRawData")
         } catch {
             print("❌ Failed to send raw data to \(peer.displayName): \(error.localizedDescription)")
         }
@@ -804,11 +1053,124 @@ class NetworkManager: NSObject, ObservableObject {
         }
     }
 
-    func disconnectFromPeer(_ peerID: MCPeerID) {
-        // Note: MCNearbyServiceBrowser doesn't have cancelConnectPeer, only MCSession does
-        // This would be handled by the session state changes
+    /// Intelligent disconnection system with two cases:
+    /// Case A: Alternative peers available → Disconnect immediately
+    /// Case B: No alternatives → Mark as pending, disconnect when new peer arrives
+    func requestDisconnect(from peerID: MCPeerID) {
+        let peerKey = peerID.displayName
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🔌 DISCONNECT REQUEST")
+        print("   Peer: \(peerKey)")
+        print("   Current connected peers: \(connectedPeers.count)")
+        print("   Current available peers: \(availablePeers.count)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Check if there are alternative peers available
+        let hasAlternatives = !availablePeers.isEmpty || connectedPeers.count > 1
+
+        if hasAlternatives {
+            // CASE A: Alternative peers available → Disconnect immediately
+            print("✅ CASE A: Alternative peers available")
+            print("   Disconnecting immediately from \(peerKey)")
+
+            // Mark as pendingDisconnect temporarily (will be removed after actual disconnect)
+            processingQueue.async(flags: .barrier) { [weak self] in
+                self?.peerConnectionStates[peerKey] = .pendingDisconnect
+            }
+
+            // Perform actual disconnection
+            session.cancelConnectPeer(peerID)
+
+            // Clean up all state for this peer
+            cleanupPeerState(peerID)
+
+            print("✅ Immediate disconnection completed for \(peerKey)")
+
+        } else {
+            // CASE B: No alternatives → Mark as pending, wait for new peer
+            print("⚠️ CASE B: No alternative peers available")
+            print("   Marking \(peerKey) as pendingDisconnect")
+            print("   Will disconnect automatically when new peer connects")
+
+            // Mark peer as pending disconnect
+            processingQueue.async(flags: .barrier) { [weak self] in
+                self?.peerConnectionStates[peerKey] = .pendingDisconnect
+            }
+
+            // Force UI update to show pending state
+            DispatchQueue.main.async { [weak self] in
+                self?.objectWillChange.send()
+            }
+
+            print("⏳ Peer \(peerKey) marked as pendingDisconnect - waiting for alternatives")
+        }
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
+
+    /// Helper function to get the connection state of a peer
+    func getPeerConnectionState(_ peerID: MCPeerID) -> PeerConnectionState {
+        var state: PeerConnectionState = .active
+        processingQueue.sync {
+            state = peerConnectionStates[peerID.displayName] ?? .active
+        }
+        return state
+    }
+
+    /// Helper function to check if a peer is in pending disconnect state
+    func isPeerPendingDisconnect(_ peerID: MCPeerID) -> Bool {
+        return getPeerConnectionState(peerID) == .pendingDisconnect
+    }
+
+    /// Clean up all state associated with a peer
+    private func cleanupPeerState(_ peerID: MCPeerID) {
+        let peerKey = peerID.displayName
+
+        print("🧹 Cleaning up state for peer: \(peerKey)")
+
+        // Remove from connection state tracking
+        processingQueue.async(flags: .barrier) { [weak self] in
+            self?.peerConnectionStates.removeValue(forKey: peerKey)
+        }
+
+        // Release mutex lock
         connectionMutex.releaseLock(for: peerID)
-        print("🔌 NetworkManager: Manually disconnected from peer: \(peerID.displayName)")
+
+        // Remove from routing table
+        routingTable.removePeer(peerKey)
+
+        // Stop health monitoring
+        healthMonitor.removePeer(peerID)
+
+        // Clear location tracking
+        peerLocationTracker.removePeerLocation(peerID: peerKey)
+
+        // Clear any received location responses for this peer
+        DispatchQueue.main.async { [weak self] in
+            self?.locationRequestManager.receivedResponses.removeValue(forKey: peerKey)
+        }
+
+        // Stop LinkFinder session if active
+        if #available(iOS 14.0, *) {
+            uwbSessionManager?.stopSession(with: peerID)
+        }
+
+        // Record disconnection in session manager
+        sessionManager.recordDisconnection(from: peerID)
+
+        // Remove from connected peers list
+        DispatchQueue.main.async { [weak self] in
+            self?.connectedPeers.removeAll { $0.displayName == peerKey }
+        }
+
+        print("✅ Cleanup completed for \(peerKey)")
+    }
+
+    @available(*, deprecated, renamed: "requestDisconnect", message: "Use requestDisconnect for intelligent disconnection management")
+    func disconnectFromPeer(_ peerID: MCPeerID) {
+        // Legacy method - redirect to new implementation
+        requestDisconnect(from: peerID)
     }
 
     // MARK: - Intelligent Reconnection
@@ -1178,7 +1540,7 @@ class NetworkManager: NSObject, ObservableObject {
         do {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
-            try session.send(data, toPeers: connectedPeers, with: .reliable)
+            try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "locationRequest")
             print("📍 NetworkManager: Sent location request to \(targetPeerId)")
         } catch {
             print("❌ NetworkManager: Failed to send location request: \(error.localizedDescription)")
@@ -1202,7 +1564,7 @@ class NetworkManager: NSObject, ObservableObject {
         do {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
-            try session.send(data, toPeers: connectedPeers, with: .reliable)
+            try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "relayLocationRequest")
         } catch {
             print("❌ NetworkManager: Failed to relay location request: \(error.localizedDescription)")
         }
@@ -1317,7 +1679,7 @@ class NetworkManager: NSObject, ObservableObject {
         do {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
-            try session.send(data, toPeers: connectedPeers, with: .reliable)
+            try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "locationResponse")
         } catch {
             print("❌ NetworkManager: Failed to send location response: \(error.localizedDescription)")
         }
@@ -1417,7 +1779,7 @@ class NetworkManager: NSObject, ObservableObject {
         do {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
-            try session.send(data, toPeers: connectedPeers, with: .reliable)
+            try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "broadcastGPSLocation")
             print("📍 NetworkManager: Broadcasted GPS location to \(connectedPeers.count) peers: \(currentLocation.coordinateString)")
         } catch {
             print("❌ NetworkManager: Failed to broadcast GPS location: \(error.localizedDescription)")
@@ -1457,7 +1819,7 @@ class NetworkManager: NSObject, ObservableObject {
 
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
-            try session.send(data, toPeers: [peerID], with: .reliable)
+            try safeSend(data, toPeers: [peerID], with: .reliable, context: "LinkFinderToken")
 
             print("✅ NetworkManager: Sent LinkFinder discovery token to \(peerID.displayName)")
             print("   Session prepared and ready to run when we receive peer's token")
@@ -1605,7 +1967,7 @@ class NetworkManager: NSObject, ObservableObject {
                             return
                         }
 
-                        try self.session.send(data, toPeers: [peerID], with: .reliable)
+                        try self.safeSend(data, toPeers: [peerID], with: .reliable, context: "LinkFinderTokenResponse")
                         print("   📨 Token sent to \(peerID.displayName) via reliable channel")
 
                         self.uwbTokenExchangeState[peerID.displayName] = .exchangeComplete
@@ -1660,7 +2022,7 @@ class NetworkManager: NSObject, ObservableObject {
         do {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
-            try session.send(data, toPeers: [peerID], with: .reliable)
+            try safeSend(data, toPeers: [peerID], with: .reliable, context: "familySync")
             print("✅ NetworkManager: Sent family sync to \(peerID.displayName)")
         } catch {
             print("❌ NetworkManager: Failed to send family sync: \(error.localizedDescription)")
@@ -1695,7 +2057,7 @@ class NetworkManager: NSObject, ObservableObject {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
             // Send to all connected peers (family will filter by code)
-            try session.send(data, toPeers: connectedPeers, with: .reliable)
+            try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "linkfenceEvent")
             print("✅ NetworkManager: Sent linkfence event to \(connectedPeers.count) peers")
         } catch {
             print("❌ NetworkManager: Failed to send linkfence event: \(error.localizedDescription)")
@@ -1715,7 +2077,7 @@ class NetworkManager: NSObject, ObservableObject {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
             // Send to all connected peers (family will filter by code)
-            try session.send(data, toPeers: connectedPeers, with: .reliable)
+            try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "linkfenceShare")
             print("✅ NetworkManager: Sent linkfence share to \(connectedPeers.count) peers")
         } catch {
             print("❌ NetworkManager: Failed to send linkfence share: \(error.localizedDescription)")
@@ -1790,7 +2152,7 @@ class NetworkManager: NSObject, ObservableObject {
         do {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
-            try session.send(data, toPeers: connectedPeers, with: .reliable)
+            try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "familyJoinRequest")
 
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print("📤 BROADCASTING FAMILY JOIN REQUEST")
@@ -1809,7 +2171,7 @@ class NetworkManager: NSObject, ObservableObject {
         do {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
-            try session.send(data, toPeers: [peerID], with: .reliable)
+            try safeSend(data, toPeers: [peerID], with: .reliable, context: "familyGroupInfo")
             print("✅ Sent family group info to \(peerID.displayName)")
         } catch {
             print("❌ Failed to send family group info: \(error.localizedDescription)")
@@ -1831,7 +2193,19 @@ class NetworkManager: NSObject, ObservableObject {
     private func broadcastTopology() {
         guard !connectedPeers.isEmpty else { return }
 
-        let connectedPeerNames = connectedPeers.map { $0.displayName }
+        // RACE CONDITION FIX: Validate against actual session state
+        // The local connectedPeers array may be out of sync with session.connectedPeers
+        // if a peer disconnected between updates
+        let sessionPeers = session.connectedPeers
+        let validPeers = connectedPeers.filter { sessionPeers.contains($0) }
+
+        guard !validPeers.isEmpty else {
+            print("⚠️ broadcastTopology: No valid peers in session, skipping broadcast")
+            print("   Local array has \(connectedPeers.count), but session has \(sessionPeers.count)")
+            return
+        }
+
+        let connectedPeerNames = validPeers.map { $0.displayName }
         let topologyMessage = TopologyMessage(
             senderId: localPeerID.displayName,
             connectedPeers: connectedPeerNames
@@ -1845,19 +2219,20 @@ class NetworkManager: NSObject, ObservableObject {
             // STABILITY FIX: Use unreliable mode for topology broadcasts
             // Topology updates are periodic, so occasional packet loss is acceptable
             // This reduces buffer pressure and prevents connection drops
-            try session.send(data, toPeers: connectedPeers, with: .unreliable)
+            try session.send(data, toPeers: validPeers, with: .unreliable)
 
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print("📡 TOPOLOGY BROADCAST (unreliable)")
             print("   Connections: [\(connectedPeerNames.joined(separator: ", "))]")
-            print("   Sent to: \(connectedPeers.count) peers")
+            print("   Sent to: \(validPeers.count) peers (validated against session)")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             // Update local routing table
-            routingTable.updateLocalTopology(connectedPeers: connectedPeers)
+            routingTable.updateLocalTopology(connectedPeers: validPeers)
 
         } catch {
             print("❌ Failed to broadcast topology: \(error.localizedDescription)")
+            print("   Valid peers: \(validPeers.count), Session peers: \(sessionPeers.count)")
         }
     }
 
@@ -1879,12 +2254,21 @@ class NetworkManager: NSObject, ObservableObject {
 
             let payload = NetworkPayload.topology(message)
 
+            // RACE CONDITION FIX: Validate peers against session state
+            let sessionPeers = session.connectedPeers
+            let validPeers = connectedPeers.filter { sessionPeers.contains($0) }
+
+            guard !validPeers.isEmpty else {
+                print("⚠️ Cannot relay topology: No valid peers in session")
+                return
+            }
+
             do {
                 let encoder = JSONEncoder()
                 let data = try encoder.encode(payload)
                 // STABILITY FIX: Use unreliable mode for topology relays too
-                try session.send(data, toPeers: connectedPeers, with: .unreliable)
-                print("🔄 Relayed topology message (hop \(message.hopCount)/\(message.ttl)) (unreliable)")
+                try session.send(data, toPeers: validPeers, with: .unreliable)
+                print("🔄 Relayed topology message (hop \(message.hopCount)/\(message.ttl)) to \(validPeers.count) peers (unreliable)")
             } catch {
                 print("❌ Failed to relay topology: \(error.localizedDescription)")
             }
@@ -1919,6 +2303,9 @@ extension NetworkManager: MCSessionDelegate {
                 self.failedConnectionAttempts[peerID.displayName] = 0
                 self.consecutiveFailures = 0
                 print("   ✓ Failure counters cleared")
+
+                // Record connection metrics for diagnostics
+                self.recordConnectionMetrics(peer: peerID, event: .connected)
 
                 // Remove any stale entries for this displayName first
                 print("   Step 3: Cleaning stale peer entries...")
@@ -2070,6 +2457,17 @@ extension NetworkManager: MCSessionDelegate {
                 self.sessionManager.recordDisconnection(from: peerID)
                 self.healthMonitor.removePeer(peerID)
 
+                // Record disconnection metrics - check if it was a socket timeout
+                if wasConnected {
+                    if let connectionTime = self.sessionManager.getConnectionTime(for: peerID),
+                       Date().timeIntervalSince(connectionTime) < 20 {
+                        // Very quick disconnection likely caused by socket timeout
+                        self.recordConnectionMetrics(peer: peerID, event: .socketTimeout)
+                    } else {
+                        self.recordConnectionMetrics(peer: peerID, event: .disconnected)
+                    }
+                }
+
                 // Auto-stop Live Activity when last peer disconnects
                 if #available(iOS 16.1, *) {
                     if self.connectedPeers.isEmpty && self.hasActiveLiveActivity {
@@ -2153,7 +2551,7 @@ extension NetworkManager: MCSessionDelegate {
 
     func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
         if let pongData = healthMonitor.handleHealthMessage(data, from: peerID) {
-            try? session.send(pongData, toPeers: [peerID], with: .reliable)
+            try? safeSend(pongData, toPeers: [peerID], with: .reliable, context: "healthPong")
             return
         }
         handleReceivedMessage(data: data, from: peerID)
@@ -2415,6 +2813,41 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
                 print("   Total Connected Peers: \(self.connectedPeers.count)")
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
+                // INTELLIGENT DISCONNECTION: Check for peers marked as pendingDisconnect
+                // When a new peer is discovered, disconnect any peers user wanted to disconnect
+                self.processingQueue.async { [weak self] in
+                    guard let self = self else { return }
+
+                    let pendingDisconnectPeers = self.peerConnectionStates.filter { $0.value == .pendingDisconnect }
+
+                    if !pendingDisconnectPeers.isEmpty {
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        print("🔌 AUTO-DISCONNECTION: New peer available")
+                        print("   New peer: \(peerID.displayName)")
+                        print("   Peers pending disconnect: \(pendingDisconnectPeers.keys.joined(separator: ", "))")
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                        // Disconnect all pending peers now that we have an alternative
+                        for (peerKey, _) in pendingDisconnectPeers {
+                            if let peerToDisconnect = self.connectedPeers.first(where: { $0.displayName == peerKey }) {
+                                print("   Executing delayed disconnect for \(peerKey)")
+
+                                DispatchQueue.main.async {
+                                    // Perform actual disconnection
+                                    self.session.cancelConnectPeer(peerToDisconnect)
+
+                                    // Clean up all state for this peer
+                                    self.cleanupPeerState(peerToDisconnect)
+
+                                    print("   ✅ Auto-disconnection completed for \(peerKey)")
+                                }
+                            }
+                        }
+
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    }
+                }
+
                 // Minimal delay for instant reconnection
                 let jitter = Double.random(in: 0.1...0.5)
                 print("⏱️ Will attempt connection to \(peerID.displayName) in \(String(format: "%.1f", jitter)) seconds")
@@ -2436,10 +2869,27 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
                     }
                     print("   ✓ TestingConfig: Not blocked")
 
+                    // Enhanced logging for conflict resolution decision
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("👥 PEER DISCOVERY DECISION ANALYSIS")
+                    print("   Local: \(self.localPeerID.displayName)")
+                    print("   Remote: \(peerID.displayName)")
+
                     let shouldInitiate = ConnectionConflictResolver.shouldInitiateConnection(localPeer: self.localPeerID, remotePeer: peerID)
                     let peerKey = peerID.displayName
-                    let isWaitingForInvitation = self.waitingForInvitationFrom[peerKey] != nil
 
+                    print("   📊 Hash-Based Decision:")
+                    print("      Local hash: \(self.localPeerID.displayName.hashValue)")
+                    print("      Remote hash: \(peerID.displayName.hashValue)")
+                    print("      We should: \(shouldInitiate ? "INITIATE 🟢" : "WAIT 🟡")")
+                    print("      They should: \(shouldInitiate ? "WAIT 🟡" : "INITIATE 🟢")")
+
+                    if !shouldInitiate {
+                        print("   ⏰ Will wait max 5s for invitation before forcing")
+                    }
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                    let isWaitingForInvitation = self.waitingForInvitationFrom[peerKey] != nil
                     let alreadyConnected = self.connectedPeers.contains(where: { $0.displayName == peerID.displayName })
                     let maxConnectionsReached = self.hasReachedMaxConnections()
                     let stillAvailable = self.availablePeers.contains(where: { $0.displayName == peerID.displayName })
@@ -2449,11 +2899,8 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
                     print("      Already connected? \(alreadyConnected)")
                     print("      Max connections reached? \(maxConnectionsReached) (\(self.connectedPeers.count)/\(self.config.maxConnections))")
                     print("      Still available? \(stillAvailable)")
-                    print("      Should initiate (conflict resolution)? \(shouldInitiate)")
-                    print("         Local ID: \(self.localPeerID.displayName)")
-                    print("         Remote ID: \(peerID.displayName)")
-                    print("         Comparison: \(self.localPeerID.displayName > peerID.displayName ? "Local > Remote (WE INITIATE)" : "Local < Remote (WAIT)")")
-                    print("      Already waiting for invitation? \(isWaitingForInvitation)")
+                    print("      Should initiate? \(shouldInitiate)")
+                    print("      Already waiting? \(isWaitingForInvitation)")
                     print("      Session manager allows? \(sessionManagerAllows)")
 
                     if !alreadyConnected &&

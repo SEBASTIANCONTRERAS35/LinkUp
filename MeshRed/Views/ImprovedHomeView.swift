@@ -782,11 +782,7 @@ struct ImprovedHomeView: View {
                 ForEach(availableNewPeers, id: \.self) { peer in
                     AccessiblePeerRow(
                         peerName: peer.displayName,
-                        distance: getDistance(for: peer),
                         signalStrength: "excellent", // TODO: Get real signal strength
-                        onLocate: {
-                            requestLocation(for: peer)
-                        },
                         onMessage: {
                             startChat(with: peer)
                         },
@@ -920,64 +916,6 @@ struct ImprovedHomeView: View {
     }
 
     // MARK: - Helper Methods
-
-    private func getDistance(for peer: MCPeerID) -> String? {
-        // Check if LinkFinder distance is available
-        if #available(iOS 14.0, *),
-           let uwbManager = networkManager.uwbSessionManager {
-            // Check session state
-            let state = uwbManager.sessionStates[peer.displayName] ?? .disconnected
-
-            // Get distance if available
-            if let distance = uwbManager.getDistance(to: peer) {
-                return String(format: "%.1f metros", distance)
-            } else {
-                // Return status message based on state
-                switch state {
-                case .preparing, .tokenReady:
-                    return "Iniciando ubicación..."
-                case .running:
-                    return "Esperando señal..."
-                case .ranging:
-                    return "Calculando..."
-                case .suspended:
-                    return "Ubicación pausada"
-                case .disconnected:
-                    return "Ubicación no disponible"
-                @unknown default:
-                    return "Ubicación no disponible"
-                }
-            }
-        }
-        // Fallback: Check if we have a recent GPS location
-        if let peerLocation = networkManager.peerLocationTracker.getPeerLocation(peerID: peer.displayName),
-           let myLocation = networkManager.locationService.currentLocation {
-            // Use the built-in distance method from UserLocation
-            let distance = myLocation.distance(to: peerLocation)
-
-            if distance > 0 && distance < 100000 { // Reasonable range (< 100km)
-                return String(format: "~%.0f metros (GPS)", distance)
-            }
-        }
-        return "Ubicación no disponible"
-    }
-
-    private func requestLocation(for peer: MCPeerID) {
-        // Check location permissions first
-        let authStatus = networkManager.locationService.authorizationStatus
-
-        if authStatus != .authorizedWhenInUse && authStatus != .authorizedAlways {
-            // Request permissions
-            networkManager.locationService.requestPermissions()
-            return
-        }
-
-        // Send location request
-        networkManager.sendLocationRequest(to: peer.displayName)
-
-        // ACCESSIBILITY: Announce action using AudioManager
-        AudioManager.shared.speak("Solicitando ubicación de \(peer.displayName)", priority: .normal)
-    }
 
     private func startChat(with peer: MCPeerID) {
         let peerID = peer.displayName

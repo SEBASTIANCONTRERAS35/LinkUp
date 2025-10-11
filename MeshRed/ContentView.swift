@@ -53,6 +53,9 @@ struct ContentView: View {
     private var mainContent: some View {
         ScrollView {
             LazyVStack(spacing: 20) {
+                // WiFi Configuration Warning Banner
+                NetworkConfigurationWarningBanner(networkManager: networkManager)
+
                 StatusOverviewCard(
                     deviceName: networkManager.localDeviceName,
                     statusText: connectionStatusText,
@@ -89,10 +92,16 @@ struct ContentView: View {
                         networkManager.familyGroupManager.isFamilyMember(peerID: peer.displayName)
                     },
                     reachableFamilyMembers: getReachableFamilyMembers(),
+                    isPeerPendingDisconnect: { peer in
+                        networkManager.isPeerPendingDisconnect(peer)
+                    },
                     onRequestLocation: requestLocation,
                     onNavigate: startNavigation,
                     onReconnectTap: networkManager.restartServicesIfNeeded,
-                    onStartChat: startChat(with:)
+                    onStartChat: startChat(with:),
+                    onDisconnect: { peer in
+                        networkManager.requestDisconnect(from: peer)
+                    }
                 )
 
                 MessagesSection(
@@ -782,10 +791,12 @@ private struct DeviceSection: View {
     let uwbSessionChecker: (MCPeerID) -> Bool
     let isFamilyMember: (MCPeerID) -> Bool
     let reachableFamilyMembers: [(peerID: String, displayName: String, route: [String])]
+    let isPeerPendingDisconnect: (MCPeerID) -> Bool
     let onRequestLocation: (MCPeerID) -> Void
     let onNavigate: (MCPeerID) -> Void
     let onReconnectTap: () -> Void
     let onStartChat: (MCPeerID) -> Void
+    let onDisconnect: (MCPeerID) -> Void
 
     var body: some View {
         SectionCard(
@@ -833,9 +844,11 @@ private struct DeviceSection: View {
                                     hasUWBSession: uwbSessionChecker(peer),
                                     isFamilyMember: isFamilyMember(peer),
                                     localDeviceName: localDeviceName,
+                                    isPendingDisconnect: isPeerPendingDisconnect(peer),
                                     onRequestLocation: onRequestLocation,
                                     onNavigate: onNavigate,
-                                    onStartChat: onStartChat
+                                    onStartChat: onStartChat,
+                                    onDisconnect: onDisconnect
                                 )
                             }
                         }
@@ -1579,15 +1592,17 @@ private struct ConnectedPeerRow: View {
     let hasUWBSession: Bool
     let isFamilyMember: Bool
     let localDeviceName: String
+    let isPendingDisconnect: Bool
     let onRequestLocation: (MCPeerID) -> Void
     let onNavigate: (MCPeerID) -> Void
     let onStartChat: (MCPeerID) -> Void
+    let onDisconnect: (MCPeerID) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 Circle()
-                    .fill(Color.green)
+                    .fill(isPendingDisconnect ? Color.orange : Color.green)
                     .frame(width: 8, height: 8)
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -1595,17 +1610,24 @@ private struct ConnectedPeerRow: View {
                         Text(peer.displayName)
                             .font(.subheadline)
                             .fontWeight(.semibold)
+                            .foregroundColor(isPendingDisconnect ? .secondary : .primary)
 
                         if isFamilyMember {
                             Image(systemName: "person.3.fill")
                                 .font(.caption)
                                 .foregroundColor(.green)
                         }
+
+                        if isPendingDisconnect {
+                            Image(systemName: "clock")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
                     }
 
-                    Text("Conectado")
+                    Text(isPendingDisconnect ? "Desconectando..." : "Conectado")
                         .font(.caption2)
-                        .foregroundColor(.green)
+                        .foregroundColor(isPendingDisconnect ? .orange : .green)
                 }
 
                 Spacer(minLength: 0)
@@ -1621,6 +1643,8 @@ private struct ConnectedPeerRow: View {
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .disabled(isPendingDisconnect)
+                    .opacity(isPendingDisconnect ? 0.5 : 1.0)
 
                     if hasUWBSession {
                         Button(action: { onNavigate(peer) }) {
@@ -1633,6 +1657,8 @@ private struct ConnectedPeerRow: View {
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
+                        .disabled(isPendingDisconnect)
+                        .opacity(isPendingDisconnect ? 0.5 : 1.0)
                     } else {
                         Button(action: { onRequestLocation(peer) }) {
                             Label("Ubicar", systemImage: "location.circle")
@@ -1644,7 +1670,17 @@ private struct ConnectedPeerRow: View {
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
+                        .disabled(isPendingDisconnect)
+                        .opacity(isPendingDisconnect ? 0.5 : 1.0)
                     }
+
+                    // Disconnect button
+                    Button(action: { onDisconnect(peer) }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundColor(isPendingDisconnect ? .orange : .red.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
