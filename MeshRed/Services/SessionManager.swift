@@ -55,7 +55,7 @@ struct PeerConnectionInfo {
 
 class SessionManager {
     static let maxRetryAttempts = 10  // Increased for more persistent reconnection
-    static let connectionTimeout: TimeInterval = 15.0  // Increased for TLS handshake with .required encryption
+    static let connectionTimeout: TimeInterval = 30.0  // DOUBLED: Increased to 30s to allow slower TLS handshakes to complete
     static let blockDuration: TimeInterval = 10.0  // Only block for 10s
     static let cleanupInterval: TimeInterval = 5.0  // Aggressive cleanup every 5s
     static let disconnectionCooldown: TimeInterval = 2.0  // Increased to allow message exchange completion
@@ -287,6 +287,11 @@ class SessionManager {
                     info.connectionStabilityScore = max(-5, info.connectionStabilityScore - 1)
                     print("📉 Stability score decreased for \(peerKey): \(info.connectionStabilityScore)")
                 }
+
+                // FIX: Clear lastSuccessfulConnection to disable grace period
+                // This allows immediate reconnection attempts after disconnect
+                // Grace period was blocking legitimate user-initiated reconnections
+                info.lastSuccessfulConnection = nil
 
                 self.connectionAttempts[peerKey] = info
             } else {

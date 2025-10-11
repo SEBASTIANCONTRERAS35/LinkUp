@@ -9,6 +9,8 @@ import Foundation
 import MultipeerConnectivity
 import Combine
 import NearbyInteraction
+import SystemConfiguration
+import Network
 
 class NetworkManager: NSObject, ObservableObject {
     // MARK: - Published Properties
@@ -21,6 +23,8 @@ class NetworkManager: NSObject, ObservableObject {
     @Published var pendingAcksCount: Int = 0
     @Published var connectionQuality: ConnectionQuality = .unknown
     @Published var networkStats: (attempts: Int, blocked: Int, active: Int) = (0, 0, 0)
+    @Published var hasNetworkConfigurationIssue: Bool = false
+    @Published var networkConfigurationMessage: String = ""
 
     // MARK: - Core Components
     private let serviceType = "meshred-chat"
@@ -84,6 +88,9 @@ class NetworkManager: NSObject, ObservableObject {
     private var uwbRetryCount: [String: Int] = [:]
     private let maxUWBRetries = 3
 
+    // Network monitoring (added for continuous network state tracking)
+    private var networkPathMonitor: NWPathMonitor?
+
     // Network configuration
     private let config = NetworkConfig.shared
 
@@ -95,15 +102,15 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     override init() {
-        // DEVELOPMENT: Use .optional for Simulator-Device compatibility
-        // PRODUCTION: Change back to .required for security
-        #if targetEnvironment(simulator)
-        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .optional)
-        print("🔓 [SIMULATOR] Using .optional encryption for Simulator-Device compatibility")
-        #else
-        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .required)
-        print("🔐 [DEVICE] Using .required encryption for maximum security")
-        #endif
+        // EXTREME DIAGNOSTIC MODE: Use .none encryption to completely bypass TLS
+        // This removes ALL encryption and certificate exchange to isolate the problem
+        // If connections succeed with .none → TLS handshake is the root cause
+        // If connections still fail → Network transport layer issue (WiFi/Bluetooth)
+        // ⚠️⚠️⚠️ SECURITY WARNING: This disables ALL encryption - ONLY for testing
+        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .none)
+        print("🔓🔓🔓 [EXTREME DIAGNOSTIC MODE] Using .none encryption - NO TLS HANDSHAKE")
+        print("⚠️⚠️⚠️ Security COMPLETELY DISABLED - ONLY for root cause diagnosis")
+        print("📊 If this works → TLS is the problem | If this fails → Network transport issue")
         super.init()
 
         // Initialize routing table
@@ -172,6 +179,9 @@ class NetworkManager: NSObject, ObservableObject {
     // MARK: - Public Methods
 
     func startServices() {
+        // Validate network configuration before starting
+        validateNetworkConfiguration()
+
         startAdvertising()
         startBrowsing()
         print("🔄 NetworkManager: Started advertising and browsing services")
@@ -182,6 +192,78 @@ class NetworkManager: NSObject, ObservableObject {
         stopBrowsing()
         session.disconnect()
         print("⏹️ NetworkManager: Stopped all services and disconnected session")
+    }
+
+    // MARK: - Network Configuration Validation
+
+    private func validateNetworkConfiguration() {
+        let pathMonitor = NWPathMonitor()
+        let queue = DispatchQueue(label: "com.meshred.network-monitor")
+
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            guard let self = self else { return }
+
+            let hasWiFi = path.usesInterfaceType(.wifi)
+            let hasCellular = path.usesInterfaceType(.cellular)
+            let isExpensive = path.isExpensive
+            let isConstrained = path.isConstrained
+
+            // Check if WiFi is available but connection is not established
+            let isWiFiEnabledButNotConnected = hasWiFi && path.status != .satisfied
+
+            DispatchQueue.main.async {
+                if isWiFiEnabledButNotConnected {
+                    // WiFi is ON but not connected to any network
+                    self.hasNetworkConfigurationIssue = true
+                    self.networkConfigurationMessage = "WiFi habilitado sin red conectada. Para mejor conectividad: (1) Conecta a una red WiFi, O (2) Desactiva WiFi para usar solo Bluetooth."
+
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("⚠️ CONFIGURACIÓN DE RED PROBLEMÁTICA DETECTADA")
+                    print("   WiFi: Habilitado pero NO conectado")
+                    print("   Bluetooth: Probablemente habilitado")
+                    print("   ")
+                    print("   PROBLEMA:")
+                    print("   MultipeerConnectivity intentará usar WiFi Direct/TCP")
+                    print("   que fallará con timeout (Error Code 60)")
+                    print("   ")
+                    print("   SOLUCIÓN:")
+                    print("   1. Conecta a una red WiFi, O")
+                    print("   2. Desactiva WiFi completamente (Settings → WiFi → OFF)")
+                    print("   ")
+                    print("   Esto forzará el uso de Bluetooth puro que SÍ funciona.")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                } else if !hasWiFi && path.status == .satisfied {
+                    // Good: Bluetooth-only mode or cellular
+                    self.hasNetworkConfigurationIssue = false
+                    self.networkConfigurationMessage = ""
+                    print("✅ Configuración de red: Bluetooth puro (WiFi desactivado) - Óptimo")
+                } else if hasWiFi && path.status == .satisfied {
+                    // Good: WiFi connected
+                    self.hasNetworkConfigurationIssue = false
+                    self.networkConfigurationMessage = ""
+                    print("✅ Configuración de red: WiFi conectado + Bluetooth - Óptimo")
+                }
+
+                // Additional diagnostics
+                print("📡 Estado de red:")
+                print("   Path status: \(path.status)")
+                print("   WiFi available: \(hasWiFi)")
+                print("   Cellular available: \(hasCellular)")
+                print("   Expensive: \(isExpensive)")
+                print("   Constrained: \(isConstrained)")
+            }
+
+            // FIX: Keep monitor alive to detect network changes during runtime
+            // Previously we cancelled after first check, missing network transitions
+            // pathMonitor.cancel()  // ← REMOVED: Monitor stays active
+        }
+
+        pathMonitor.start(queue: queue)
+
+        // Store monitor to keep it alive for continuous monitoring
+        // This allows detecting WiFi connect/disconnect during app runtime
+        self.networkPathMonitor = pathMonitor
+        print("🔍 Network monitor started - will continuously monitor for changes")
     }
 
     // MARK: - Settings Actions
@@ -294,13 +376,9 @@ class NetworkManager: NSObject, ObservableObject {
         }
 
         // Create a new session to clear any DTLS/SSL errors
-        #if targetEnvironment(simulator)
-        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .optional)
-        print("🔓 [RESTART-SIMULATOR] Using .optional encryption for Simulator-Device compatibility")
-        #else
-        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .required)
-        print("🔐 [RESTART-DEVICE] Using .required encryption for maximum security")
-        #endif
+        // EXTREME DIAGNOSTIC: Using .none to completely bypass TLS
+        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .none)
+        print("🔓🔓🔓 [RESTART-DIAGNOSTIC] Using .none encryption - NO TLS HANDSHAKE")
         self.session.delegate = self
 
         // Restart almost immediately for faster recovery
@@ -1947,7 +2025,27 @@ extension NetworkManager: MCSessionDelegate {
                 print("🔄 PEER STATE: CONNECTING")
                 print("   Peer: \(peerID.displayName)")
                 print("   Handshake in progress...")
+                print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : session.encryptionPreference == .optional ? ".optional" : ".none")")
+                print("   Current connected peers in session: \(session.connectedPeers.map { $0.displayName })")
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                // Start a timer to monitor TLS handshake timeout
+                let handshakeStartTime = Date()
+                let peerName = peerID.displayName
+                DispatchQueue.main.asyncAfter(deadline: .now() + 11.0) { [weak self] in
+                    guard let self = self else { return }
+                    // Check if still in connecting state after 11 seconds (iOS internal timeout is 10s)
+                    if !self.connectedPeers.contains(where: { $0.displayName == peerName }) {
+                        let elapsed = Date().timeIntervalSince(handshakeStartTime)
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        print("⚠️ TLS HANDSHAKE TIMEOUT DETECTED")
+                        print("   Peer: \(peerName)")
+                        print("   Elapsed: \(String(format: "%.1f", elapsed))s")
+                        print("   Likely cause: Encryption mismatch or network issue")
+                        print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : ".optional")")
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    }
+                }
 
             case .notConnected:
                 // Aggressively release any connection locks
@@ -2033,7 +2131,11 @@ extension NetworkManager: MCSessionDelegate {
                 if wasConnected {
                     // Force rediscovery for truly disconnected peers
                     self.availablePeers.removeAll { $0 == peerID }
-                    print("🔍 Peer \(peerID.displayName) removed from available peers - requires rediscovery")
+
+                    // FIX: Clear peerEventTimes to allow immediate rediscovery
+                    // Without this, the 10-second deduplication window blocks foundPeer events
+                    self.peerEventTimes.removeValue(forKey: peerID.displayName)
+                    print("🔍 Peer \(peerID.displayName) removed from available peers and event cache - ready for immediate rediscovery")
                 } else {
                     // Keep failed peers in the available list so retry logic can trigger quickly
                     if !self.availablePeers.contains(where: { $0.displayName == peerID.displayName }) {
@@ -2079,8 +2181,28 @@ extension NetworkManager: MCSessionDelegate {
         //
         // For development and encrypted sessions, we accept all certificates.
         // In production, you can add certificate validation logic here.
+
+        let startTime = Date()
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🔐 CERTIFICATE EXCHANGE STARTED")
+        print("   From peer: \(peerID.displayName)")
+        print("   Certificate count: \(certificate?.count ?? 0)")
+        print("   Thread: \(Thread.current.isMainThread ? "MAIN" : "BACKGROUND [\(Thread.current.description)]")")
+        print("   Timestamp: \(Date())")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Accept certificate immediately
         certificateHandler(true)
-        print("🔐 NetworkManager: Certificate received from \(peerID.displayName) - ACCEPTED")
+
+        let elapsed = Date().timeIntervalSince(startTime) * 1000.0 // Convert to milliseconds
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("✅ CERTIFICATE ACCEPTED")
+        print("   Peer: \(peerID.displayName)")
+        print("   Handler response time: \(String(format: "%.2f", elapsed))ms")
+        print("   Total elapsed: \(String(format: "%.2f", elapsed))ms")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 }
 
@@ -2224,6 +2346,7 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("✅ INVITATION ACCEPTED (mutex-free)")
         print("   From: \(peerID.displayName)")
+        print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : session.encryptionPreference == .optional ? ".optional" : ".none")")
         print("   Waiting for iOS to complete handshake...")
         print("   Next: session(_:peer:didChange:) will be called")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
