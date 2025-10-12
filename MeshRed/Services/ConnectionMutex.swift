@@ -7,6 +7,7 @@ class ConnectionMutex {
     private let queue = DispatchQueue(label: "com.meshred.connectionmutex", attributes: .concurrent)
     private var activeOperations: Set<String> = []
     private var pendingConnections: [String: Date] = [:]
+    private var operationTypes: [String: String] = [:]  // Track operation type for each peer
     private let operationTimeout: TimeInterval = 5.0  // Reduced to 5s for faster cleanup
 
     /// Connection operation types
@@ -42,6 +43,7 @@ class ConnectionMutex {
             // Acquire lock
             activeOperations.insert(peerKey)
             pendingConnections[peerKey] = now
+            operationTypes[peerKey] = operation.rawValue  // Store operation type
             print("🔓 Connection mutex: Lock acquired for \(peerKey) - Operation: \(operation.rawValue)")
             return true
         }
@@ -52,6 +54,7 @@ class ConnectionMutex {
         queue.async(flags: .barrier) { [weak self] in
             let peerKey = peer.displayName
             self?.activeOperations.remove(peerKey)
+            self?.operationTypes.removeValue(forKey: peerKey)  // Clear operation type
             print("🔓 Connection mutex: Lock released for \(peerKey)")
         }
     }
@@ -60,6 +63,13 @@ class ConnectionMutex {
     func hasActiveOperation(for peer: MCPeerID) -> Bool {
         return queue.sync {
             activeOperations.contains(peer.displayName)
+        }
+    }
+
+    /// Get the type of operation currently active for a peer
+    func getOperationType(for peer: MCPeerID) -> String? {
+        return queue.sync {
+            operationTypes[peer.displayName]
         }
     }
 
@@ -81,6 +91,7 @@ class ConnectionMutex {
         for peerKey in expiredPeers {
             activeOperations.remove(peerKey)
             pendingConnections.removeValue(forKey: peerKey)
+            operationTypes.removeValue(forKey: peerKey)
             print("🧹 Connection mutex: Cleaned up expired operation for \(peerKey)")
         }
     }
@@ -90,6 +101,7 @@ class ConnectionMutex {
         queue.async(flags: .barrier) { [weak self] in
             self?.activeOperations.removeAll()
             self?.pendingConnections.removeAll()
+            self?.operationTypes.removeAll()
             print("🗑️ Connection mutex: All locks cleared")
         }
     }
@@ -117,6 +129,9 @@ class ConnectionMutex {
                 self.pendingConnections.removeValue(forKey: peerKey)
                 print("🔓 Connection mutex: Cleared pending connection for \(peerKey)")
             }
+
+            // Remove operation type
+            self.operationTypes.removeValue(forKey: peerKey)
         }
     }
 

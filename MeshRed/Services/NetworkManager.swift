@@ -115,6 +115,10 @@ class NetworkManager: NSObject, ObservableObject {
     /// Thread-safe access via processingQueue barriers
     private var peerConnectionStates: [String: PeerConnectionState] = [:]
 
+    /// Set of peers currently in .connecting state (handshake in progress)
+    /// Used by stuck waiting detector to avoid forcing reconnect during active handshakes
+    private var connectingPeers: Set<String> = []
+
     // MARK: - Connection Status Enum
     enum ConnectionStatus {
         case disconnected
@@ -546,13 +550,14 @@ class NetworkManager: NSObject, ObservableObject {
         for (peerKey, waitStartTime) in waitingForInvitationFrom {
             let waitDuration = now.timeIntervalSince(waitStartTime)
 
-            // Progressive timeout: 5s, 6s, 7s... (reduced for faster recovery)
+            // Progressive timeout: 15s, 16s, 17s...
+            // MultipeerConnectivity can take 10-15s for Bluetooth handshake
             let failureCount = failedConnectionAttempts[peerKey] ?? 0
-            let baseTimeout = 5.0  // Reduced from 15s for faster detection
+            let baseTimeout = 15.0  // Extended to allow Bluetooth handshake to complete
             let timeoutThreshold = baseTimeout + (Double(min(failureCount, 3)) * 1.0)
 
-            // Cap maximum wait time at 10 seconds (sockets timeout at ~10s)
-            let effectiveThreshold = min(timeoutThreshold, 10.0)
+            // Cap maximum wait time at 20 seconds (allow for slow Bluetooth handshakes)
+            let effectiveThreshold = min(timeoutThreshold, 20.0)
 
             if waitDuration > effectiveThreshold {
                 stuckPeers.append(peerKey)
@@ -575,10 +580,31 @@ class NetworkManager: NSObject, ObservableObject {
                 continue
             }
 
+            // CRITICAL: Check if peer is currently in .connecting state
+            // If so, handshake is in progress - DO NOT force reconnect
+            if connectingPeers.contains(peerKey) {
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("⏸️ NOT FORCING RECONNECT")
+                print("   Peer: \(peerKey)")
+                print("   Reason: Handshake in progress (.connecting state)")
+                print("   Waiting for MultipeerConnectivity to complete...")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                continue
+            }
+
             waitingForInvitationFrom.removeValue(forKey: peerKey)
 
             // Find the peer and force connect
             if let peer = availablePeers.first(where: { $0.displayName == peerKey }) {
+                // Check if mutex has active operation
+                if connectionMutex.hasActiveOperation(for: peer) {
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("⏸️ NOT FORCING RECONNECT")
+                    print("   Peer: \(peerKey)")
+                    print("   Reason: Active mutex operation in progress")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    continue
+                }
                 print("🔄 FORCE RECONNECT: Overriding conflict resolution for \(peerKey)")
 
                 // Log conflict resolution status for debugging
@@ -937,10 +963,10 @@ class NetworkManager: NSObject, ObservableObject {
 
         // INTELLIGENT DISCONNECTION: Filter out peers marked as pendingDisconnect
         // These peers should not receive or relay messages
-        var blockedPeers: [String] = []
-        processingQueue.sync {
-            blockedPeers = peerConnectionStates.filter { $0.value == .pendingDisconnect }.map { $0.key }
-        }
+        // NOTE: Already executing on processingQueue (via processMessageQueue), safe to access peerConnectionStates directly
+        let blockedPeers = peerConnectionStates
+            .filter { $0.value == .pendingDisconnect }
+            .map { $0.key }
 
         if !blockedPeers.isEmpty {
             let originalCount = targetPeers.count
@@ -962,8 +988,7 @@ class NetworkManager: NSObject, ObservableObject {
                 )
             }
             if targetPeers.count < connectedPeers.count {
-                print("🧪 TEST MODE: Forcing multi-hop by limiting direct connections")
-                print("🧪 Allowed peers: \(targetPeers.map { $0.displayName })")
+                print("🧪 TEST MODE: Forcing multi-hop - Allowed peers: \(targetPeers.map { $0.displayName })")
             }
         }
 
@@ -976,6 +1001,9 @@ class NetworkManager: NSObject, ObservableObject {
             print("📤 Sent to \(targetPeers.count) peers - Type: \(message.messageType.displayName)")
         } catch {
             print("❌ Failed to send message: \(error.localizedDescription)")
+            if let nsError = error as NSError? {
+                print("   Error: [\(nsError.domain)] Code \(nsError.code)")
+            }
         }
     }
 
@@ -2652,6 +2680,9 @@ extension NetworkManager: MCSessionDelegate {
             case .connected:
                 print("🔍 DEBUG: Handling .connected state...")
 
+                // Remove from connecting peers set
+                self.connectingPeers.remove(peerID.displayName)
+
                 // Release any connection locks
                 print("   Step 1: Releasing connection mutex...")
                 self.connectionMutex.releaseLock(for: peerID)
@@ -2772,6 +2803,10 @@ extension NetworkManager: MCSessionDelegate {
             case .connecting:
                 print("🔍 DEBUG: Handling .connecting state...")
                 self.connectionStatus = .connecting
+
+                // Track this peer as currently connecting
+                self.connectingPeers.insert(peerID.displayName)
+
                 // No longer need mutex here - iOS handles connection serialization
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 print("🔄 PEER STATE: CONNECTING")
@@ -2779,6 +2814,7 @@ extension NetworkManager: MCSessionDelegate {
                 print("   Handshake in progress...")
                 print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : session.encryptionPreference == .optional ? ".optional" : ".none")")
                 print("   Current connected peers in session: \(session.connectedPeers.map { $0.displayName })")
+                print("   🔒 Added to connectingPeers set (protected from forced reconnect)")
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 // Start a timer to monitor TLS handshake timeout
@@ -2800,6 +2836,9 @@ extension NetworkManager: MCSessionDelegate {
                 }
 
             case .notConnected:
+                // Remove from connecting peers set
+                self.connectingPeers.remove(peerID.displayName)
+
                 // Aggressively release any connection locks
                 self.connectionMutex.releaseLock(for: peerID)
 
@@ -3070,12 +3109,44 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
         // MultipeerConnectivity already handles connection serialization internally
         // The mutex was causing deadlock when iOS tried to deliver session callbacks
 
-        // Check if another operation is in progress
+        // CRITICAL: Check if another operation is in progress
         print("🔍 DEBUG STEP 7: Checking ConnectionMutex...")
         let mutexHasOperation = connectionMutex.hasActiveOperation(for: peerID)
         print("   Mutex has active operation: \(mutexHasOperation)")
 
+        // CRITICAL DEADLOCK PREVENTION:
+        // If we have an active browser_invite operation, it means WE are trying to connect to THEM
+        // and now THEY are trying to connect to US → BIDIRECTIONAL DEADLOCK
         if mutexHasOperation {
+            let operationType = connectionMutex.getOperationType(for: peerID)
+            print("   Current operation type: \(operationType ?? "unknown")")
+
+            // If we're in the middle of inviting them, check conflict resolution
+            // Only the peer who SHOULD accept actually accepts
+            if operationType == "browser_invite" {
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("🚨 BIDIRECTIONAL CONNECTION DETECTED")
+                print("   We are inviting: \(peerID.displayName)")
+                print("   They are inviting: \(localPeerID.displayName)")
+
+                // Use conflict resolver to decide who accepts
+                let weShouldAccept = conflictResolutionSaysAccept
+                if weShouldAccept {
+                    print("   ✅ Conflict resolver says WE should accept")
+                    print("   → Canceling our browser_invite and accepting their invitation")
+                    connectionMutex.releaseLock(for: peerID)
+                    // Continue to acceptance below
+                } else {
+                    print("   🛑 Conflict resolver says THEY should accept")
+                    print("   → DECLINING their invitation, our browser_invite continues")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    invitationHandler(false, nil)
+                    return
+                }
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            }
+
+            // For other operation types, handle as before
             if hasFailedConnections || sessionManagerBlocking {
                 print("⚠️ Force accepting invitation to break potential deadlock")
                 print("   Releasing stuck mutex lock...")
@@ -3300,7 +3371,17 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
                     let shouldConnect: Bool
                     if self.isOrchestratorEnabled {
                         print("   🎯 Using Orchestrator for decision")
-                        shouldConnect = self.shouldConnectToDiscoveredPeer(peerID, discoveryInfo: info)
+                        let orchestratorAccepts = self.shouldConnectToDiscoveredPeer(peerID, discoveryInfo: info)
+
+                        // CRITICAL: Orchestrator must respect conflict resolution to prevent bidirectional deadlock
+                        // Only initiate if BOTH orchestrator approves AND we should be the initiator
+                        if orchestratorAccepts && !shouldInitiate {
+                            print("   ⚠️ Orchestrator approved BUT conflict resolver says WAIT")
+                            print("   → Will wait for their invitation instead of initiating")
+                            shouldConnect = false
+                        } else {
+                            shouldConnect = orchestratorAccepts && shouldInitiate
+                        }
                     } else {
                         // Legacy decision logic
                         shouldConnect = !alreadyConnected &&
@@ -3314,10 +3395,11 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         print("✅ INITIATING CONNECTION")
                         print("   To: \(peerID.displayName)")
-                        print("   Reason: \(self.isOrchestratorEnabled ? "Orchestrator approved" : "All criteria met")")
+                        print("   Reason: \(self.isOrchestratorEnabled ? "Orchestrator + Conflict resolver approved" : "All criteria met")")
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         self.waitingForInvitationFrom.removeValue(forKey: peerKey)  // Clear waiting status
-                        self.connectToPeer(peerID)
+                        // Don't force ignore conflict resolution - we already checked it above
+                        self.connectToPeer(peerID, forceIgnoreConflictResolution: false)
                     } else {
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         print("⏸️ SKIPPING CONNECTION")

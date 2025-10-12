@@ -19,6 +19,7 @@ struct AccessibilitySettingsView: View {
     @State private var selectedPreset: AccessibilitySettingsManager.AccessibilityPreset?
     @State private var showTestingPanel = false
     @State private var showDisplayNameSettings = false
+    @State private var showingClearDataAlert = false
 
     var body: some View {
         NavigationView {
@@ -43,6 +44,9 @@ struct AccessibilitySettingsView: View {
 
                     // Testing Panel
                     testingPanelSection
+
+                    // Developer Tools
+                    developerToolsSection
 
                     // Reset Button
                     resetButton
@@ -71,6 +75,15 @@ struct AccessibilitySettingsView: View {
                 }
             } message: {
                 Text("¿Estás seguro de que quieres restablecer toda la configuración de accesibilidad a los valores recomendados?")
+            }
+            .alert("⚠️ Borrar TODOS los Datos", isPresented: $showingClearDataAlert) {
+                Button("Cancelar", role: .cancel) { }
+                Button("Borrar Todo", role: .destructive) {
+                    DataCleaner.clearAllData()
+                    announceChange("Todos los datos han sido eliminados. Reinicia la app.")
+                }
+            } message: {
+                Text("Esta acción eliminará TODOS los datos de la app:\n• Mensajes\n• Conexiones\n• Geofences\n• Grupos familiares\n• Configuración\n• Caché\n\nDeberás reiniciar la app después. ¿Continuar?")
             }
         }
     }
@@ -775,6 +788,102 @@ struct AccessibilitySettingsView: View {
         }
     }
 
+    // MARK: - Developer Tools
+
+    private var developerToolsSection: some View {
+        SettingsSection(
+            icon: "wrench.and.screwdriver.fill",
+            title: "Herramientas de Desarrollo",
+            description: "Limpiar caché y datos de prueba",
+            iconColor: .orange
+        ) {
+            VStack(spacing: 12) {
+                // Clear all data button
+                Button {
+                    clearAllDataWithConfirmation()
+                } label: {
+                    HStack {
+                        Image(systemName: "trash.circle.fill")
+                            .foregroundColor(.red)
+                        Text("Borrar TODOS los Datos")
+                            .fontWeight(.semibold)
+                        Spacer()
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(.orange)
+                    }
+                    .padding()
+                    .background(accessibleTheme.cardBackground)
+                    .cornerRadius(12)
+                }
+                .accessibilityLabel("Borrar todos los datos")
+                .accessibilityHint("Limpia completamente mensajes, conexiones, caché y configuración")
+
+                // Clear specific components
+                Menu {
+                    Button {
+                        DataCleaner.clearComponentData(component: .messages)
+                        announceChange("Mensajes eliminados")
+                    } label: {
+                        Label("Mensajes", systemImage: "message.fill")
+                    }
+
+                    Button {
+                        DataCleaner.clearComponentData(component: .connections)
+                        announceChange("Conexiones eliminadas")
+                    } label: {
+                        Label("Conexiones", systemImage: "person.2.fill")
+                    }
+
+                    Button {
+                        DataCleaner.clearComponentData(component: .geofences)
+                        announceChange("Geofences eliminados")
+                    } label: {
+                        Label("Geofences", systemImage: "mappin.circle.fill")
+                    }
+
+                    Button {
+                        DataCleaner.clearComponentData(component: .familyGroups)
+                        announceChange("Grupos familiares eliminados")
+                    } label: {
+                        Label("Grupos Familiares", systemImage: "person.3.fill")
+                    }
+
+                    Button {
+                        DataCleaner.clearComponentData(component: .reputation)
+                        announceChange("Sistema de reputación reiniciado")
+                    } label: {
+                        Label("Reputación", systemImage: "star.fill")
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "slider.horizontal.3")
+                        Text("Borrar Componentes Específicos")
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                    }
+                    .padding()
+                    .background(accessibleTheme.cardBackground)
+                    .cornerRadius(12)
+                }
+                .accessibilityLabel("Borrar componentes específicos")
+
+                // Warning message
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundColor(.orange)
+                    Text("Estas acciones son irreversibles. Usa solo para desarrollo y pruebas.")
+                        .font(.caption)
+                        .foregroundColor(accessibleTheme.textSecondary)
+                }
+                .padding()
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(8)
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(accessibleTheme.textPrimary)
+        }
+    }
+
     // MARK: - Reset Button
 
     private var resetButton: some View {
@@ -842,6 +951,10 @@ struct AccessibilitySettingsView: View {
         #if os(iOS)
         UIAccessibility.post(notification: .announcement, argument: message)
         #endif
+    }
+
+    private func clearAllDataWithConfirmation() {
+        showingClearDataAlert = true
     }
 
     private func clearAllConnections() {
