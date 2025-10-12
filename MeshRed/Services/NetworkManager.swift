@@ -27,7 +27,7 @@ class NetworkManager: NSObject, ObservableObject {
     @Published var networkConfigurationMessage: String = ""
 
     // MARK: - Core Components
-    private let serviceType = "meshred-chat"
+    internal let serviceType = "meshred-chat"
     internal let localPeerID: MCPeerID = {
         let deviceName = ProcessInfo.processInfo.hostName
         // Use public name from UserDisplayNameManager
@@ -37,8 +37,8 @@ class NetworkManager: NSObject, ObservableObject {
         return MCPeerID(displayName: publicName)
     }()
     internal var session: MCSession
-    private var advertiser: MCNearbyServiceAdvertiser?
-    private var browser: MCNearbyServiceBrowser?
+    internal var advertiser: MCNearbyServiceAdvertiser?
+    internal var browser: MCNearbyServiceBrowser?
 
     // MARK: - Message Store
     let messageStore = MessageStore()
@@ -65,7 +65,7 @@ class NetworkManager: NSObject, ObservableObject {
     private let ackManager = AckManager()
     internal let sessionManager = SessionManager()
     let healthMonitor = PeerHealthMonitor()
-    private let connectionMutex = ConnectionMutex()
+    internal let connectionMutex = ConnectionMutex()
 
     // MARK: - Location Components
     let locationService = LocationService()
@@ -96,7 +96,16 @@ class NetworkManager: NSObject, ObservableObject {
     private var networkPathMonitor: NWPathMonitor?
 
     // Network configuration
-    private let config = NetworkConfig.shared
+    internal var config = NetworkConfig.shared
+
+    // MARK: - Stadium Mode Components
+    private var stadiumMode: StadiumMode?
+    private var lightningManager: LightningMeshManager?
+    private var isLightningModeActive: Bool = false
+
+    // MARK: - Lightning Mode Tracking
+    internal var connectionAttemptTimestamps: [String: Date] = [:]
+    internal var lightningConnectionTimes: [TimeInterval] = []
 
     // MARK: - Route Discovery Management
     /// Pending route discovery requests with completion handlers
@@ -119,6 +128,10 @@ class NetworkManager: NSObject, ObservableObject {
     /// Used by stuck waiting detector to avoid forcing reconnect during active handshakes
     private var connectingPeers: Set<String> = []
 
+    /// Set of peers that have started certificate exchange
+    /// Used to detect handshake stalls (if peer stays in .connecting but never reaches certificate exchange)
+    private var certificateExchangeStarted: Set<String> = []
+
     // MARK: - Connection Status Enum
     enum ConnectionStatus {
         case disconnected
@@ -127,15 +140,32 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     override init() {
-        // EXTREME DIAGNOSTIC MODE: Use .none encryption to completely bypass TLS
-        // This removes ALL encryption and certificate exchange to isolate the problem
-        // If connections succeed with .none → TLS handshake is the root cause
-        // If connections still fail → Network transport layer issue (WiFi/Bluetooth)
-        // ⚠️⚠️⚠️ SECURITY WARNING: This disables ALL encryption - ONLY for testing
-        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .none)
-        print("🔓🔓🔓 [EXTREME DIAGNOSTIC MODE] Using .none encryption - NO TLS HANDSHAKE")
-        print("⚠️⚠️⚠️ Security COMPLETELY DISABLED - ONLY for root cause diagnosis")
-        print("📊 If this works → TLS is the problem | If this fails → Network transport issue")
+        // PRODUCTION MODE: Use .optional encryption (allows both encrypted and unencrypted)
+        // .optional provides best balance: tries encryption but falls back if needed
+        // Previous diagnostic mode (.none) confirmed issue was NOT TLS-related but state corruption
+        // With improved session recreation and intelligent delays, .optional now works reliably
+
+        // Encryption preference configuration:
+        // .none = No encryption (diagnostic only, fastest handshake)
+        // .optional = Preferred encryption with fallback (RECOMMENDED for production)
+        // .required = Always encrypted (most secure but may fail with older devices)
+        let encryptionMode: MCEncryptionPreference = .optional
+
+        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: encryptionMode)
+
+        switch encryptionMode {
+        case .none:
+            print("🔓 [DIAGNOSTIC MODE] Using .none encryption - NO TLS HANDSHAKE")
+            print("⚠️ Security DISABLED - Debug mode only")
+        case .optional:
+            print("🔒 [PRODUCTION MODE] Using .optional encryption")
+            print("✅ Secure connections preferred, fallback available")
+        case .required:
+            print("🔐 [SECURE MODE] Using .required encryption")
+            print("✅ All connections must be encrypted")
+        @unknown default:
+            print("❓ Unknown encryption mode")
+        }
         super.init()
 
         // Initialize routing table
@@ -165,6 +195,7 @@ class NetworkManager: NSObject, ObservableObject {
         startHealthCheck()
         startWaitingCheckTimer()
         startTopologyBroadcastTimer()
+        startAdvertiserHealthCheck()
 
         // Setup notification observers for settings actions
         setupNotificationObservers()
@@ -175,6 +206,23 @@ class NetworkManager: NSObject, ObservableObject {
         #endif
 
         print("🚀 NetworkManager: Initialized with peer ID: \(localPeerID.displayName)")
+
+        // 🏟️ CONFIGURE STADIUM MODE MANAGER
+        // Setup dependencies for automatic activation on first connection
+        StadiumModeManager.shared.setup(
+            networkManager: self,
+            locationService: locationService
+        )
+        print("🏟️ StadiumModeManager configured - will auto-activate on first peer connection")
+
+        // ⚡ AUTO-ACTIVATE LIGHTNING MODE FOR FIFA 2026
+        // Use simplified Lightning Mode - only core optimizations, no experimental features
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.enableLightningMode()
+            print("⚡⚡⚡ LIGHTNING MODE AUTO-ACTIVATED ⚡⚡⚡")
+            print("🏟️ FIFA 2026 Ready: Fast connections enabled by default")
+            print("⚡ Using simplified mode: No cooldowns, faster timeouts, bypass validations")
+        }
     }
 
     deinit {
@@ -369,6 +417,7 @@ class NetworkManager: NSObject, ObservableObject {
 
     private var serviceRestartTimer: Timer?
     private var lastServiceRestart = Date.distantPast
+    private var lastSessionRecreation = Date.distantPast  // Track session recreation for intelligent retry delays
     private var consecutiveFailures = 0
     private var failedConnectionAttempts: [String: Int] = [:]  // Track failed attempts per peer
     private var lastPeerDiscoveryTime = Date()  // Track when we last discovered a peer
@@ -400,10 +449,10 @@ class NetworkManager: NSObject, ObservableObject {
             self?.waitingForInvitationFrom.removeAll()  // Clear waiting status
         }
 
-        // Create a new session to clear any DTLS/SSL errors
-        // EXTREME DIAGNOSTIC: Using .none to completely bypass TLS
-        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .none)
-        print("🔓🔓🔓 [RESTART-DIAGNOSTIC] Using .none encryption - NO TLS HANDSHAKE")
+        // Create a new session to clear any corrupted state
+        // Use .optional for production (secure but flexible)
+        self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .optional)
+        print("🔒 [RESTART] Creating new session with .optional encryption")
         self.session.delegate = self
 
         // Restart almost immediately for faster recovery
@@ -425,13 +474,25 @@ class NetworkManager: NSObject, ObservableObject {
         print("⚠️ Connection failure #\(failCount) for \(peerKey)")
 
         // CRITICAL FIX: Recreate session after 2+ failures with same peer to clear corrupted state
+        // BUT: Only if no handshakes are currently in progress (prevents interrupting active connections)
         if failCount >= 2 {
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("🔄 RECREATING SESSION")
-            print("   Reason: \(failCount) consecutive failures with \(peerKey)")
-            print("   Session may have corrupted state from failed handshakes")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            recreateSession()
+            if connectingPeers.isEmpty {
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("🔄 RECREATING SESSION")
+                print("   Reason: \(failCount) consecutive failures with \(peerKey)")
+                print("   Session may have corrupted state from failed handshakes")
+                print("   No handshakes in progress - safe to recreate")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                recreateSession()
+            } else {
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("⏸️ DEFERRED SESSION RECREATION")
+                print("   Reason: \(failCount) consecutive failures with \(peerKey)")
+                print("   Handshakes in progress: \(connectingPeers.count)")
+                print("   Connecting to: \(Array(connectingPeers).joined(separator: ", "))")
+                print("   Will recreate after current handshakes complete")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            }
         }
 
         if consecutiveFailures >= 5 {
@@ -439,11 +500,24 @@ class NetworkManager: NSObject, ObservableObject {
             restartServicesIfNeeded()
             failedConnectionAttempts.removeAll()  // Reset after restart
         } else {
-            // Try to reconnect after a delay using exponential backoff
-            // Backoff: 2s, 4s, 8s, 16s (capped at 16s)
-            let baseDelay: TimeInterval = 2.0
-            let exponentialDelay = baseDelay * pow(2.0, Double(min(consecutiveFailures - 1, 3)))
-            let delay = min(exponentialDelay, 16.0)
+            // INTELLIGENT RETRY DELAY SYSTEM
+            // Base delay increased from 2s to 5s to give iOS more time to clean up state
+            // Exponential backoff: 5s, 10s, 16s (capped at 16s)
+            let baseDelay: TimeInterval = 5.0
+            let exponentialDelay = baseDelay * pow(2.0, Double(min(consecutiveFailures - 1, 2)))
+            var delay = min(exponentialDelay, 16.0)
+
+            // CRITICAL FIX: Add extra delay after session recreation
+            // iOS needs time to fully clean up internal MCSession state after disconnect
+            let timeSinceRecreation = Date().timeIntervalSince(lastSessionRecreation)
+            if timeSinceRecreation < 5.0 {
+                // Session was recently recreated - add 3s grace period
+                let extraDelay: TimeInterval = 3.0
+                delay += extraDelay
+                print("⏰ Session recently recreated (\(String(format: "%.1f", timeSinceRecreation))s ago)")
+                print("   Adding \(Int(extraDelay))s grace period for iOS cleanup")
+                print("   Total delay: \(Int(delay))s")
+            }
 
             print("⏳ Will retry connection to \(peerKey) in \(Int(delay))s (attempt #\(failCount))")
 
@@ -461,17 +535,39 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     /// Recreate MCSession to clear corrupted state after failed connection attempts
-    private func recreateSession() {
+    /// Also performs deep cleanup of advertiser/browser and internal state
+    internal func recreateSession() {
+        let oldSessionAddress = Unmanaged.passUnretained(session).toOpaque()
+
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("✨ RECREATING MC SESSION")
+        print("✨ RECREATING MC SESSION - DEEP CLEANUP")
         print("   Old session: \(session)")
+        print("   Old session memory address: \(oldSessionAddress)")
         print("   Connected peers before: \(session.connectedPeers.map { $0.displayName })")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-        // Disconnect all peers from old session
+        // STEP 1: Disconnect all peers from old session
+        print("   Step 1: Disconnecting old session...")
         session.disconnect()
 
-        // Create fresh session with same encryption preference
+        // STEP 2: Clear waiting states (prevents stuck invitation waits)
+        print("   Step 2: Clearing waiting states...")
+        waitingForInvitationFrom.removeAll()
+
+        // STEP 3: Stop and restart advertiser/browser to clear discovery state
+        // This ensures iOS MultipeerConnectivity framework fully resets
+        print("   Step 3: Restarting advertiser and browser...")
+        advertiser?.stopAdvertisingPeer()
+        browser?.stopBrowsingForPeers()
+
+        // Small delay to let iOS process the stop
+        Thread.sleep(forTimeInterval: 0.1)
+
+        advertiser?.startAdvertisingPeer()
+        browser?.startBrowsingForPeers()
+
+        // STEP 4: Create fresh session with same encryption preference
+        print("   Step 4: Creating new session...")
         let oldEncryption = session.encryptionPreference
         self.session = MCSession(
             peer: localPeerID,
@@ -480,9 +576,20 @@ class NetworkManager: NSObject, ObservableObject {
         )
         self.session.delegate = self
 
-        print("✨ New session created: \(session)")
+        // STEP 5: Record recreation timestamp for intelligent retry delays
+        lastSessionRecreation = Date()
+
+        let newSessionAddress = Unmanaged.passUnretained(self.session).toOpaque()
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("✅ SESSION RECREATION COMPLETE")
+        print("   New session: \(session)")
+        print("   New session memory address: \(newSessionAddress)")
+        print("   Session changed: \(oldSessionAddress != newSessionAddress ? "✅ YES" : "❌ NO (BUG!)")")
         print("   Encryption: \(oldEncryption == .required ? ".required" : oldEncryption == .optional ? ".optional" : ".none")")
-        print("   State: Clean (no corrupted channels or buffers)")
+        print("   Advertiser/Browser: Restarted")
+        print("   Waiting states: Cleared")
+        print("   State: Fully clean (ready for fresh handshake)")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
@@ -508,7 +615,19 @@ class NetworkManager: NSObject, ObservableObject {
             if self.connectedPeers.isEmpty {
                 if self.availablePeers.isEmpty {
                     // No peers at all - wait longer before restarting (20 seconds)
-                    if now.timeIntervalSince(self.lastServiceRestart) > 20.0 {
+                    // BUT: Don't restart if we're waiting for an invitation (advertiser must stay up)
+                    // ⚡ ULTRA-FAST: Keep advertiser always running in Lightning Mode
+                    let isWaitingForInvitation = !self.waitingForInvitationFrom.isEmpty
+                    let isUltraFast = self.isUltraFastModeEnabled
+
+                    if isWaitingForInvitation || isUltraFast {
+                        if isUltraFast {
+                            print("⚡ ULTRA-FAST: Keeping advertiser alive for instant connections")
+                        } else {
+                            print("⏸️ No auto-restart: Waiting for invitation from \(self.waitingForInvitationFrom.count) peer(s)")
+                            print("   Advertiser must stay alive to receive incoming connections")
+                        }
+                    } else if now.timeIntervalSince(self.lastServiceRestart) > 20.0 {
                         print("⚠️ No peers found for 20 seconds. Auto-restarting...")
                         self.restartServicesIfNeeded()
                     }
@@ -530,6 +649,33 @@ class NetworkManager: NSObject, ObservableObject {
                 if now.timeIntervalSince(self.lastPeerDiscoveryTime) > 30.0 {
                     print("🔄 No peers in 30s. Force restarting...")
                     self.restartServicesIfNeeded()
+                }
+            }
+        }
+    }
+
+    private func startAdvertiserHealthCheck() {
+        // ⚡ Check advertiser health every 5 seconds
+        Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+
+            // Only check if we're supposed to be advertising
+            if self.advertiser != nil {
+                // Verify advertiser delegate is still set (iOS bug sometimes clears it)
+                if self.advertiser?.delegate == nil {
+                    print("⚠️ ADVERTISER DEAD - Delegate was nil!")
+                    print("   Restarting advertiser to restore incoming connections...")
+
+                    // Restart advertiser
+                    self.stopAdvertising()
+                    self.startAdvertising()
+                    print("✅ Advertiser restarted")
+                }
+
+                // In Ultra-Fast mode, ensure advertiser is always running
+                if self.isUltraFastModeEnabled && self.advertiser == nil {
+                    print("⚡ ULTRA-FAST: Restarting advertiser (should always be active)")
+                    self.startAdvertising()
                 }
             }
         }
@@ -1352,10 +1498,25 @@ class NetworkManager: NSObject, ObservableObject {
         }
         print("   ✓ Not manually blocked")
 
-        // Check conflict resolution (unless forcing)
+        // Check for bidirectional mode (Connection refused recovery OR Ultra-Fast mode)
+        print("   Step 2.5: Checking bidirectional mode...")
+        let useBidirectionalMode = sessionManager.shouldUseBidirectionalConnection(for: peerID) || isUltraFastModeEnabled
+        if useBidirectionalMode {
+            if isUltraFastModeEnabled {
+                print("   ⚡ ULTRA-FAST BIDIRECTIONAL MODE ALWAYS ACTIVE")
+                print("      Lightning Mode Ultra-Fast: Both peers always connect simultaneously")
+                print("      Target: <3 second connections for FIFA 2026 stadiums")
+            } else {
+                print("   🔀 BIDIRECTIONAL MODE ACTIVE for \(peerID.displayName)")
+                print("      Previous connection attempts failed with 'Connection refused'")
+                print("      Both peers will attempt connection simultaneously")
+            }
+        }
+
+        // Check conflict resolution (unless forcing or bidirectional mode)
         print("   Step 3: Checking conflict resolution...")
-        if !forceIgnoreConflictResolution {
-            let shouldInitiate = ConnectionConflictResolver.shouldInitiateConnection(localPeer: localPeerID, remotePeer: peerID)
+        if !forceIgnoreConflictResolution && !useBidirectionalMode {
+            let shouldInitiate = ConnectionConflictResolver.shouldInitiateConnection(localPeer: localPeerID, remotePeer: peerID, overrideBidirectional: useBidirectionalMode)
             print("      Should initiate: \(shouldInitiate)")
             print("      Local ID: \(localPeerID.displayName)")
             print("      Remote ID: \(peerID.displayName)")
@@ -1363,8 +1524,10 @@ class NetworkManager: NSObject, ObservableObject {
                 print("🆔 CONNECT ABORTED: Conflict resolution says we should defer to \(peerID.displayName)")
                 return
             }
-        } else {
+        } else if forceIgnoreConflictResolution {
             print("⚡ FORCING connection - bypassing conflict resolution")
+        } else if useBidirectionalMode {
+            print("🔀 BIDIRECTIONAL MODE - bypassing conflict resolution")
         }
         print("   ✓ Conflict resolution passed")
 
@@ -1410,6 +1573,52 @@ class NetworkManager: NSObject, ObservableObject {
         print("   ✓ invitePeer() called")
         print("   Waiting for remote peer to accept invitation...")
         print("   If accepted, session(_:peer:didChange: .connecting) will be called")
+
+        // Early detection for "Connection refused" errors (typically happen within 1-3 seconds)
+        // ⚡⚡ ULTRA-FAST MODE: Reduced to 1 second for instant detection
+        let detectionDelay = self.isUltraFastModeEnabled ? 1.0 : 3.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + detectionDelay) { [weak self] in
+            guard let self = self else { return }
+
+            // Check if still trying to connect after 3 seconds with no response
+            let isStillWaiting = self.connectionMutex.hasActiveOperation(for: peerID) &&
+                                !self.connectedPeers.contains(where: { $0.displayName == peerID.displayName }) &&
+                                !self.connectingPeers.contains(peerID.displayName)
+
+            if isStillWaiting {
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("⚡ ULTRA-FAST CONNECTION FAILURE DETECTION")
+                print("   Peer: \(peerID.displayName)")
+                print("   No response after \(Int(detectionDelay)) second(s)")
+                print("   Likely cause: Connection refused (error 61)")
+                print("   Recording as connection refused...")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                // Record this as a connection refused error
+                self.sessionManager.recordConnectionRefused(to: peerID)
+
+                // Check if we should retry with bidirectional mode
+                if self.sessionManager.shouldUseBidirectionalConnection(for: peerID) {
+                    // ⚡ Get per-peer backoff delay from SessionManager
+                    let retryDelay = self.sessionManager.getRetryDelay(for: peerID)
+                    print("⚡ Scheduling retry with BIDIRECTIONAL MODE")
+                    print("   Delay: \(retryDelay)s (per-peer progressive backoff)")
+
+                    // Release the lock first
+                    self.connectionMutex.releaseLock(for: peerID)
+
+                    // Schedule retry with bidirectional mode (with per-peer backoff)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) {
+                        print("⚡ RETRY with bidirectional mode for \(peerID.displayName)")
+                        self.connectToPeer(peerID, forceIgnoreConflictResolution: false)
+                    }
+                } else {
+                    // Circuit breaker might be active or max attempts reached
+                    print("🛑 No retry scheduled for \(peerID.displayName)")
+                    self.connectionMutex.releaseLock(for: peerID)
+                }
+            }
+        }
 
         // Watchdog: if the session never transitions, clear the lock to avoid deadlocks
         let handshakeTimeout = SessionManager.connectionTimeout + 4.0
@@ -1593,7 +1802,15 @@ class NetworkManager: NSObject, ObservableObject {
         }
         lastAdvertiseTime = now
 
-        advertiser = MCNearbyServiceAdvertiser(peer: localPeerID, discoveryInfo: nil, serviceType: serviceType)
+        // Create discovery info based on Lightning Mode status
+        let discoveryInfo: [String: String]? = isLightningModeEnabled ?
+            ["lightning": "true", "stream": "2"] : nil
+
+        advertiser = MCNearbyServiceAdvertiser(
+            peer: localPeerID,
+            discoveryInfo: discoveryInfo,
+            serviceType: serviceType
+        )
         advertiser?.delegate = self
         advertiser?.startAdvertisingPeer()
 
@@ -1601,10 +1818,24 @@ class NetworkManager: NSObject, ObservableObject {
             self.isAdvertising = true
         }
 
-        print("📡 NetworkManager: Started advertising with service type: \(serviceType)")
+        print("📡 NetworkManager: Started advertising")
+        print("   Service type: \(serviceType)")
+        print("   Local peer: \(localPeerID.displayName)")
+        print("   Discovery info: \(discoveryInfo)")
+        print("   Delegate set: \(advertiser?.delegate != nil)")
+        print("   Lightning Mode: \(isLightningModeEnabled)")
     }
 
-    private func stopAdvertising() {
+    internal func stopAdvertising() {
+        print("🛑 STOPPING ADVERTISER - DEBUG INFO:")
+        print("   Current advertiser: \(advertiser != nil ? "EXISTS" : "NIL")")
+        print("   Was advertising: \(isAdvertising)")
+        print("   Waiting for invitation from: \(waitingForInvitationFrom.count) peers")
+        if !waitingForInvitationFrom.isEmpty {
+            print("   ⚠️ WARNING: Stopping advertiser while waiting for invitations!")
+            print("   Waiting from: \(Array(waitingForInvitationFrom.keys))")
+        }
+
         advertiser?.stopAdvertisingPeer()
         advertiser = nil
 
@@ -1613,6 +1844,69 @@ class NetworkManager: NSObject, ObservableObject {
         }
 
         print("📡 NetworkManager: Stopped advertising")
+    }
+
+    // MARK: - Stadium Mode Methods
+
+    /// Activate Stadium Mode for FIFA 2026 with ultra-fast connections
+    func activateStadiumMode(profile: StadiumMode.StadiumProfile = .megaStadium) {
+        print("🏟️🏟️🏟️ ACTIVATING STADIUM MODE FOR FIFA 2026 🏟️🏟️🏟️")
+
+        // Initialize Stadium Mode if not already created
+        if stadiumMode == nil {
+            stadiumMode = StadiumMode(networkManager: self)
+        }
+
+        // Initialize Lightning Manager for ultra-fast connections
+        if lightningManager == nil {
+            lightningManager = LightningMeshManager(localPeerID: localPeerID)
+        }
+
+        // Activate Stadium Mode
+        stadiumMode?.activate(profile: profile)
+
+        // Activate Lightning connections for sub-second performance
+        lightningManager?.activateLightningMode(.lightning)
+        isLightningModeActive = true
+
+        // Enable Lightning Mode in NetworkManager extension
+        enableLightningMode()
+
+        print("🏟️ Stadium Mode ACTIVE - Target: <1s connections for 80,000+ users")
+    }
+
+    /// Deactivate Stadium Mode and return to normal operation
+    func deactivateStadiumMode() {
+        print("🏟️ Deactivating Stadium Mode...")
+
+        stadiumMode?.deactivate()
+        lightningManager?.deactivate()
+        isLightningModeActive = false
+
+        // Disable Lightning Mode
+        disableLightningMode()
+
+        print("✅ Returned to normal mode")
+    }
+
+    /// Get current Stadium Mode status
+    func getStadiumModeStatus() -> String {
+        guard let stadiumMode = stadiumMode, stadiumMode.isActive else {
+            return "Stadium Mode: INACTIVE"
+        }
+
+        var status = stadiumMode.getStatus()
+
+        if let lightningStatus = lightningManager?.getStatus() {
+            status += "\n\n" + lightningStatus
+        }
+
+        return status
+    }
+
+    /// Switch Stadium zone (affects connection priority)
+    func switchStadiumZone(_ zone: StadiumMode.StadiumZone) {
+        stadiumMode?.switchZone(zone)
     }
 
     private func startProcessingTimer() {
@@ -1652,7 +1946,7 @@ class NetworkManager: NSObject, ObservableObject {
         print("🔍 NetworkManager: Started browsing for peers")
     }
 
-    private func stopBrowsing() {
+    internal func stopBrowsing() {
         browser?.stopBrowsingForPeers()
         browser = nil
 
@@ -2671,9 +2965,26 @@ extension NetworkManager: MCSessionDelegate {
         print("🔄 SESSION STATE CHANGE CALLBACK")
         print("   Peer: \(peerID.displayName)")
         print("   New State: \(state == .connected ? "CONNECTED" : state == .connecting ? "CONNECTING" : "NOT_CONNECTED")")
+        print("   Session memory address: \(Unmanaged.passUnretained(session).toOpaque())")
+        print("   Self.session memory address: \(Unmanaged.passUnretained(self.session).toOpaque())")
+        print("   Session match: \(session === self.session ? "✅ SAME" : "❌ DIFFERENT")")
         print("   Timestamp: \(Date())")
         print("   Thread: \(Thread.current)")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // CRITICAL: Detect if callback is for a different session (dual session bug)
+        if session !== self.session {
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("🚨 CRITICAL BUG DETECTED: DUAL SESSION MISMATCH")
+            print("   Callback session: \(Unmanaged.passUnretained(session).toOpaque())")
+            print("   Current session: \(Unmanaged.passUnretained(self.session).toOpaque())")
+            print("   Peer: \(peerID.displayName)")
+            print("   State: \(state == .connected ? "CONNECTED" : state == .connecting ? "CONNECTING" : "NOT_CONNECTED")")
+            print("   This is likely causing handshake failures!")
+            print("   Action: Ignoring callback from stale session")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            return
+        }
 
         DispatchQueue.main.async {
             switch state {
@@ -2682,6 +2993,9 @@ extension NetworkManager: MCSessionDelegate {
 
                 // Remove from connecting peers set
                 self.connectingPeers.remove(peerID.displayName)
+
+                // Clean up certificate exchange tracking (connection succeeded)
+                self.certificateExchangeStarted.remove(peerID.displayName)
 
                 // Release any connection locks
                 print("   Step 1: Releasing connection mutex...")
@@ -2718,6 +3032,11 @@ extension NetworkManager: MCSessionDelegate {
                 self.sessionManager.recordSuccessfulConnection(to: peerID)
                 print("   ✓ Recorded in SessionManager")
 
+                // Reset connection refused count on successful connection
+                print("   Step 5.5: Resetting connection refused counter...")
+                self.sessionManager.resetConnectionRefusedCount(for: peerID)
+                print("   ✓ Connection refused counter reset")
+
                 if !TestingConfig.disableHealthMonitoring {
                     self.healthMonitor.addPeer(peerID)
                 } else {
@@ -2734,11 +3053,40 @@ extension NetworkManager: MCSessionDelegate {
                     self.recordSuccessfulConnection(to: peerID)
                 }
 
-                // Auto-start Live Activity when first peer connects
-                if #available(iOS 16.1, *) {
-                    if self.connectedPeers.count == 1 && !self.hasActiveLiveActivity {
-                        print("🎬 Auto-starting Live Activity for first peer connection")
-                        self.startLiveActivity()
+                // 🏟️ AUTO-ACTIVATE STADIUM MODE when first peer connects
+                // This enables Live Activities + background location + keep-alive pings
+                // NOTE: User can also manually control this from Settings
+                if self.connectedPeers.count == 1 {
+                    // Check if Stadium Mode is not already active
+                    if !StadiumModeManager.shared.isActive {
+                        // Check if user has disabled auto-activation
+                        let autoActivateStadiumMode = UserDefaults.standard.object(forKey: "autoActivateStadiumMode") as? Bool ?? true
+
+                        if autoActivateStadiumMode {
+                            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            print("🏟️ AUTO-ACTIVATING STADIUM MODE")
+                            print("   First peer connected: \(peerID.displayName)")
+                            print("   Enabling: Live Activity + Background Survival")
+                            print("   (User can disable auto-activation in Settings)")
+                            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                            // Enable full Stadium Mode (includes Live Activity)
+                            StadiumModeManager.shared.enable()
+                        } else {
+                            print("🏟️ Stadium Mode auto-activation disabled by user")
+                            print("   User can manually enable from Settings")
+
+                            // Still start Live Activity even if Stadium Mode is disabled
+                            // This provides minimal functionality without background survival
+                            if #available(iOS 16.1, *) {
+                                if !self.hasActiveLiveActivity {
+                                    print("🎬 Starting Live Activity (without full Stadium Mode)")
+                                    self.startLiveActivity()
+                                }
+                            }
+                        }
+                    } else {
+                        print("🏟️ Stadium Mode already active (manually enabled by user)")
                     }
                 }
 
@@ -2817,27 +3165,60 @@ extension NetworkManager: MCSessionDelegate {
                 print("   🔒 Added to connectingPeers set (protected from forced reconnect)")
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-                // Start a timer to monitor TLS handshake timeout
                 let handshakeStartTime = Date()
                 let peerName = peerID.displayName
+
+                // EARLY DETECTION: Check if certificate exchange starts within 3 seconds
+                // In healthy handshakes, certificate exchange happens almost immediately
+                // If it doesn't start within 3s, the handshake is likely stalled
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                    guard let self = self else { return }
+
+                    // Check if still connecting and certificate exchange hasn't started
+                    if self.connectingPeers.contains(peerName) &&
+                       !self.certificateExchangeStarted.contains(peerName) &&
+                       !self.connectedPeers.contains(where: { $0.displayName == peerName }) {
+
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        print("⚠️ EARLY WARNING: Certificate exchange not started")
+                        print("   Peer: \(peerName)")
+                        print("   Elapsed: 3.0s")
+                        print("   Status: Still in .connecting but no certificate exchange")
+                        print("   Likely cause: Handshake stalled, corrupted session state")
+                        print("   This will likely timeout in ~8 more seconds")
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    }
+                }
+
+                // FINAL TIMEOUT: Monitor full handshake timeout (11 seconds)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 11.0) { [weak self] in
                     guard let self = self else { return }
                     // Check if still in connecting state after 11 seconds (iOS internal timeout is 10s)
                     if !self.connectedPeers.contains(where: { $0.displayName == peerName }) {
                         let elapsed = Date().timeIntervalSince(handshakeStartTime)
+                        let hadCertExchange = self.certificateExchangeStarted.contains(peerName)
+
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                        print("⚠️ TLS HANDSHAKE TIMEOUT DETECTED")
+                        print("⚠️ HANDSHAKE TIMEOUT DETECTED")
                         print("   Peer: \(peerName)")
                         print("   Elapsed: \(String(format: "%.1f", elapsed))s")
-                        print("   Likely cause: Encryption mismatch or network issue")
+                        print("   Certificate exchange started: \(hadCertExchange ? "✅ YES" : "❌ NO")")
+                        print("   Diagnosis: \(hadCertExchange ? "Handshake started but failed to complete" : "Handshake never started - session state corrupted")")
                         print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : session.encryptionPreference == .optional ? ".optional" : ".none")")
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                        // Clean up tracking for this peer
+                        self.certificateExchangeStarted.remove(peerName)
                     }
                 }
 
             case .notConnected:
                 // Remove from connecting peers set
+                let wasInConnectingState = self.connectingPeers.contains(peerID.displayName)
                 self.connectingPeers.remove(peerID.displayName)
+
+                // Clean up certificate exchange tracking
+                self.certificateExchangeStarted.remove(peerID.displayName)
 
                 // Aggressively release any connection locks
                 self.connectionMutex.releaseLock(for: peerID)
@@ -2855,7 +3236,42 @@ extension NetworkManager: MCSessionDelegate {
                 print("🔌 PEER DISCONNECTION EVENT")
                 print("   Peer: \(peerID.displayName)")
                 print("   Was connected: \(wasConnected)")
+                print("   Was in connecting state: \(wasInConnectingState)")
                 print("   Remaining connected peers: \(self.connectedPeers.count - 1)")
+
+                // DETECT CONNECTION REFUSED: If peer never connected but went to .notConnected quickly
+                // This typically happens with "Connection refused" (error 61) errors
+                if !wasConnected && wasInConnectingState {
+                    print("   🚨 LIKELY CONNECTION REFUSED ERROR")
+                    print("      Peer went from .connecting → .notConnected without ever being .connected")
+                    print("      This usually indicates:")
+                    print("      - Advertiser not listening on expected port")
+                    print("      - TCP connection refused by remote peer")
+                    print("      - Firewall/network blocking connection")
+                    self.sessionManager.recordConnectionRefused(to: peerID)
+
+                    // Check if we should enable bidirectional mode
+                    if self.sessionManager.shouldUseBidirectionalConnection(for: peerID) {
+                        print("   🔀 ENABLING AGGRESSIVE BIDIRECTIONAL CONNECTION")
+                        print("      Will attempt connection from both sides simultaneously")
+
+                        // Schedule a retry with bidirectional mode after a short delay
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                            guard let self = self else { return }
+
+                            // Check if peer is still available and not connected
+                            if self.availablePeers.contains(where: { $0 == peerID }) &&
+                               !self.connectedPeers.contains(peerID) {
+                                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                                print("🔀 RETRYING WITH BIDIRECTIONAL MODE")
+                                print("   Peer: \(peerID.displayName)")
+                                print("   Mode: Both sides attempt connection")
+                                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                                self.connectToPeer(peerID, forceIgnoreConflictResolution: false)
+                            }
+                        }
+                    }
+                }
 
                 self.connectedPeers.removeAll { $0 == peerID }
                 self.sessionManager.recordDisconnection(from: peerID)
@@ -3004,12 +3420,18 @@ extension NetworkManager: MCSessionDelegate {
 
         let startTime = Date()
 
+        // Mark that certificate exchange has started for this peer
+        DispatchQueue.main.async { [weak self] in
+            self?.certificateExchangeStarted.insert(peerID.displayName)
+        }
+
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("🔐 CERTIFICATE EXCHANGE STARTED")
         print("   From peer: \(peerID.displayName)")
         print("   Certificate count: \(certificate?.count ?? 0)")
         print("   Thread: \(Thread.current.isMainThread ? "MAIN" : "BACKGROUND [\(Thread.current.description)]")")
         print("   Timestamp: \(Date())")
+        print("   ✅ Marked certificate exchange as started")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Accept certificate immediately
@@ -3031,9 +3453,11 @@ extension NetworkManager: MCSessionDelegate {
 extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
     func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📨 INVITATION RECEIVED - STEP 1: Initial Reception")
+        print("📨 ADVERTISER: RECEIVED INVITATION ✅")
         print("   From: \(peerID.displayName)")
         print("   To: \(localPeerID.displayName)")
+        print("   Advertiser active: \(self.advertiser != nil)")
+        print("   Advertiser delegate: \(self.advertiser?.delegate != nil)")
         print("   Connected Peers: \(connectedPeers.count)/\(config.maxConnections)")
         print("   Timestamp: \(Date())")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -3083,13 +3507,15 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
         let peerKey = peerID.displayName
         let hasFailedConnections = (failedConnectionAttempts[peerKey] ?? 0) > 0
         let sessionManagerBlocking = !sessionManager.shouldAttemptConnection(to: peerID)
-        let conflictResolutionSaysAccept = ConnectionConflictResolver.shouldAcceptInvitation(localPeer: localPeerID, fromPeer: peerID)
+        let useBidirectionalMode = sessionManager.shouldUseBidirectionalConnection(for: peerID) || isUltraFastModeEnabled
+        let conflictResolutionSaysAccept = ConnectionConflictResolver.shouldAcceptInvitation(localPeer: localPeerID, fromPeer: peerID, overrideBidirectional: useBidirectionalMode)
 
         print("   Failed connections count: \(failedConnectionAttempts[peerKey] ?? 0)")
         print("   SessionManager blocking: \(sessionManagerBlocking)")
+        print("   Bidirectional mode: \(useBidirectionalMode)")
         print("   Conflict resolution says accept: \(conflictResolutionSaysAccept)")
 
-        if !hasFailedConnections && !sessionManagerBlocking && !conflictResolutionSaysAccept {
+        if !hasFailedConnections && !sessionManagerBlocking && !useBidirectionalMode && !conflictResolutionSaysAccept {
             print("🆔 Declining invitation - we should initiate to \(peerID.displayName)")
             print("   Local ID: \(localPeerID.displayName)")
             print("   Remote ID: \(peerID.displayName)")
@@ -3101,6 +3527,10 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
             print("🔄 Accepting invitation despite conflict resolution - previous failures detected for \(peerKey)")
         } else if sessionManagerBlocking {
             print("🔄 Accepting invitation despite conflict resolution - SessionManager is blocking our attempts")
+        } else if useBidirectionalMode {
+            print("🔀 ACCEPTING invitation - BIDIRECTIONAL MODE active for \(peerKey)")
+            print("   Previous connection attempts failed with 'Connection refused'")
+            print("   Both peers attempting connection to maximize success")
         } else {
             print("   ✓ Conflict resolution: Accept invitation (we are slave)")
         }
@@ -3122,26 +3552,35 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
             print("   Current operation type: \(operationType ?? "unknown")")
 
             // If we're in the middle of inviting them, check conflict resolution
-            // Only the peer who SHOULD accept actually accepts
+            // Only the peer who SHOULD accept actually accepts (unless bidirectional mode)
             if operationType == "browser_invite" {
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 print("🚨 BIDIRECTIONAL CONNECTION DETECTED")
                 print("   We are inviting: \(peerID.displayName)")
                 print("   They are inviting: \(localPeerID.displayName)")
+                print("   Bidirectional mode: \(useBidirectionalMode)")
 
-                // Use conflict resolver to decide who accepts
-                let weShouldAccept = conflictResolutionSaysAccept
-                if weShouldAccept {
-                    print("   ✅ Conflict resolver says WE should accept")
+                // In bidirectional mode, ACCEPT invitation to maximize connection success
+                if useBidirectionalMode {
+                    print("   🔀 BIDIRECTIONAL MODE: Accepting to maximize success")
                     print("   → Canceling our browser_invite and accepting their invitation")
                     connectionMutex.releaseLock(for: peerID)
                     // Continue to acceptance below
                 } else {
-                    print("   🛑 Conflict resolver says THEY should accept")
-                    print("   → DECLINING their invitation, our browser_invite continues")
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    invitationHandler(false, nil)
-                    return
+                    // Use conflict resolver to decide who accepts
+                    let weShouldAccept = conflictResolutionSaysAccept
+                    if weShouldAccept {
+                        print("   ✅ Conflict resolver says WE should accept")
+                        print("   → Canceling our browser_invite and accepting their invitation")
+                        connectionMutex.releaseLock(for: peerID)
+                        // Continue to acceptance below
+                    } else {
+                        print("   🛑 Conflict resolver says THEY should accept")
+                        print("   → DECLINING their invitation, our browser_invite continues")
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        invitationHandler(false, nil)
+                        return
+                    }
                 }
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
@@ -3200,7 +3639,11 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
         // Accept invitation WITHOUT holding mutex - iOS handles serialization
         print("🔍 DEBUG STEP 11: Calling invitationHandler(true, session)...")
         print("   Session ID: \(session)")
+        print("   Session memory address: \(Unmanaged.passUnretained(session).toOpaque())")
+        print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : session.encryptionPreference == .optional ? ".optional" : ".none")")
         print("   Session connected peers: \(session.connectedPeers.map { $0.displayName })")
+        print("   LocalPeerID: \(localPeerID.displayName)")
+        print("   LocalPeerID memory address: \(Unmanaged.passUnretained(localPeerID).toOpaque())")
         print("   About to accept invitation at: \(Date())")
 
         invitationHandler(true, session)

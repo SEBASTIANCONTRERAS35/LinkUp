@@ -148,9 +148,21 @@ class ConnectionConflictResolver {
 
     /// Determines who should initiate the connection based on peer IDs
     /// Returns true if local peer should initiate, false if should wait for invitation
-    static func shouldInitiateConnection(localPeer: MCPeerID, remotePeer: MCPeerID) -> Bool {
+    /// - Parameters:
+    ///   - localPeer: Local peer ID
+    ///   - remotePeer: Remote peer ID
+    ///   - overrideBidirectional: If true, ignores conflict resolution and both peers can attempt connection
+    static func shouldInitiateConnection(localPeer: MCPeerID, remotePeer: MCPeerID, overrideBidirectional: Bool = false) -> Bool {
         let localName = localPeer.displayName
         let remoteName = remotePeer.displayName
+
+        // BIDIRECTIONAL OVERRIDE: Allow both peers to attempt connection simultaneously
+        if overrideBidirectional {
+            print("🔀 Conflict resolver: BIDIRECTIONAL MODE - Local(\(localName)) ATTEMPTS 🔄 with Remote(\(remoteName))")
+            print("   Override enabled: Both peers will attempt connection")
+            print("   Reason: Previous connection attempts failed with 'Connection refused'")
+            return true  // Always return true when bidirectional mode is enabled
+        }
 
         // CRITICAL FIX: Use deterministic string comparison instead of hashValue
         // hashValue is NOT stable across devices/executions and causes deadlocks
@@ -174,7 +186,17 @@ class ConnectionConflictResolver {
     }
 
     /// Check if we should accept an invitation based on conflict resolution
-    static func shouldAcceptInvitation(localPeer: MCPeerID, fromPeer: MCPeerID) -> Bool {
+    /// - Parameters:
+    ///   - localPeer: Local peer ID
+    ///   - fromPeer: Remote peer sending invitation
+    ///   - overrideBidirectional: If true, always accepts invitation (bidirectional mode)
+    static func shouldAcceptInvitation(localPeer: MCPeerID, fromPeer: MCPeerID, overrideBidirectional: Bool = false) -> Bool {
+        // BIDIRECTIONAL OVERRIDE: Always accept in bidirectional mode
+        if overrideBidirectional {
+            print("🔀 Conflict resolver: BIDIRECTIONAL MODE - Accepting invitation from \(fromPeer.displayName)")
+            return true
+        }
+
         // We accept invitations if we shouldn't initiate
         return !shouldInitiateConnection(localPeer: localPeer, remotePeer: fromPeer)
     }

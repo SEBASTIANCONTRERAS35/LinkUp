@@ -13,6 +13,8 @@ struct PeerConnectionInfo {
     var connectionEstablishedTime: Date?  // Track when connection was established
     var isConnecting: Bool = false
     var connectionStabilityScore: Int = 0  // Track connection stability
+    var connectionRefusedCount: Int = 0  // Track "Connection refused" errors (error 61)
+    var shouldAttemptBidirectional: Bool = false  // Enable aggressive bidirectional mode
 
     init(peerId: MCPeerID) {
         self.peerId = peerId
@@ -47,9 +49,55 @@ struct PeerConnectionInfo {
     }
 
     func nextRetryDelay() -> TimeInterval {
-        let baseDelay: TimeInterval = 2.0
-        let exponentialDelay = baseDelay * pow(2.0, Double(min(attemptCount - 1, 4)))
-        return min(exponentialDelay, 32.0)
+        // ⚡ CIRCUIT BREAKER: Exponential backoff based on consecutive refused count
+        // Independent per peer - each peer has its own delay schedule
+        let isUltraFast = UserDefaults.standard.bool(forKey: "lightningModeUltraFast")
+
+        if isUltraFast && connectionRefusedCount > 0 {
+            // Ultra-fast mode with progressive backoff per peer
+            switch connectionRefusedCount {
+            case 1...3:
+                return 0.1   // First 3 attempts: ultra-fast
+            case 4...6:
+                return 0.5   // Next 3: slightly slower
+            case 7...9:
+                return 1.0   // Getting slower
+            case 10...12:
+                return 2.0   // Moderate delay
+            case 13...15:
+                return 5.0   // Significant delay
+            default:
+                return 10.0  // Maximum backoff before circuit breaker
+            }
+        } else {
+            // Normal mode backoff
+            let baseDelay: TimeInterval = 2.0
+            let exponentialDelay = baseDelay * pow(2.0, Double(min(attemptCount - 1, 4)))
+            return min(exponentialDelay, 32.0)
+        }
+    }
+
+    // Circuit breaker state (per peer)
+    var circuitBreakerActive: Bool = false
+    var circuitBreakerUntil: Date?
+
+    mutating func activateCircuitBreaker() {
+        circuitBreakerActive = true
+        circuitBreakerUntil = Date().addingTimeInterval(30.0) // 30 second pause
+    }
+
+    mutating func checkCircuitBreaker() -> Bool {
+        if let until = circuitBreakerUntil, Date() < until {
+            return true // Still in circuit breaker period
+        }
+        // Circuit breaker expired, reset
+        if circuitBreakerActive {
+            circuitBreakerActive = false
+            circuitBreakerUntil = nil
+            connectionRefusedCount = 0 // Reset refused count
+            print("🔄 Circuit breaker reset for \(peerId.displayName)")
+        }
+        return false
     }
 }
 
@@ -114,6 +162,16 @@ class SessionManager {
             if var info = connectionAttempts[peerKey] {
                 info.unblockIfNeeded()
 
+                // ⚡ CIRCUIT BREAKER: Check if circuit breaker is active for this peer
+                if info.checkCircuitBreaker() {
+                    let remaining = info.circuitBreakerUntil?.timeIntervalSinceNow ?? 0
+                    print("⛔ CIRCUIT BREAKER ACTIVE for \(peerKey)")
+                    print("   Refused count: \(info.connectionRefusedCount)")
+                    print("   Waiting \(Int(max(0, remaining)))s before retry")
+                    connectionAttempts[peerKey] = info  // Update stored info
+                    return false
+                }
+
                 // Update the stored info after unblock check
                 connectionAttempts[peerKey] = info
 
@@ -127,53 +185,69 @@ class SessionManager {
                     return false
                 }
 
-                // Check for recent successful connection (grace period)
-                if let lastSuccess = info.lastSuccessfulConnection {
-                    let timeSinceSuccess = Date().timeIntervalSince(lastSuccess)
-                    if timeSinceSuccess < SessionManager.connectionGracePeriod {
-                        let waitTime = SessionManager.connectionGracePeriod - timeSinceSuccess
-                        let waitTimeStr = waitTime.isFinite ? "\(Int(max(0, waitTime)))" : "0"
-                        print("⏰ Grace period active for \(peerKey). Wait \(waitTimeStr)s")
-                        return false
+                // ⚡ ULTRA-FAST: Skip grace period in Lightning Mode Ultra-Fast
+                let isUltraFast = UserDefaults.standard.bool(forKey: "lightningModeUltraFast")
+                if !isUltraFast {
+                    // Check for recent successful connection (grace period)
+                    if let lastSuccess = info.lastSuccessfulConnection {
+                        let timeSinceSuccess = Date().timeIntervalSince(lastSuccess)
+                        if timeSinceSuccess < SessionManager.connectionGracePeriod {
+                            let waitTime = SessionManager.connectionGracePeriod - timeSinceSuccess
+                            let waitTimeStr = waitTime.isFinite ? "\(Int(max(0, waitTime)))" : "0"
+                            print("⏰ Grace period active for \(peerKey). Wait \(waitTimeStr)s")
+                            return false
+                        }
                     }
+                } else if info.lastSuccessfulConnection != nil {
+                    print("⚡ ULTRA-FAST: Bypassing grace period for \(peerKey)")
                 }
 
-                // Check disconnection cooldown (adaptive based on stability score)
-                if let lastDisconnection = info.lastDisconnection {
-                    let timeSinceDisconnection = Date().timeIntervalSince(lastDisconnection)
+                // ⚡ ULTRA-FAST: Skip cooldowns in Lightning Mode Ultra-Fast
+                if !isUltraFast {
+                    // Check disconnection cooldown (adaptive based on stability score)
+                    if let lastDisconnection = info.lastDisconnection {
+                        let timeSinceDisconnection = Date().timeIntervalSince(lastDisconnection)
 
-                    // Adaptive cooldown based on stability score (REDUCED for faster reconnection)
-                    let requiredCooldown: TimeInterval
-                    if info.connectionStabilityScore >= 3 {
-                        // Very stable peer - almost instant reconnect
-                        requiredCooldown = 0.2  // Reduced from 0.5
-                    } else if info.connectionStabilityScore >= 0 {
-                        // Neutral to slightly stable - short cooldown
-                        requiredCooldown = 1.0  // Reduced from 2.0
-                    } else if info.connectionStabilityScore >= -2 {
-                        // Slightly unstable - moderate cooldown
-                        requiredCooldown = 2.0  // Reduced from 5.0
-                    } else {
-                        // Very unstable - still reasonable cooldown
-                        requiredCooldown = 4.0  // Reduced from 10.0
-                    }
+                        // Adaptive cooldown based on stability score (REDUCED for faster reconnection)
+                        let requiredCooldown: TimeInterval
+                        if info.connectionStabilityScore >= 3 {
+                            // Very stable peer - almost instant reconnect
+                            requiredCooldown = 0.2  // Reduced from 0.5
+                        } else if info.connectionStabilityScore >= 0 {
+                            // Neutral to slightly stable - short cooldown
+                            requiredCooldown = 1.0  // Reduced from 2.0
+                        } else if info.connectionStabilityScore >= -2 {
+                            // Slightly unstable - moderate cooldown
+                            requiredCooldown = 2.0  // Reduced from 5.0
+                        } else {
+                            // Very unstable - still reasonable cooldown
+                            requiredCooldown = 4.0  // Reduced from 10.0
+                        }
 
-                    if timeSinceDisconnection < requiredCooldown {
-                        let waitTime = requiredCooldown - timeSinceDisconnection
-                        let waitTimeStr = waitTime.isFinite ? "\(Int(max(0, waitTime)))" : "0"
-                        print("🆒 Adaptive cooldown for \(peerKey): \(waitTimeStr)s (stability: \(info.connectionStabilityScore))")
-                        return false
+                        if timeSinceDisconnection < requiredCooldown {
+                            let waitTime = requiredCooldown - timeSinceDisconnection
+                            let waitTimeStr = waitTime.isFinite ? "\(Int(max(0, waitTime)))" : "0"
+                            print("🆒 Adaptive cooldown for \(peerKey): \(waitTimeStr)s (stability: \(info.connectionStabilityScore))")
+                            return false
+                        }
                     }
+                } else if info.lastDisconnection != nil {
+                    print("⚡ ULTRA-FAST: Bypassing disconnection cooldown for \(peerKey)")
                 }
 
-                let timeSinceLastAttempt = Date().timeIntervalSince(info.lastAttempt)
-                let requiredDelay = info.nextRetryDelay()
+                // ⚡ ULTRA-FAST: No retry delays in Lightning Mode Ultra-Fast
+                if !isUltraFast {
+                    let timeSinceLastAttempt = Date().timeIntervalSince(info.lastAttempt)
+                    let requiredDelay = info.nextRetryDelay()
 
-                if timeSinceLastAttempt < requiredDelay {
-                    let waitTime = requiredDelay - timeSinceLastAttempt
-                    let waitTimeStr = waitTime.isFinite ? "\(Int(max(0, waitTime)))" : "0"
-                    print("⏳ Too soon to retry \(peerKey). Wait \(waitTimeStr)s")
-                    return false
+                    if timeSinceLastAttempt < requiredDelay {
+                        let waitTime = requiredDelay - timeSinceLastAttempt
+                        let waitTimeStr = waitTime.isFinite ? "\(Int(max(0, waitTime)))" : "0"
+                        print("⏳ Too soon to retry \(peerKey). Wait \(waitTimeStr)s")
+                        return false
+                    }
+                } else {
+                    print("⚡ ULTRA-FAST: No retry delay for \(peerKey) - immediate connection allowed")
                 }
 
                 return info.attemptCount < SessionManager.maxRetryAttempts
@@ -211,8 +285,14 @@ class SessionManager {
                     info.isConnecting = false
                     print("❌ Max attempts reached for \(peerKey). Blocking for \(Int(SessionManager.blockDuration))s.")
                 } else {
-                    let delay = info.nextRetryDelay()
-                    print("🔄 Connection attempt #\(info.attemptCount) to \(peerKey). Next retry in \(Int(delay))s")
+                    // ⚡ ULTRA-FAST: No delays in Lightning Mode Ultra-Fast
+                    let isUltraFast = UserDefaults.standard.bool(forKey: "lightningModeUltraFast")
+                    let delay = isUltraFast ? 0.0 : info.nextRetryDelay()
+                    if isUltraFast {
+                        print("⚡ ULTRA-FAST: Bypassing retry delay for \(peerKey) - immediate retry allowed")
+                    } else {
+                        print("🔄 Connection attempt #\(info.attemptCount) to \(peerKey). Next retry in \(Int(delay))s")
+                    }
                 }
 
                 self.connectionAttempts[peerKey] = info
@@ -363,5 +443,99 @@ class SessionManager {
             connectionTime = connectionAttempts[peerKey]?.connectionEstablishedTime
         }
         return connectionTime
+    }
+
+    // MARK: - Bidirectional Connection Mode (Connection Refused Handling)
+
+    /// Record a "Connection refused" error (error 61) for a peer
+    /// After 2-3 consecutive errors, enable bidirectional connection mode
+    func recordConnectionRefused(to peer: MCPeerID) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            let peerKey = peer.displayName
+
+            if var info = self.connectionAttempts[peerKey] {
+                info.connectionRefusedCount += 1
+                info.isConnecting = false
+
+                // ⚡ CIRCUIT BREAKER: Check if we need to activate circuit breaker
+                if info.connectionRefusedCount >= 15 {
+                    info.activateCircuitBreaker()
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("⛔ CIRCUIT BREAKER ACTIVATED for \(peerKey)")
+                    print("   Too many failures: \(info.connectionRefusedCount)")
+                    print("   Action: Pausing attempts for 30 seconds")
+                    print("   This peer appears unreachable")
+                    print("   Other peers are NOT affected")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                } else if info.connectionRefusedCount >= 1 {
+                    // Enable bidirectional mode after first failure
+                    info.shouldAttemptBidirectional = true
+
+                    // Get the appropriate delay for this peer
+                    let delay = info.nextRetryDelay()
+
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("⚡ BIDIRECTIONAL MODE - Progressive Backoff")
+                    print("   Peer: \(peerKey)")
+                    print("   Connection refused count: \(info.connectionRefusedCount)")
+                    print("   Next retry delay: \(delay)s (per-peer backoff)")
+                    print("   Action: Both peers will attempt connection")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                }
+
+                self.connectionAttempts[peerKey] = info
+                print("📝 Connection refused for \(peerKey) (count: \(info.connectionRefusedCount))")
+            } else {
+                var newInfo = PeerConnectionInfo(peerId: peer)
+                newInfo.connectionRefusedCount = 1
+                newInfo.isConnecting = false
+                // ⚡ ULTRA-FAST: Enable bidirectional immediately on first failure
+                newInfo.shouldAttemptBidirectional = true
+                self.connectionAttempts[peerKey] = newInfo
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("⚡ ULTRA-FAST BIDIRECTIONAL MODE ENABLED")
+                print("   Peer: \(peerKey)")
+                print("   First connection refused - activating bidirectional immediately")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            }
+        }
+    }
+
+    /// Check if bidirectional connection mode should be used for a peer
+    /// Get the appropriate retry delay for a specific peer based on their failure history
+    func getRetryDelay(for peer: MCPeerID) -> TimeInterval {
+        return queue.sync {
+            let peerKey = peer.displayName
+            if let info = connectionAttempts[peerKey] {
+                return info.nextRetryDelay()
+            }
+            // Default minimal delay for new peers
+            return 0.1
+        }
+    }
+
+    func shouldUseBidirectionalConnection(for peer: MCPeerID) -> Bool {
+        return queue.sync {
+            let peerKey = peer.displayName
+            return connectionAttempts[peerKey]?.shouldAttemptBidirectional ?? false
+        }
+    }
+
+    /// Reset connection refused count (called on successful connection)
+    func resetConnectionRefusedCount(for peer: MCPeerID) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            let peerKey = peer.displayName
+
+            if var info = self.connectionAttempts[peerKey] {
+                info.connectionRefusedCount = 0
+                info.shouldAttemptBidirectional = false
+                self.connectionAttempts[peerKey] = info
+                print("✅ Reset connection refused count for \(peerKey)")
+            }
+        }
     }
 }

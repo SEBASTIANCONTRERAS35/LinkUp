@@ -40,7 +40,6 @@ struct AccessibilitySettingsView: View {
                     themeSection
                     privacySection
                     performanceSection
-                    stadiumModeSection
 
                     // Testing Panel
                     testingPanelSection
@@ -653,72 +652,6 @@ struct AccessibilitySettingsView: View {
                 options: ["50", "100", "200"],
                 displayNames: ["50": "50 msg", "100": "100 msg", "200": "200 msg"]
             )
-        }
-    }
-
-    // MARK: - Stadium Mode Section
-
-    private var stadiumModeSection: some View {
-        SettingsSection(
-            icon: "sportscourt.fill",
-            title: "Modo Estadio",
-            description: "Conexión extendida en segundo plano",
-            iconColor: accessibleTheme.info
-        ) {
-            // Button to open full Stadium Mode settings
-            NavigationLink(destination: StadiumModeSettingsView().environmentObject(networkManager)) {
-                HStack(spacing: 12) {
-                    Image(systemName: "antenna.radiowaves.left.and.right")
-                        .font(.title2)
-                        .foregroundColor(accessibleTheme.primaryBlue)
-                        .frame(width: 40)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Configurar Modo Estadio")
-                            .font(.body)
-                            .fontWeight(settings.preferBoldText ? .bold : .semibold)
-                            .foregroundColor(accessibleTheme.textPrimary)
-
-                        Text("Mantiene conexiones hasta 25 min en segundo plano")
-                            .font(.caption)
-                            .foregroundColor(accessibleTheme.textSecondary)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .foregroundColor(accessibleTheme.textSecondary)
-                }
-                .padding()
-                .background(accessibleTheme.cardBackground)
-                .cornerRadius(12)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Configurar Modo Estadio")
-            .accessibilityHint("Toca para activar modo de conexión extendida para eventos masivos")
-
-            // Info box explaining Stadium Mode
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "info.circle.fill")
-                    .foregroundColor(accessibleTheme.info)
-                    .font(.title3)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("¿Qué es el Modo Estadio?")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(accessibleTheme.textPrimary)
-
-                    Text("Extiende el tiempo de conexión en segundo plano de 3-10 minutos a 15-30 minutos. Ideal para eventos masivos como el Mundial 2026.")
-                        .font(.caption)
-                        .foregroundColor(accessibleTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding()
-            .background(accessibleTheme.info.opacity(0.1))
-            .cornerRadius(12)
-            .accessibilityElement(children: .combine)
         }
     }
 

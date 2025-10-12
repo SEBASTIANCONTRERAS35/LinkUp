@@ -2116,7 +2116,284 @@ struct DateDivider: View {
     }
 }
 
+// MARK: - Stadium Mode (Auto-activated by default)
+// Lightning Mode is now automatically activated in NetworkManager.init()
+// No manual UI needed - it's always on for FIFA 2026 performance
+
+// MARK: - Preview
+
 #Preview {
     ContentView()
         .environmentObject(NetworkManager())
 }
+
+/*
+// MARK: - Legacy Stadium Mode Card (removed - auto-activated now)
+
+struct StadiumModeCard_Legacy: View {
+    @ObservedObject var networkManager: NetworkManager
+    @State private var isStadiumModeActive = false
+    @State private var showingStadiumOptions = false
+    @State private var selectedProfile: StadiumMode.StadiumProfile = .megaStadium
+    @State private var connectionSpeed: String = "---"
+    @State private var stadiumStatus: String = "Stadium Mode: OFF"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack {
+                Label("⚡ Stadium Mode FIFA 2026", systemImage: "bolt.circle.fill")
+                    .font(.headline)
+                    .foregroundColor(.orange)
+
+                Spacer()
+
+                if isStadiumModeActive {
+                    HStack(spacing: 4) {
+                        Image(systemName: "bolt.fill")
+                            .foregroundColor(.yellow)
+                            .font(.caption)
+                        Text("ACTIVE")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundColor(.yellow)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.yellow.opacity(0.2))
+                    .clipShape(Capsule())
+                }
+            }
+
+            // Description
+            Text("Modo ultra-rápido para estadios y conciertos con miles de personas en movimiento")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            // Performance Metrics
+            if isStadiumModeActive {
+                HStack(spacing: 20) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Velocidad")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text(connectionSpeed)
+                            .font(.system(.headline, design: .monospaced))
+                            .foregroundColor(connectionSpeedColor)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Objetivo")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text("<1s")
+                            .font(.system(.headline, design: .monospaced))
+                            .foregroundColor(.green)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Modo")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text(profileName)
+                            .font(.system(.caption, design: .default))
+                            .fontWeight(.medium)
+                    }
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .background(Color.meshCardBackground.opacity(0.5))
+                .cornerRadius(8)
+            }
+
+            // Action Buttons
+            HStack(spacing: 12) {
+                if !isStadiumModeActive {
+                    Button(action: activateStadiumMode) {
+                        HStack {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 16))
+                            Text("ACTIVAR LIGHTNING MODE")
+                                .font(.system(size: 14, weight: .bold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    }
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [Color.orange, Color.red]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(10)
+
+                    Button(action: { showingStadiumOptions = true }) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    Button(action: deactivateStadiumMode) {
+                        Label("Desactivar", systemImage: "stop.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+
+                    Button(action: refreshStatus) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+
+            // Status
+            if isStadiumModeActive {
+                Text(stadiumStatus)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(16)
+        .background(
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    Color.orange.opacity(0.1),
+                    Color.yellow.opacity(0.05)
+                ]),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.orange.opacity(0.3), lineWidth: 2)
+        )
+        .cornerRadius(16)
+        .shadow(color: Color.orange.opacity(0.2), radius: 10, y: 2)
+        .sheet(isPresented: $showingStadiumOptions) {
+            StadiumOptionsSheet(selectedProfile: $selectedProfile)
+        }
+        .onAppear {
+            refreshStatus()
+        }
+    }
+
+    private var profileName: String {
+        switch selectedProfile {
+        case .smallVenue: return "Venue Pequeño"
+        case .mediumVenue: return "Venue Medio"
+        case .largeStadium: return "Estadio Grande"
+        case .megaStadium: return "Mega Estadio"
+        }
+    }
+
+    private var connectionSpeedColor: Color {
+        guard let speed = Double(connectionSpeed.replacingOccurrences(of: "s", with: "")) else { return .gray }
+        if speed < 1.0 { return .green }
+        else if speed < 2.0 { return .orange }
+        else { return .red }
+    }
+
+    private func activateStadiumMode() {
+        networkManager.activateStadiumMode(profile: selectedProfile)
+        isStadiumModeActive = true
+
+        // Update status after a moment
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            refreshStatus()
+        }
+    }
+
+    private func deactivateStadiumMode() {
+        networkManager.deactivateStadiumMode()
+        isStadiumModeActive = false
+        connectionSpeed = "---"
+        stadiumStatus = "Stadium Mode: OFF"
+    }
+
+    private func refreshStatus() {
+        let status = networkManager.getStadiumModeStatus()
+        stadiumStatus = status
+
+        // Extract connection speed from status
+        if status.contains("Avg Connection Time:") {
+            if let range = status.range(of: "Avg Connection Time: "),
+               let endRange = status[range.upperBound...].range(of: "s") {
+                let speedStr = String(status[range.upperBound..<endRange.lowerBound])
+                connectionSpeed = speedStr + "s"
+            }
+        } else if status.contains("Average:") {
+            if let range = status.range(of: "Average: "),
+               let endRange = status[range.upperBound...].range(of: "s") {
+                let speedStr = String(status[range.upperBound..<endRange.lowerBound])
+                connectionSpeed = speedStr + "s"
+            }
+        }
+
+        isStadiumModeActive = !status.contains("INACTIVE")
+    }
+}
+
+// Stadium Options Sheet
+struct StadiumOptionsSheet: View {
+    @Binding var selectedProfile: StadiumMode.StadiumProfile
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("Seleccionar Perfil de Estadio")
+                    .font(.headline)
+                    .padding(.top)
+
+                ForEach([
+                    (StadiumMode.StadiumProfile.smallVenue, "Venue Pequeño", "< 10,000 personas"),
+                    (StadiumMode.StadiumProfile.mediumVenue, "Venue Medio", "10,000 - 30,000 personas"),
+                    (StadiumMode.StadiumProfile.largeStadium, "Estadio Grande", "30,000 - 60,000 personas"),
+                    (StadiumMode.StadiumProfile.megaStadium, "Mega Estadio FIFA 2026", "60,000+ personas")
+                ], id: \.0.hashValue) { profile, name, description in
+                    Button(action: {
+                        selectedProfile = profile
+                        dismiss()
+                    }) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(name)
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(.primary)
+                                Text(description)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            if selectedProfile == profile {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.accentColor)
+                            }
+                        }
+                        .padding()
+                        .background(Color.meshCardBackground.opacity(selectedProfile == profile ? 1 : 0.5))
+                        .cornerRadius(12)
+                    }
+                }
+
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Opciones Stadium Mode")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Listo") { dismiss() }
+                }
+            }
+        }
+    }
+}
+*/
