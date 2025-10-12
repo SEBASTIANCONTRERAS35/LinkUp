@@ -17,7 +17,9 @@ struct LinkFenceDetailView: View {
     @Environment(\.accessibleTheme) var accessibleTheme
     @Environment(\.dismiss) var dismiss
     @State private var showDeleteAlert = false
+    @State private var showOfflineMapSheet = false
     @State private var region: MKCoordinateRegion
+    @StateObject private var offlineManager = OfflineMapManager.shared
 
     init(linkfence: CustomLinkFence, linkfenceManager: LinkFenceManager) {
         self.linkfence = linkfence
@@ -84,6 +86,24 @@ struct LinkFenceDetailView: View {
                 }
             } message: {
                 Text("¿Estás seguro de que deseas eliminar '\(linkfence.name)'? Esta acción no se puede deshacer.")
+            }
+            .sheet(isPresented: $showOfflineMapSheet) {
+                OfflineMapDownloadSheet(
+                    center: linkfence.center,
+                    locationName: linkfence.name,
+                    radiusKm: 20.0
+                )
+            }
+            .onAppear {
+                checkOfflineMapAvailability()
+            }
+        }
+    }
+
+    private func checkOfflineMapAvailability() {
+        if !offlineManager.isRegionDownloaded(center: linkfence.center, radiusKm: 20.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                showOfflineMapSheet = true
             }
         }
     }

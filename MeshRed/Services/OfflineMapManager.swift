@@ -26,7 +26,7 @@ class OfflineMapManager: ObservableObject {
     // MARK: - Properties
 
     private let cache = MapTileCache.shared
-    private let downloader = OfflineMapDownloader()
+    let downloader = OfflineMapDownloader()  // Public for progress monitoring
     private let locationService = LocationService()
 
     // MARK: - Data Models

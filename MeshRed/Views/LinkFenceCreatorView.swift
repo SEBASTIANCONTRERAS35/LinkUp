@@ -23,6 +23,8 @@ struct LinkFenceCreatorView: View {
     )
     @State private var shareWithFamily: Bool = true
     @State private var showSaveConfirmation = false
+    @State private var showOfflineMapSheet = false
+    @StateObject private var offlineManager = OfflineMapManager.shared
 
     var body: some View {
         NavigationView {
@@ -149,10 +151,18 @@ struct LinkFenceCreatorView: View {
             } message: {
                 Text("'\(name)' está ahora activo. Recibirás notificaciones cuando familiares entren o salgan.")
             }
+            .sheet(isPresented: $showOfflineMapSheet) {
+                OfflineMapDownloadSheet(
+                    center: region.center,
+                    locationName: "Estadio actual",
+                    radiusKm: 20.0
+                )
+            }
         }
         .onAppear {
             centerOnUser()
             debugMapState()
+            checkOfflineMapAvailability()
         }
     }
 
@@ -205,6 +215,16 @@ struct LinkFenceCreatorView: View {
         }
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
+
+    private func checkOfflineMapAvailability() {
+        // Check if current region is downloaded
+        if !offlineManager.isRegionDownloaded(center: region.center, radiusKm: 20.0) {
+            // Delay to allow view to appear first
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                showOfflineMapSheet = true
+            }
+        }
+    }
 }
 
 // MARK: - Map Editor Component
@@ -230,6 +250,19 @@ struct GeofenceMapEditor: UIViewRepresentable {
         mapView.isRotateEnabled = false
 
         mapView.setRegion(region, animated: false)
+
+        // OFFLINE MAPS: Add offline tile overlay
+        let offlineOverlay = OfflineTileOverlay(urlTemplate: nil)
+
+        // Configure mode based on OfflineMapManager
+        if OfflineMapManager.shared.isOfflineModeEnabled {
+            offlineOverlay.setOfflineOnly()
+        } else {
+            offlineOverlay.setHybridMode()
+        }
+
+        // Add overlay at appropriate level
+        mapView.addOverlay(offlineOverlay, level: .aboveLabels)
 
         // Add TAP gesture for quick pin placement
         let tapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
@@ -330,6 +363,10 @@ struct GeofenceMapEditor: UIViewRepresentable {
                 renderer.strokeColor = UIColor.systemBlue
                 renderer.lineWidth = 2
                 return renderer
+            }
+            else if let tileOverlay = overlay as? MKTileOverlay {
+                // OFFLINE MAPS: Renderer for offline tiles
+                return MKTileOverlayRenderer(tileOverlay: tileOverlay)
             }
             return MKOverlayRenderer(overlay: overlay)
         }

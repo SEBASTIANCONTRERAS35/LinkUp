@@ -20,6 +20,8 @@ struct FamilyLinkFenceMapView: View {
     @State private var selectedGeofence: CustomLinkFence?
     @State private var selectedGeofenceForNotifications: CustomLinkFence?
     @State private var mapCameraUpdate: MapCameraUpdate?
+    @State private var showOfflineMapSheet = false
+    @StateObject private var offlineManager = OfflineMapManager.shared
 
     // Show all linkfences (both active and inactive) for demo purposes
     private var activeGeofences: [CustomLinkFence] {
@@ -68,6 +70,7 @@ struct FamilyLinkFenceMapView: View {
             .onAppear {
                 // Force load mock data for demo
                 linkfenceManager.loadMockData()
+                checkOfflineMapAvailability()
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -98,6 +101,32 @@ struct FamilyLinkFenceMapView: View {
                 }
             } message: {
                 Text("¿Deseas dejar de monitorear '\(selectedGeofence?.name ?? "")'?")
+            }
+            .sheet(isPresented: $showOfflineMapSheet) {
+                OfflineMapDownloadSheet(
+                    center: currentMapCenter(),
+                    locationName: "Zona actual",
+                    radiusKm: 20.0
+                )
+            }
+        }
+    }
+
+    private func currentMapCenter() -> CLLocationCoordinate2D {
+        if let location = locationService.currentLocation {
+            return CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude)
+        } else if let firstLinkFence = activeGeofences.first {
+            return firstLinkFence.center
+        } else {
+            return CLLocationCoordinate2D(latitude: 19.302778, longitude: -99.150556) // Default: Estadio Azteca
+        }
+    }
+
+    private func checkOfflineMapAvailability() {
+        let center = currentMapCenter()
+        if !offlineManager.isRegionDownloaded(center: center, radiusKm: 20.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                showOfflineMapSheet = true
             }
         }
     }
@@ -407,6 +436,19 @@ struct FamilyMapViewMultiple: UIViewRepresentable {
             mapView.setRegion(region, animated: false)
         }
 
+        // OFFLINE MAPS: Add offline tile overlay
+        let offlineOverlay = OfflineTileOverlay(urlTemplate: nil)
+
+        // Configure mode based on OfflineMapManager
+        if OfflineMapManager.shared.isOfflineModeEnabled {
+            offlineOverlay.setOfflineOnly()
+        } else {
+            offlineOverlay.setHybridMode()
+        }
+
+        // Add overlay at appropriate level
+        mapView.addOverlay(offlineOverlay, level: .aboveLabels)
+
         return mapView
     }
 
@@ -527,6 +569,10 @@ struct FamilyMapViewMultiple: UIViewRepresentable {
                     renderer.lineWidth = 2
                 }
                 return renderer
+            }
+            else if let tileOverlay = overlay as? MKTileOverlay {
+                // OFFLINE MAPS: Renderer for offline tiles
+                return MKTileOverlayRenderer(tileOverlay: tileOverlay)
             }
             return MKOverlayRenderer(overlay: overlay)
         }
