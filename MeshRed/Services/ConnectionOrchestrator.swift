@@ -144,10 +144,15 @@ class ConnectionOrchestrator: ObservableObject {
         }
 
         // Step 2: Check battery critical
-        if UIDevice.current.batteryLevel < criticalBatteryThreshold {
+        // CRITICAL FIX: Handle battery level -1.0 (unknown) which occurs in simulator
+        // and some edge cases on real devices
+        let batteryLevel = UIDevice.current.batteryLevel
+
+        // Only check battery if level is known (not -1.0)
+        if batteryLevel >= 0 && batteryLevel < criticalBatteryThreshold {
             let reputation = reputationSystem.getTrustScore(for: peer)
             if reputation < minReputationForAutoAccept {
-                return .reject(reason: "Battery critical, accepting only trusted peers")
+                return .reject(reason: "Battery critical (\(Int(batteryLevel * 100))%), accepting only trusted peers")
             }
         }
 
@@ -158,14 +163,24 @@ class ConnectionOrchestrator: ObservableObject {
         }
 
         // Step 4: Check connection pool availability
+        // DEFENSIVE CHECK: Ensure slots are initialized
+        if connectionPool.slots.isEmpty {
+            print("⚠️ WARNING: Connection pool has no slots! This is a critical initialization bug.")
+            return .reject(reason: "Connection pool not initialized")
+        }
+
         let priority = determinePriority(for: peer, reputation: reputation, context: context)
         if !connectionPool.canAcceptPeer(peer, withPriority: priority) {
+            // Log detailed state for debugging
+            let status = connectionPool.getStatus()
+            print("🔍 Pool Status - Occupied: \(status.occupied)/\(connectionPool.totalCapacity), Reserved: \(status.reserved), Available: \(status.available)")
+
             // Try to defer if high reputation
             if reputation > minReputationForAutoAccept {
                 let deferTime = Date().addingTimeInterval(10)
                 return .postpone(until: deferTime)
             }
-            return .reject(reason: "No available connection slots")
+            return .reject(reason: "No available connection slots (occupied: \(status.occupied)/\(connectionPool.totalCapacity))")
         }
 
         // Step 5: Check network load
@@ -380,8 +395,9 @@ class ConnectionOrchestrator: ObservableObject {
         queue.async(flags: .barrier) { [weak self] in
             guard let self = self else { return }
 
-            // Update battery
-            self.networkState.batteryLevel = UIDevice.current.batteryLevel
+            // Update battery (handle -1.0 for unknown/simulator)
+            let batteryLevel = UIDevice.current.batteryLevel
+            self.networkState.batteryLevel = batteryLevel >= 0 ? batteryLevel : 0.7  // Default to 70% if unknown
 
             // Calculate network load (0.0 to 1.0)
             let connectionRatio = Float(self.networkState.connectedPeers) / 5.0
@@ -425,8 +441,9 @@ class ConnectionOrchestrator: ObservableObject {
 
     private func logDecision(_ decision: ConnectionDecision, for peer: MCPeerID) {
         let description = describeDecision(decision, for: peer)
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🎯 ORCHESTRATOR DECISION")
+        print("🎯 ORCHESTRATOR DECISION [\(timestamp)]")
         print("   Peer: \(peer.displayName)")
         print("   Decision: \(description)")
         print("   Network Load: \(String(format: "%.1f%%", networkState.networkLoad * 100))")

@@ -107,17 +107,24 @@ class ConnectionPoolManager: ObservableObject {
     init(maxConnections: Int = 5) {
         self.maxConnections = maxConnections
         self.totalCapacity = maxConnections
-        configureSlots()
+
+        // CRITICAL FIX: Build initial slots synchronously to prevent race condition
+        // The async dispatch in rebuildSlots() was causing slots to be empty
+        // when first connection attempts were made
+        buildInitialSlots()
+
         startMonitoring()
+
+        // Log initial state for debugging
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🎰 CONNECTION POOL INITIALIZED")
+        print("   Max Connections: \(maxConnections)")
+        print("   Slots Created: \(slots.count)")
+        print("   Configuration: \(slotConfiguration)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
-    deinit {
-        monitorTimer?.invalidate()
-    }
-
-    // MARK: - Configuration
-
-    private func configureSlots() {
+    private func buildInitialSlots() {
         // Default configuration based on max connections
         switch maxConnections {
         case 1...2:
@@ -140,6 +147,45 @@ class ConnectionPoolManager: ObservableObject {
             ]
         }
 
+        // Build slots synchronously during initialization
+        var initialSlots: [ConnectionSlot] = []
+
+        for priority in ConnectionPriority.allCases {
+            let count = slotConfiguration[priority] ?? 0
+            for _ in 0..<count {
+                let timeout: TimeInterval
+                switch priority {
+                case .critical: timeout = 300  // 5 minutes
+                case .high: timeout = 120      // 2 minutes
+                case .normal: timeout = 60     // 1 minute
+                case .low: timeout = 30        // 30 seconds
+                }
+
+                initialSlots.append(ConnectionSlot(
+                    priority: priority,
+                    peer: nil,
+                    reservedFor: nil,
+                    connectedAt: nil,
+                    lastActivity: nil,
+                    timeout: timeout
+                ))
+            }
+        }
+
+        // Set slots synchronously - no race condition!
+        self.slots = initialSlots
+        self.updateCounts()
+    }
+
+    deinit {
+        monitorTimer?.invalidate()
+    }
+
+    // MARK: - Configuration
+
+    private func configureSlots() {
+        // This method is now deprecated - use buildInitialSlots() for initialization
+        // and rebuildSlots() for runtime updates
         rebuildSlots()
     }
 
@@ -226,8 +272,9 @@ class ConnectionPoolManager: ObservableObject {
                 peerPriorities[peer.displayName] = priority
                 updateCounts()
 
+                let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("🎰 SLOT ALLOCATED")
+                print("🎰 SLOT ALLOCATED [\(timestamp)]")
                 print("   Peer: \(peer.displayName)")
                 print("   Priority: \(priority.color) \(priority.displayName)")
                 print("   Slot: \(slotIndex + 1)/\(totalCapacity)")
@@ -255,8 +302,9 @@ class ConnectionPoolManager: ObservableObject {
                 peerPriorities[peer.displayName] = priority
                 updateCounts()
 
+                let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("⚡ SLOT ALLOCATED (WITH EVICTION)")
+                print("⚡ SLOT ALLOCATED (WITH EVICTION) [\(timestamp)]")
                 print("   New Peer: \(peer.displayName)")
                 print("   Evicted: \(evictedPeer?.displayName ?? "none")")
                 print("   Priority: \(priority.color) \(priority.displayName)")
@@ -279,7 +327,8 @@ class ConnectionPoolManager: ObservableObject {
                 self.peerPriorities.removeValue(forKey: peer.displayName)
                 self.updateCounts()
 
-                print("🎰 Slot released for \(peer.displayName)")
+                let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+                print("🎰 Slot released for \(peer.displayName) [\(timestamp)]")
             }
         }
     }

@@ -85,7 +85,7 @@ class PeerReputationSystem: ObservableObject {
 
     struct PeerReputation: Codable {
         let peerId: String
-        var trustScore: Float = 50.0  // Start at neutral
+        var trustScore: Float = 60.0  // Start slightly higher to avoid initial rejections
         var successfulConnections: Int = 0
         var failedConnections: Int = 0
         var totalMessages: Int = 0

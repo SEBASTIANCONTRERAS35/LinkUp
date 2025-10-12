@@ -55,6 +55,10 @@ class NetworkManager: NSObject, ObservableObject {
     // MARK: - Routing Table
     private(set) var routingTable: RoutingTable!
 
+    // MARK: - Route Discovery Cache
+    /// On-demand route discovery cache (AODV-like protocol)
+    private let routeCache = RouteCache()
+
     // MARK: - Advanced Components
     private let messageQueue = MessageQueue()
     private let messageCache = MessageCache()
@@ -93,6 +97,12 @@ class NetworkManager: NSObject, ObservableObject {
 
     // Network configuration
     private let config = NetworkConfig.shared
+
+    // MARK: - Route Discovery Management
+    /// Pending route discovery requests with completion handlers
+    private var pendingRouteDiscoveries: [UUID: (RouteInfo?) -> Void] = [:]
+    private let routeDiscoveryTimeout: TimeInterval = 10.0
+    private let routeDiscoveryQueue = DispatchQueue(label: "com.meshred.routediscovery", attributes: .concurrent)
 
     // MARK: - Peer Connection State Management
     /// Tracks the connection state of each peer for intelligent disconnection management
@@ -406,8 +416,19 @@ class NetworkManager: NSObject, ObservableObject {
         // Track failures per peer
         let peerKey = peerID.displayName
         failedConnectionAttempts[peerKey] = (failedConnectionAttempts[peerKey] ?? 0) + 1
+        let failCount = failedConnectionAttempts[peerKey] ?? 1
 
-        print("⚠️ Connection failure #\(failedConnectionAttempts[peerKey] ?? 1) for \(peerKey)")
+        print("⚠️ Connection failure #\(failCount) for \(peerKey)")
+
+        // CRITICAL FIX: Recreate session after 2+ failures with same peer to clear corrupted state
+        if failCount >= 2 {
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("🔄 RECREATING SESSION")
+            print("   Reason: \(failCount) consecutive failures with \(peerKey)")
+            print("   Session may have corrupted state from failed handshakes")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            recreateSession()
+        }
 
         if consecutiveFailures >= 5 {
             print("⚠️ Multiple connection failures detected (5+). Initiating recovery...")
@@ -420,7 +441,7 @@ class NetworkManager: NSObject, ObservableObject {
             let exponentialDelay = baseDelay * pow(2.0, Double(min(consecutiveFailures - 1, 3)))
             let delay = min(exponentialDelay, 16.0)
 
-            print("⏳ Will retry connection to \(peerKey) in \(Int(delay))s (attempt #\(failedConnectionAttempts[peerKey] ?? 1))")
+            print("⏳ Will retry connection to \(peerKey) in \(Int(delay))s (attempt #\(failCount))")
 
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self = self else { return }
@@ -433,6 +454,32 @@ class NetworkManager: NSObject, ObservableObject {
                 }
             }
         }
+    }
+
+    /// Recreate MCSession to clear corrupted state after failed connection attempts
+    private func recreateSession() {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("✨ RECREATING MC SESSION")
+        print("   Old session: \(session)")
+        print("   Connected peers before: \(session.connectedPeers.map { $0.displayName })")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Disconnect all peers from old session
+        session.disconnect()
+
+        // Create fresh session with same encryption preference
+        let oldEncryption = session.encryptionPreference
+        self.session = MCSession(
+            peer: localPeerID,
+            securityIdentity: nil,
+            encryptionPreference: oldEncryption
+        )
+        self.session.delegate = self
+
+        print("✨ New session created: \(session)")
+        print("   Encryption: \(oldEncryption == .required ? ".required" : oldEncryption == .optional ? ".optional" : ".none")")
+        print("   State: Clean (no corrupted channels or buffers)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     private func startHealthCheck() {
@@ -858,20 +905,29 @@ class NetworkManager: NSObject, ObservableObject {
 
         var targetPeers: [MCPeerID]
 
-        // INTELLIGENT ROUTING: Use routing table for directed messages
+        // INTELLIGENT ROUTING: Hierarchical routing strategy
         if message.recipientId != "broadcast" {
             // Check if recipient is directly connected
             if let directPeer = connectedPeers.first(where: { $0.displayName == message.recipientId }) {
                 targetPeers = [directPeer]
                 print("🎯 Direct connection to recipient")
-            } else if let nextHopNames = routingTable.getNextHops(to: message.recipientId) {
+            }
+            // Check RouteCache (AODV-discovered routes) - most efficient
+            else if let route = routeCache.findRoute(to: message.recipientId) {
+                print("🚀 [RouteCache] Using discovered route: \(route.hopCount) hops via \(route.nextHop)")
+                sendDirectMessage(message, via: route.nextHop)
+                return // Exit early - direct routing handled
+            }
+            // Check RoutingTable (topology-based BFS routes)
+            else if let nextHopNames = routingTable.getNextHops(to: message.recipientId) {
                 // Recipient is reachable indirectly - send only to next hops
                 targetPeers = connectedPeers.filter { nextHopNames.contains($0.displayName) }
                 print("🗺️ Using routing table - next hops: [\(nextHopNames.joined(separator: ", "))]")
-            } else {
-                // Recipient not reachable - fallback to broadcast
+            }
+            // No route found - fallback to broadcast
+            else {
                 targetPeers = connectedPeers
-                print("⚠️ Recipient not in routing table - broadcasting to all peers")
+                print("⚠️ No route found - broadcasting to all peers")
             }
         } else {
             // Broadcast message
@@ -938,6 +994,300 @@ class NetworkManager: NSObject, ObservableObject {
             print("📬 ACK sent for message \(originalMessageId) to \(senderId)")
         } catch {
             print("❌ Failed to send ACK: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Route Discovery Protocol (AODV-like)
+
+    /// Initiate route discovery for a destination peer
+    /// - Parameters:
+    ///   - destination: Destination peer ID
+    ///   - timeout: Discovery timeout (default 10 seconds)
+    ///   - completion: Called with RouteInfo if found, nil on timeout
+    func initiateRouteDiscovery(to destination: String,
+                                timeout: TimeInterval = 10.0,
+                                completion: @escaping (RouteInfo?) -> Void) {
+
+        // Check if route already exists in cache
+        if let existingRoute = routeCache.findRoute(to: destination) {
+            print("🎯 [RouteDiscovery] Route already cached for \(destination)")
+            completion(existingRoute)
+            return
+        }
+
+        // Create RREQ
+        let rreq = RouteRequest(
+            origin: localPeerID.displayName,
+            destination: destination,
+            hopCount: 0,
+            routePath: [localPeerID.displayName]
+        )
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🔍 [RouteDiscovery] INITIATING")
+        print("   Origin: \(localPeerID.displayName)")
+        print("   Destination: \(destination)")
+        print("   Request ID: \(rreq.requestID.uuidString.prefix(8))")
+        print("   Timeout: \(timeout)s")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Store completion handler
+        routeDiscoveryQueue.async(flags: .barrier) { [weak self] in
+            self?.pendingRouteDiscoveries[rreq.requestID] = completion
+        }
+
+        // Broadcast RREQ
+        broadcastRouteRequest(rreq)
+
+        // Set timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
+            guard let self = self else { return }
+
+            self.routeDiscoveryQueue.async(flags: .barrier) {
+                if let completion = self.pendingRouteDiscoveries.removeValue(forKey: rreq.requestID) {
+                    print("⏰ [RouteDiscovery] TIMEOUT for \(destination)")
+                    DispatchQueue.main.async {
+                        completion(nil)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Broadcast a route request to all connected peers
+    private func broadcastRouteRequest(_ rreq: RouteRequest) {
+        let payload = NetworkPayload.routeRequest(rreq)
+
+        do {
+            let data = try JSONEncoder().encode(payload)
+            try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "broadcastRREQ")
+            print("📢 [RouteDiscovery] RREQ broadcast to \(connectedPeers.count) peers")
+        } catch {
+            print("❌ [RouteDiscovery] Failed to broadcast RREQ: \(error)")
+        }
+    }
+
+    /// Handle received route request
+    func handleRouteRequest(_ rreq: RouteRequest, from peer: MCPeerID) {
+        // Check if already processed (deduplicate)
+        let cacheKey = "\(rreq.requestID.uuidString)-RREQ"
+        if messageCache.contains(cacheKey) {
+            print("🔁 [RouteDiscovery] RREQ already processed, ignoring")
+            return
+        }
+        messageCache.add(cacheKey)
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📥 [RouteDiscovery] RREQ RECEIVED")
+        print("   From: \(peer.displayName)")
+        print("   Origin: \(rreq.origin)")
+        print("   Destination: \(rreq.destination)")
+        print("   Hop Count: \(rreq.hopCount)")
+        print("   Path: \(rreq.routePath.joined(separator: "→"))")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Update RREQ with my hop
+        var updatedRREQ = rreq
+        updatedRREQ.routePath.append(localPeerID.displayName)
+        updatedRREQ.hopCount += 1
+
+        // Case 1: Am I the destination?
+        if rreq.destination == localPeerID.displayName {
+            print("🎯 [RouteDiscovery] I am the destination! Sending RREP")
+            sendRouteReply(for: updatedRREQ, via: peer)
+            return
+        }
+
+        // Case 2: Do I have direct connection to destination?
+        if let destinationPeer = connectedPeers.first(where: { $0.displayName == rreq.destination }) {
+            print("🎯 [RouteDiscovery] Have direct connection to \(rreq.destination)! Sending RREP")
+            updatedRREQ.routePath.append(rreq.destination)
+            updatedRREQ.hopCount += 1
+            sendRouteReply(for: updatedRREQ, via: peer)
+            return
+        }
+
+        // Case 3: Propagate RREQ if TTL allows
+        if updatedRREQ.hopCount < 7 { // Higher TTL for discovery
+            print("🔄 [RouteDiscovery] Propagating RREQ to neighbors")
+            broadcastRouteRequest(updatedRREQ)
+        } else {
+            print("❌ [RouteDiscovery] TTL reached, discarding RREQ")
+        }
+    }
+
+    /// Send route reply back to origin
+    private func sendRouteReply(for rreq: RouteRequest, via sourcePeer: MCPeerID) {
+        let rrep = RouteReply(
+            requestID: rreq.requestID,
+            destination: rreq.destination,
+            routePath: rreq.routePath,
+            hopCount: rreq.hopCount
+        )
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📤 [RouteDiscovery] SENDING RREP")
+        print("   Complete Path: \(rrep.routePath.joined(separator: "→"))")
+        print("   Total Hops: \(rrep.hopCount)")
+        print("   Sending to: \(sourcePeer.displayName)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        let payload = NetworkPayload.routeReply(rrep)
+
+        do {
+            let data = try JSONEncoder().encode(payload)
+            try safeSend(data, toPeers: [sourcePeer], with: .reliable, context: "sendRREP")
+            print("✅ [RouteDiscovery] RREP sent")
+        } catch {
+            print("❌ [RouteDiscovery] Failed to send RREP: \(error)")
+        }
+    }
+
+    /// Handle received route reply
+    func handleRouteReply(_ rrep: RouteReply, from peer: MCPeerID) {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📥 [RouteDiscovery] RREP RECEIVED")
+        print("   From: \(peer.displayName)")
+        print("   Destination: \(rrep.destination)")
+        print("   Path: \(rrep.routePath.joined(separator: "→"))")
+        print("   Hops: \(rrep.hopCount)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Find my position in the path
+        guard let myIndex = rrep.routePath.firstIndex(of: localPeerID.displayName) else {
+            print("⚠️ [RouteDiscovery] Not in path, ignoring RREP")
+            return
+        }
+
+        // Update my route cache
+        let destination = rrep.routePath.last!
+        let nextHop = rrep.routePath[myIndex + 1]
+        let hopsToDestination = rrep.routePath.count - myIndex - 1
+
+        let routeInfo = RouteInfo(
+            destination: destination,
+            nextHop: nextHop,
+            hopCount: hopsToDestination,
+            timestamp: Date(),
+            fullPath: rrep.routePath
+        )
+
+        routeCache.addRoute(routeInfo)
+        print("📍 [RouteDiscovery] Route learned: \(destination) is \(hopsToDestination) hops via \(nextHop)")
+
+        // Am I the origin?
+        if myIndex == 0 {
+            print("🎉 [RouteDiscovery] DISCOVERY COMPLETE!")
+
+            routeDiscoveryQueue.async(flags: .barrier) { [weak self] in
+                if let completion = self?.pendingRouteDiscoveries.removeValue(forKey: rrep.requestID) {
+                    DispatchQueue.main.async {
+                        completion(routeInfo)
+                    }
+                }
+            }
+        } else {
+            // Propagate RREP toward origin
+            let prevHop = rrep.routePath[myIndex - 1]
+            guard let prevPeer = connectedPeers.first(where: { $0.displayName == prevHop }) else {
+                print("⚠️ [RouteDiscovery] Cannot find previous hop: \(prevHop)")
+                return
+            }
+
+            print("🔄 [RouteDiscovery] Propagating RREP to \(prevHop)")
+
+            let payload = NetworkPayload.routeReply(rrep)
+            do {
+                let data = try JSONEncoder().encode(payload)
+                try safeSend(data, toPeers: [prevPeer], with: .reliable, context: "propagateRREP")
+            } catch {
+                print("❌ [RouteDiscovery] Failed to propagate RREP: \(error)")
+            }
+        }
+    }
+
+    /// Send route error when a route breaks
+    private func sendRouteError(destination: String, brokenNextHop: String) {
+        let rerr = RouteError(
+            destination: destination,
+            brokenNextHop: brokenNextHop
+        )
+
+        print("🚨 [RouteDiscovery] Sending RERR for \(destination) (broken link: \(brokenNextHop))")
+
+        let payload = NetworkPayload.routeError(rerr)
+
+        do {
+            let data = try JSONEncoder().encode(payload)
+            try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "sendRERR")
+        } catch {
+            print("❌ [RouteDiscovery] Failed to send RERR: \(error)")
+        }
+    }
+
+    /// Handle received route error
+    func handleRouteError(_ rerr: RouteError, from peer: MCPeerID) {
+        print("🚨 [RouteDiscovery] RERR received: \(rerr.destination) unreachable via \(rerr.brokenNextHop)")
+
+        // Remove affected routes from cache
+        if let route = routeCache.findRoute(to: rerr.destination),
+           route.nextHop == rerr.brokenNextHop {
+            routeCache.removeRoute(to: rerr.destination)
+            print("🗑️ [RouteDiscovery] Removed broken route to \(rerr.destination)")
+        }
+
+        // Propagate RERR to neighbors
+        let payload = NetworkPayload.routeError(rerr)
+        do {
+            let data = try JSONEncoder().encode(payload)
+            let peersToNotify = connectedPeers.filter { $0.displayName != peer.displayName }
+            try safeSend(data, toPeers: peersToNotify, with: .reliable, context: "propagateRERR")
+        } catch {
+            print("❌ [RouteDiscovery] Failed to propagate RERR: \(error)")
+        }
+    }
+
+    /// Send message directly via a specific next hop (using discovered route)
+    /// - Parameters:
+    ///   - message: Message to send
+    ///   - nextHopName: Next hop peer ID from route cache
+    private func sendDirectMessage(_ message: NetworkMessage, via nextHopName: String) {
+        guard let nextPeer = connectedPeers.first(where: { $0.displayName == nextHopName }) else {
+            print("⚠️ [DirectRouting] NextHop \(nextHopName) not connected")
+
+            // Route is invalid, remove from cache
+            routeCache.removeRoute(to: message.recipientId)
+            sendRouteError(destination: message.recipientId, brokenNextHop: nextHopName)
+
+            // Fallback to broadcast
+            print("🔄 [DirectRouting] Falling back to broadcast")
+            sendNetworkMessage(message)
+            return
+        }
+
+        var messageToSend = message
+        messageToSend.addHop(localPeerID.displayName)
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🎯 [DirectRouting] SENDING DIRECT")
+        print("   Next Hop: \(nextHopName)")
+        print("   Final Dest: \(message.recipientId)")
+        print("   Hop Count: \(messageToSend.hopCount)/\(messageToSend.ttl)")
+        print("   Content: \"\(message.content.prefix(30))...\"")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        let payload = NetworkPayload.message(messageToSend)
+
+        do {
+            let data = try JSONEncoder().encode(payload)
+            try safeSend(data, toPeers: [nextPeer], with: .reliable, context: "sendDirectMessage")
+            print("✅ [DirectRouting] Sent to \(nextHopName)")
+        } catch {
+            print("❌ [DirectRouting] Failed to send: \(error)")
+
+            // Route failed, invalidate and retry
+            routeCache.removeRoute(to: message.recipientId)
+            sendRouteError(destination: message.recipientId, brokenNextHop: nextHopName)
         }
     }
 
@@ -1368,6 +1718,15 @@ class NetworkManager: NSObject, ObservableObject {
             case .linkfenceShare(let linkfenceShare):
                 print("   Payload Type: LinkFence Share")
                 handleGeofenceShare(linkfenceShare, from: peerID)
+            case .routeRequest(let routeRequest):
+                print("   Payload Type: Route Request")
+                handleRouteRequest(routeRequest, from: peerID)
+            case .routeReply(let routeReply):
+                print("   Payload Type: Route Reply")
+                handleRouteReply(routeReply, from: peerID)
+            case .routeError(let routeError):
+                print("   Payload Type: Route Error")
+                handleRouteError(routeError, from: peerID)
             }
         } catch {
             guard let message = Message.fromData(data) else {
@@ -2435,7 +2794,7 @@ extension NetworkManager: MCSessionDelegate {
                         print("   Peer: \(peerName)")
                         print("   Elapsed: \(String(format: "%.1f", elapsed))s")
                         print("   Likely cause: Encryption mismatch or network issue")
-                        print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : ".optional")")
+                        print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : session.encryptionPreference == .optional ? ".optional" : ".none")")
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     }
                 }
@@ -2484,6 +2843,11 @@ extension NetworkManager: MCSessionDelegate {
 
                 // Remove from routing table
                 self.routingTable.removePeer(peerID.displayName)
+
+                // Remove from route cache - invalidate all routes using this peer as next hop
+                self.routeCache.removeRoutesVia(nextHop: peerID.displayName)
+                print("🗑️ [RouteCache] Cleaned routes via disconnected peer: \(peerID.displayName)")
+
                 // Immediately broadcast updated topology to reflect disconnection
                 self.broadcastTopology()
 

@@ -133,4 +133,20 @@ class MessageCache {
             print("🗑️ Cache de mensajes limpiado completamente")
         }
     }
+
+    // MARK: - Route Discovery Support
+
+    /// Check if a string key (like RREQ ID) has been seen
+    func contains(_ key: String) -> Bool {
+        // Convert string to UUID-like hash for storage
+        let hashUUID = UUID(uuidString: key.padding(toLength: 36, withPad: "0", startingAt: 0)) ?? UUID()
+        return hasSeenMessage(hashUUID)
+    }
+
+    /// Mark a string key (like RREQ ID) as seen
+    func add(_ key: String) {
+        // Convert string to UUID-like hash for storage
+        let hashUUID = UUID(uuidString: key.padding(toLength: 36, withPad: "0", startingAt: 0)) ?? UUID()
+        markMessageAsSeen(hashUUID)
+    }
 }

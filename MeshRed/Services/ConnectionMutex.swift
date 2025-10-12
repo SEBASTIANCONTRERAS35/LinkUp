@@ -137,23 +137,23 @@ class ConnectionConflictResolver {
         let localName = localPeer.displayName
         let remoteName = remotePeer.displayName
 
-        // Use hash-based comparison for uniform distribution (50/50 chance)
-        // This prevents alphabetic bias where some names always lose
-        let localHash = localName.hashValue
-        let remoteHash = remoteName.hashValue
+        // CRITICAL FIX: Use deterministic string comparison instead of hashValue
+        // hashValue is NOT stable across devices/executions and causes deadlocks
+        // where both peers decide to wait or both decide to initiate
 
         let shouldInitiate: Bool
-        if localHash != remoteHash {
-            // Normal case: compare hash values
-            shouldInitiate = localHash > remoteHash
+        if localName != remoteName {
+            // Lexicographic comparison - ALWAYS produces same result on all devices
+            shouldInitiate = localName > remoteName
         } else {
-            // Extremely rare case: identical hashes, use random tiebreaker
-            shouldInitiate = UUID().uuidString > UUID().uuidString
+            // Impossible case: same display name (shouldn't happen in real scenarios)
+            // Fallback to MCPeerID hash (more stable than String hash)
+            shouldInitiate = localPeer.hashValue > remotePeer.hashValue
         }
 
         print("🎯 Conflict resolver: Local(\(localName)) \(shouldInitiate ? "INITIATES 🟢" : "WAITS 🟡") with Remote(\(remoteName))")
-        print("   Hash comparison: \(localHash) vs \(remoteHash)")
-        print("   Decision: Local hash \(shouldInitiate ? ">" : "<=") Remote hash")
+        print("   String comparison: \"\(localName)\" \(shouldInitiate ? ">" : "<=") \"\(remoteName)\"")
+        print("   Decision: Local name \(shouldInitiate ? ">" : "<=") Remote name (lexicographic)")
 
         return shouldInitiate
     }
