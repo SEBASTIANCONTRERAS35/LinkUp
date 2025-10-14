@@ -721,6 +721,22 @@ struct AccessibilitySettingsView: View {
                 .accessibilityAddTraits(.isHeader)
 
             VStack(spacing: 12) {
+                // NUEVO: Botón para ver demostración de colores
+                NavigationLink(destination: ModernColorDemoView()) {
+                    HStack {
+                        Image(systemName: "paintpalette")
+                        Text("Ver Sistema de Colores")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                    }
+                    .padding()
+                    .background(accessibleTheme.cardBackground)
+                    .cornerRadius(12)
+                }
+                .accessibilityLabel("Ver sistema de colores")
+                .accessibilityHint("Abre la demostración del nuevo sistema de colores")
+                
                 Button {
                     testVoiceOver()
                 } label: {

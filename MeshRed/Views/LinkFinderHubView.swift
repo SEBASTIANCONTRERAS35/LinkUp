@@ -99,7 +99,7 @@ struct LinkFinderHubView: View {
                 HStack(spacing: 6) {
                     ForEach(0..<maxLinkFinderSessions, id: \.self) { index in
                         Circle()
-                            .fill(index < activeSessionCount ? Mundial2026Colors.azul : Color.gray.opacity(0.3))
+                            .fill(index < activeSessionCount ? Color.appSecondary : Color.gray.opacity(0.3)) // ✅ Cyan moderno
                             .frame(width: 10, height: 10)
                     }
                 }
@@ -195,10 +195,10 @@ struct LinkFinderHubView: View {
                 .fill(
                     RadialGradient(
                         colors: colorScheme == .dark ? [
-                            Color.blue.opacity(0.1),
+                            Color.appSecondary.opacity(0.1), // ✅ Cyan moderno
                             Color.black.opacity(0.3)
                         ] : [
-                            Mundial2026Colors.azul.opacity(0.08),
+                            Color.appSecondary.opacity(0.08), // ✅ Cyan moderno
                             Color.gray.opacity(0.15)
                         ],
                         center: .center,
@@ -213,8 +213,8 @@ struct LinkFinderHubView: View {
                 Circle()
                     .stroke(
                         colorScheme == .dark ?
-                            Color.blue.opacity(0.2) :
-                            Mundial2026Colors.azul.opacity(0.3),
+                            Color.appSecondary.opacity(0.2) : // ✅ Cyan moderno
+                            Color.appSecondary.opacity(0.3), // ✅ Cyan moderno
                         lineWidth: 1
                     )
                     .frame(
@@ -232,8 +232,8 @@ struct LinkFinderHubView: View {
             }
             .stroke(
                 colorScheme == .dark ?
-                    Color.blue.opacity(0.2) :
-                    Mundial2026Colors.azul.opacity(0.3),
+                    Color.appSecondary.opacity(0.2) : // ✅ Cyan moderno
+                    Color.appSecondary.opacity(0.3), // ✅ Cyan moderno
                 lineWidth: 1
             )
         }
@@ -272,7 +272,7 @@ struct LinkFinderHubView: View {
                 .frame(width: 8, height: 8)
 
             Circle()
-                .stroke(Mundial2026Colors.azul, lineWidth: 2)
+                .stroke(Color.appSecondary, lineWidth: 2) // ✅ Cyan moderno
                 .frame(width: 12, height: 12)
         }
     }
@@ -280,7 +280,7 @@ struct LinkFinderHubView: View {
     private var dataSourceBadge: some View {
         HStack(spacing: 4) {
             Circle()
-                .fill(Mundial2026Colors.azul)
+                .fill(Color.appSecondary) // ✅ Cyan moderno
                 .frame(width: 6, height: 6)
 
             Text("LinkFinder Activo")
@@ -716,12 +716,12 @@ struct LinkFinderPeerCard: View {
                 // Icon
                 ZStack {
                     Circle()
-                        .fill(isActive ? Mundial2026Colors.azul.opacity(0.2) : Mundial2026Colors.verde.opacity(0.2))
+                        .fill(isActive ? Color.appSecondary.opacity(0.2) : Color.appAccent.opacity(0.2)) // ✅ Cyan/Teal
                         .frame(width: 44, height: 44)
 
                     Image(systemName: hasDirection ? "location.fill" : "location.circle")
                         .font(.system(size: 18))
-                        .foregroundColor(isActive ? Mundial2026Colors.azul : Mundial2026Colors.verde)
+                        .foregroundColor(isActive ? Color.appSecondary : Color.appAccent) // ✅ Cyan/Teal
                 }
 
                 // Info
@@ -754,7 +754,7 @@ struct LinkFinderPeerCard: View {
                 Button(action: onMessage) {
                     Image(systemName: "message.fill")
                         .font(.system(size: 20))
-                        .foregroundColor(Mundial2026Colors.azul)
+                        .foregroundColor(Color.appPrimary) // ✅ Violeta moderno
                 }
                 .buttonStyle(.plain)
 
@@ -762,7 +762,7 @@ struct LinkFinderPeerCard: View {
                 Button(action: onNavigate) {
                     Image(systemName: "location.fill")
                         .font(.system(size: 24))
-                        .foregroundColor(Mundial2026Colors.verde)
+                        .foregroundColor(Color.appAccent) // ✅ Teal moderno
                 }
                 .buttonStyle(.plain)
             }

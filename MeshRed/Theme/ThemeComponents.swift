@@ -458,9 +458,31 @@ struct ThemeComponents_Previews: PreviewProvider {
         ScrollView {
             VStack(spacing: 20) {
                 AccessibleActionButton(
+                    title: "Acción Principal",
+                    icon: "star.fill",
+                    backgroundColor: .appPrimary, // ✅ Violeta moderno
+                    foregroundColor: .white,
+                    action: {},
+                    accessibilityLabel: "Acción Principal",
+                    accessibilityHint: "Toca dos veces para ejecutar la acción principal",
+                    isEmergency: false
+                )
+                
+                AccessibleActionButton(
+                    title: "Acción Secundaria",
+                    icon: "bolt.fill",
+                    backgroundColor: .appSecondary, // ✅ Cyan moderno
+                    foregroundColor: .white,
+                    action: {},
+                    accessibilityLabel: "Acción Secundaria",
+                    accessibilityHint: "Toca dos veces para ejecutar la acción secundaria",
+                    isEmergency: false
+                )
+                
+                AccessibleActionButton(
                     title: "Emergencia SOS",
                     icon: "exclamationmark.triangle.fill",
-                    backgroundColor: ThemeColors.emergency,
+                    backgroundColor: ThemeColors.emergency, // ✅ Mantener rojo para emergencias
                     foregroundColor: .white,
                     action: {},
                     accessibilityLabel: "Emergency SOS",
@@ -471,8 +493,8 @@ struct ThemeComponents_Previews: PreviewProvider {
                 AccessibleQuickActionCard(
                     title: "Encontrar Familia",
                     icon: "person.3.fill",
-                    iconColor: ThemeColors.primaryBlue,
-                    backgroundColor: ThemeColors.cardBackground,
+                    iconColor: .appAccent, // ✅ Teal moderno
+                    backgroundColor: .appBackgroundSecondary, // ✅ Fondo secundario
                     action: {},
                     accessibilityLabel: "Find family and friends",
                     accessibilityHint: "Double tap to use Ultra Wideband location"
@@ -503,7 +525,7 @@ struct ThemeComponents_Previews: PreviewProvider {
             }
             .padding()
         }
-        .background(ThemeColors.background)
+        .background(Color.appBackgroundDark) // ✅ Fondo oscuro moderno
     }
 }
 #endif

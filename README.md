@@ -599,6 +599,58 @@ Este proyecto fue desarrollado para el Changemakers Social Challenge 2025. Contr
 
 ---
 
+## 🎨 Sistema de Colores Centralizado
+
+### Nuevo Sistema de Diseño (Octubre 2025)
+
+LinkUp implementa un sistema de colores moderno y centralizado usando **Assets.xcassets** con los siguientes colores:
+
+#### Paleta Principal
+
+| Color | HEX | Uso |
+|-------|-----|-----|
+| **Primary (Violeta)** | `#7c3aed` | Botones principales, iconos destacados |
+| **Secondary (Cyan)** | `#06B6D4` | Acciones secundarias, enlaces |
+| **Accent (Teal)** | `#14B8A6` | Estados activos, confirmaciones |
+| **Background Dark** | `#0F172A` | Fondo principal de pantallas |
+| **Background Secondary** | `#1E293B` | Tarjetas, paneles, cards |
+
+#### Uso en Código
+
+```swift
+// SwiftUI
+Button("Acción") {
+    // acción
+}
+.background(Color.appPrimary)      // Violeta moderno
+.foregroundColor(.white)
+
+// Fondos
+.background(Color.appBackgroundDark)      // Fondo oscuro
+.background(Color.appBackgroundSecondary) // Tarjetas
+
+// UIKit
+view.backgroundColor = UIColor.appBackgroundDark
+button.tintColor = UIColor.appPrimary
+```
+
+#### Beneficios
+
+- ✅ **Centralización**: Todos los colores en Assets.xcassets
+- ✅ **Dark Mode**: Soporte automático
+- ✅ **Accesibilidad**: Compatible con alto contraste
+- ✅ **Mantenimiento**: Cambios globales desde un solo lugar
+- ✅ **Type-safe**: Errores en compile-time
+
+#### Documentación
+
+Ver documentación completa en:
+- [`COLOR_SYSTEM_COMPLETE.md`](COLOR_SYSTEM_COMPLETE.md) - Guía completa de implementación
+- [`COLOR_MIGRATION_EXAMPLES.md`](COLOR_MIGRATION_EXAMPLES.md) - Ejemplos prácticos de migración
+- [`find_hardcoded_colors.sh`](find_hardcoded_colors.sh) - Script de búsqueda de colores
+
+---
+
 ## 📄 Licencia
 
 Este proyecto está bajo la licencia MIT. Ver archivo `LICENSE` para más detalles.

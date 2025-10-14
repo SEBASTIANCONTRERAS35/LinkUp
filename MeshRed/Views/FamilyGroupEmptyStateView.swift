@@ -27,7 +27,7 @@ struct FamilyGroupEmptyStateView: View {
                 // Icon
                 Image(systemName: "person.3.fill")
                     .font(.system(size: 100))
-                    .foregroundColor(Mundial2026Colors.azul.opacity(0.3))
+                    .foregroundColor(Color.appPrimary.opacity(0.3)) // ✅ Violeta moderno
 
                 // Title and subtitle
                 VStack(spacing: 12) {
@@ -70,9 +70,9 @@ struct FamilyGroupEmptyStateView: View {
                         .padding(.vertical, 16)
                         .background(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Mundial2026Colors.azul)
+                                .fill(Color.appPrimary) // ✅ Violeta moderno
                         )
-                        .shadow(color: Mundial2026Colors.azul.opacity(0.3), radius: 8, x: 0, y: 4)
+                        .shadow(color: Color.appPrimary.opacity(0.3), radius: 8, x: 0, y: 4)
                     }
                     .buttonStyle(.plain)
 
@@ -84,16 +84,16 @@ struct FamilyGroupEmptyStateView: View {
                             Text("Unirme a un grupo")
                                 .font(.headline)
                         }
-                        .foregroundColor(Mundial2026Colors.azul)
+                        .foregroundColor(Color.appPrimary) // ✅ Violeta moderno
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                         .background(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Mundial2026Colors.azul.opacity(0.1))
+                                .fill(Color.appPrimary.opacity(0.1)) // ✅ Violeta moderno
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Mundial2026Colors.azul, lineWidth: 2)
+                                .stroke(Color.appPrimary, lineWidth: 2) // ✅ Violeta moderno
                         )
                     }
                     .buttonStyle(.plain)
@@ -104,7 +104,7 @@ struct FamilyGroupEmptyStateView: View {
                 .padding(.horizontal, 40)
                 .padding(.bottom, 40)
             }
-            .background(Mundial2026Colors.background.ignoresSafeArea())
+            .background(Color.appBackgroundDark.ignoresSafeArea()) // ✅ Fondo oscuro moderno
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -112,7 +112,7 @@ struct FamilyGroupEmptyStateView: View {
                     Button("Cerrar") {
                         dismiss()
                     }
-                    .foregroundColor(Mundial2026Colors.azul)
+                    .foregroundColor(Color.appPrimary) // ✅ Violeta moderno
                 }
             }
             .sheet(isPresented: $showCreateGroup) {

@@ -97,8 +97,8 @@ struct StadiumDashboardViewContent: View {
                         FeatureCard(
                             title: "Tu red",
                             icon: "person.3.fill",
-                            iconColor: Mundial2026Colors.verde,
-                            backgroundColor: Mundial2026Colors.verde.opacity(0.15)
+                            iconColor: Color.appAccent, // ✅ Teal moderno
+                            backgroundColor: Color.appAccent.opacity(0.15)
                         ) {
                             print("Tu red tapped")
                         }
@@ -114,8 +114,8 @@ struct StadiumDashboardViewContent: View {
                         FeatureCard(
                             title: "Ubicaciones",
                             icon: "mappin.and.ellipse",
-                            iconColor: Mundial2026Colors.azul,
-                            backgroundColor: Mundial2026Colors.azul.opacity(0.15)
+                            iconColor: Color.appPrimary, // ✅ Violeta moderno
+                            backgroundColor: Color.appPrimary.opacity(0.15)
                         ) {
                             print("Ubicaciones tapped")
                         }
@@ -123,7 +123,7 @@ struct StadiumDashboardViewContent: View {
                         FeatureCard(
                             title: "Perimetros",
                             icon: "network",
-                            iconColor: Mundial2026Colors.rojo,
+                            iconColor: Mundial2026Colors.rojo, // ✅ Mantener rojo para alertas
                             backgroundColor: Mundial2026Colors.rojo.opacity(0.15)
                         ) {
                             print("Perimetros tapped")
@@ -238,7 +238,7 @@ struct StadiumDashboardViewContent: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(Color.white.opacity(0.15), lineWidth: 1)
         )
-        .shadow(color: Mundial2026Colors.verde.opacity(0.2), radius: 12, x: 0, y: 8)
+        .shadow(color: Color.appAccent.opacity(0.2), radius: 12, x: 0, y: 8) // ✅ Teal moderno
     }
 
     private var matchScoreStack: some View {
@@ -389,7 +389,7 @@ struct SharedBottomNavigationBar: View {
             HStack(spacing: 56) {
                 BottomNavButton(
                     icon: selectedTab == .home ? "house.fill" : "house",
-                    color: Mundial2026Colors.azul,
+                    color: .appPrimary, // ✅ Violeta moderno
                     isSelected: selectedTab == .home
                 ) {
                     selectedTab = .home
@@ -397,7 +397,7 @@ struct SharedBottomNavigationBar: View {
 
                 BottomNavButton(
                     icon: selectedTab == .chat ? "message.fill" : "message",
-                    color: Mundial2026Colors.verde,
+                    color: .appSecondary, // ✅ Cyan moderno
                     isSelected: selectedTab == .chat
                 ) {
                     selectedTab = .chat
@@ -405,7 +405,7 @@ struct SharedBottomNavigationBar: View {
 
                 BottomNavButton(
                     icon: "exclamationmark.triangle.fill",
-                    color: Mundial2026Colors.rojo,
+                    color: Mundial2026Colors.rojo, // ✅ Mantener rojo para emergencias
                     isSelected: selectedTab == .sos,
                     isEmergency: true
                 ) {
@@ -417,13 +417,13 @@ struct SharedBottomNavigationBar: View {
             .padding(.bottom, 12)
             .frame(maxWidth: .infinity)
             .background(
-                Color.white
+                Color.appBackgroundDark // ✅ Fondo oscuro moderno
                     .ignoresSafeArea()
                     .shadow(color: Color.black.opacity(0.08), radius: 20, x: 0, y: -5)
             )
 
             // Bottom safe area cover
-            Color.white
+            Color.appBackgroundDark // ✅ Fondo oscuro moderno
                 .ignoresSafeArea(edges: .bottom)
                 .frame(height: 0)
         }

@@ -74,10 +74,10 @@ struct MessagingDashboardView: View {
                 Text("Mensajes")
                     .font(.headline)
                     .fontWeight(.semibold)
-                    .foregroundColor(Mundial2026Colors.textPrimary)
+                    .foregroundColor(.white) // ✅ Blanco sobre fondo oscuro
                 Text("\(networkManager.connectedPeers.count) conectados")
                     .font(.subheadline)
-                    .foregroundColor(Mundial2026Colors.textSecondary)
+                    .foregroundColor(.white.opacity(0.7)) // ✅ Blanco semi-transparente
             }
 
             Spacer()
@@ -91,7 +91,7 @@ struct MessagingDashboardView: View {
                         .frame(width: 44, height: 44)
                         .background(
                             Circle()
-                                .fill(Mundial2026Colors.rojo)
+                                .fill(Mundial2026Colors.rojo) // ✅ Mantener rojo para broadcast/alertas
                         )
                         .shadow(color: Mundial2026Colors.rojo.opacity(0.25), radius: 6, x: 0, y: 3)
                 }
@@ -101,7 +101,7 @@ struct MessagingDashboardView: View {
                 Button(action: { showFamilyGroupOptions = true }) {
                     Image(systemName: "plus")
                         .font(.title2)
-                        .foregroundColor(Mundial2026Colors.azul)
+                        .foregroundColor(Color.appSecondary) // ✅ Cyan moderno
                         .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
@@ -131,7 +131,7 @@ struct MessagingDashboardView: View {
                         title: familyGroup.name,
                         subtitle: "\(familyGroup.members.count) miembros",
                         iconColor: .white,
-                        backgroundColor: Mundial2026Colors.verde,
+                        backgroundColor: Color.appAccent, // ✅ Teal para familia
                         showBadge: false
                     )
                 }
@@ -159,7 +159,7 @@ struct MessagingDashboardView: View {
                         title: group.name,
                         subtitle: group.lastMessage,
                         iconColor: .white,
-                        backgroundColor: Mundial2026Colors.verde,
+                        backgroundColor: Color.appAccent, // ✅ Teal para grupos
                         showBadge: group.unreadCount > 0,
                         badgeCount: group.unreadCount,
                         lastMessageTime: group.lastMessageTime
@@ -184,7 +184,7 @@ struct MessagingDashboardView: View {
                         title: chat.name,
                         subtitle: chat.lastMessage,
                         iconColor: .white,
-                        backgroundColor: Mundial2026Colors.azul,
+                        backgroundColor: Color.appPrimary, // ✅ Violeta para chats individuales
                         showBadge: chat.unreadCount > 0,
                         badgeCount: chat.unreadCount,
                         lastMessageTime: chat.lastMessageTime
@@ -214,7 +214,7 @@ struct MessagingDashboardView: View {
                         title: displayName,
                         subtitle: isFamilyMember ? "Familia • Conectado" : "Conectado ✅",
                         iconColor: .white,
-                        backgroundColor: isFamilyMember ? Mundial2026Colors.verde : Color.purple,
+                        backgroundColor: isFamilyMember ? Color.appAccent : Color.appPrimary, // ✅ Teal familia, Violeta otros
                         showBadge: false
                     )
                 }
@@ -440,7 +440,7 @@ struct BroadcastMessageComposer: View {
                     .padding(.vertical, 16)
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(messageText.isEmpty ? Color.gray : Mundial2026Colors.verde)
+                            .fill(messageText.isEmpty ? Color.gray : Color.appSecondary) // ✅ Cyan para enviar
                     )
                 }
                 .disabled(messageText.isEmpty)
@@ -554,7 +554,7 @@ struct ChatConversationView: View {
                             .font(.system(size: 20))
                             .foregroundColor(.white)
                             .frame(width: 44, height: 44)
-                            .background(Circle().fill(messageText.isEmpty ? Color.gray : Mundial2026Colors.verde))
+                            .background(Circle().fill(messageText.isEmpty ? Color.gray : Color.appSecondary)) // ✅ Cyan para enviar
                     }
                     .disabled(messageText.isEmpty)
                 }
@@ -576,7 +576,7 @@ struct ChatConversationView: View {
                         openUWBNavigation()
                     }) {
                         Image(systemName: "location.fill")
-                            .foregroundColor(Mundial2026Colors.azul)
+                            .foregroundColor(Color.appAccent) // ✅ Teal para ubicación
                     }
                 }
             }
@@ -764,7 +764,7 @@ struct SimulatedMessageBubble: View {
 
     private var bubbleColor: Color {
         if isFromLocal {
-            return Mundial2026Colors.verde
+            return Color.appSecondary // ✅ Cyan para mensajes enviados
         } else {
             return Color.gray.opacity(0.2)
         }
@@ -847,7 +847,7 @@ struct UWBNotAvailableView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 32)
                     .padding(.vertical, 16)
-                    .background(Mundial2026Colors.azul)
+                    .background(Color.appPrimary) // ✅ Violeta moderno
                     .cornerRadius(12)
                 }
                 .padding(.bottom, 40)
@@ -898,7 +898,7 @@ struct MockMessageBubble: View {
 
     private var bubbleColor: Color {
         if isFromLocal {
-            return Mundial2026Colors.verde
+            return Color.appSecondary // ✅ Cyan para mensajes enviados
         } else {
             return Color.gray.opacity(0.2)
         }
