@@ -186,84 +186,288 @@ struct AccessibleStatusBadge: View {
 }
 
 // MARK: - Accessible Peer Row
-/// Shows connected peer with distance and actions
+/// Shows connected peer with messaging actions
 struct AccessiblePeerRow: View {
     let peerName: String
-    let distance: String?
     let signalStrength: String // "excellent", "good", "poor"
-    let onLocate: () -> Void
     let onMessage: () -> Void
+    var conversationState: ConversationState = .noContact
+
+    enum ConversationState {
+        case noContact           // No se ha enviado mensaje
+        case waitingResponse     // Esperando respuesta del primer mensaje
+        case active             // Conversación activa (puede chatear libremente)
+        case pendingIncoming    // Tiene solicitud pendiente (para recibir)
+        case rejected           // Solicitud rechazada
+        case deferred          // Solicitud pospuesta
+    }
 
     var body: some View {
         HStack(spacing: 12) {
-            // Status indicator
-            Circle()
-                .fill(ThemeColors.connected)
-                .frame(width: 10, height: 10)
-                // ACCESSIBILITY: Decorative, not announced separately
-                .accessibilityHidden(true)
+            // Status indicator with conversation state
+            ZStack {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 10, height: 10)
+
+                // Overlay icon for conversation state
+                if conversationState == .active {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundColor(Mundial2026Colors.verde)
+                        .offset(x: 6, y: -6)
+                } else if conversationState == .waitingResponse {
+                    Image(systemName: "clock.fill")
+                        .font(.caption2)
+                        .foregroundColor(.orange)
+                        .offset(x: 6, y: -6)
+                } else if conversationState == .pendingIncoming {
+                    // Pulsing red badge for incoming request
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 12, height: 12)
+                        .overlay(
+                            Text("!")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundColor(.white)
+                        )
+                        .offset(x: 8, y: -8)
+                        .modifier(PulsingAnimation())
+                } else if conversationState == .deferred {
+                    Image(systemName: "clock.badge.questionmark")
+                        .font(.caption2)
+                        .foregroundColor(.yellow)
+                        .offset(x: 6, y: -6)
+                } else if conversationState == .rejected {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                        .offset(x: 6, y: -6)
+                }
+            }
+            .frame(width: 16, height: 16)
+            // ACCESSIBILITY: Decorative, not announced separately
+            .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(peerName)
-                    .font(.body) // Dynamic Type
-                    .fontWeight(.semibold)
-                    .foregroundColor(ThemeColors.textPrimary)
+                HStack(spacing: 6) {
+                    Text(peerName)
+                        .font(.body) // Dynamic Type
+                        .fontWeight(.semibold)
+                        .foregroundColor(ThemeColors.textPrimary)
 
-                if let distance = distance {
-                    HStack(spacing: 4) {
-                        Image(systemName: "location.fill")
+                    // Conversation state badge
+                    if conversationState != .noContact {
+                        Text(stateText)
                             .font(.caption2)
-                        Text(distance)
-                            .font(.caption) // Dynamic Type
+                            .fontWeight(.medium)
+                            .foregroundColor(stateTextColor)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(stateTextColor.opacity(0.15))
+                            .cornerRadius(6)
                     }
-                    .foregroundColor(ThemeColors.textSecondary)
                 }
+
             }
 
             Spacer(minLength: 12)
 
             // Action buttons
             HStack(spacing: 8) {
-                // Locate button
+                // Message button with state-based appearance
                 Button(action: {
-                    #if os(iOS)
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred()
-                    #endif
-                    onLocate()
+                    // Different behaviors based on state
+                    switch conversationState {
+                    case .noContact, .active, .pendingIncoming, .deferred:
+                        // Allow interaction
+                        #if os(iOS)
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.impactOccurred()
+                        #endif
+                        onMessage()
+                    case .waitingResponse, .rejected:
+                        // Feedback for disabled state
+                        #if os(iOS)
+                        let generator = UINotificationFeedbackGenerator()
+                        generator.notificationOccurred(.error)
+                        #endif
+                    }
                 }) {
-                    Image(systemName: "location.circle.fill")
-                        .font(.title3)
-                        .foregroundColor(ThemeColors.primaryBlue)
-                        .frame(width: 44, height: 44) // Minimum touch target
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Locate \(peerName)")
-                .accessibilityHint("Double tap to see precise location using Ultra Wideband")
+                    ZStack {
+                        Image(systemName: messageIconName)
+                            .font(.title3)
+                            .foregroundColor(messageButtonColor)
+                            .frame(width: 44, height: 44) // Minimum touch target
 
-                // Message button
-                Button(action: {
-                    #if os(iOS)
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred()
-                    #endif
-                    onMessage()
-                }) {
-                    Image(systemName: "message.fill")
-                        .font(.title3)
-                        .foregroundColor(ThemeColors.primaryGreen)
-                        .frame(width: 44, height: 44) // Minimum touch target
+                        // Badge for active conversation
+                        if conversationState == .active {
+                            Circle()
+                                .fill(Mundial2026Colors.verde)
+                                .frame(width: 8, height: 8)
+                                .offset(x: 12, y: -12)
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Message \(peerName)")
-                .accessibilityHint("Double tap to send a message")
+                .disabled(conversationState == .waitingResponse || conversationState == .rejected)
+                .opacity(conversationState == .waitingResponse || conversationState == .rejected ? 0.5 : 1.0)
+                .accessibilityLabel(messageAccessibilityLabel)
+                .accessibilityHint(messageAccessibilityHint)
             }
         }
         .padding(16)
-        .background(ThemeColors.rowBackground)
+        .background(backgroundColorForState)
         .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(borderColorForState, lineWidth: conversationState == .active ? 1.5 : 0)
+        )
         // ACCESSIBILITY: Announce peer info as group
         .accessibilityElement(children: .contain)
+    }
+
+    // MARK: - Computed Properties
+
+    private var statusColor: Color {
+        switch conversationState {
+        case .noContact:
+            return ThemeColors.connected
+        case .waitingResponse:
+            return .orange
+        case .active:
+            return Mundial2026Colors.verde
+        case .pendingIncoming:
+            return .red
+        case .deferred:
+            return .yellow
+        case .rejected:
+            return .gray
+        }
+    }
+
+    private var stateText: String {
+        switch conversationState {
+        case .noContact:
+            return ""
+        case .waitingResponse:
+            return "Esperando"
+        case .active:
+            return "Activo"
+        case .pendingIncoming:
+            return "Solicitud"
+        case .deferred:
+            return "Pospuesto"
+        case .rejected:
+            return "Rechazado"
+        }
+    }
+
+    private var stateTextColor: Color {
+        switch conversationState {
+        case .noContact:
+            return .clear
+        case .waitingResponse:
+            return .orange
+        case .active:
+            return Mundial2026Colors.verde
+        case .pendingIncoming:
+            return .red
+        case .deferred:
+            return .yellow
+        case .rejected:
+            return .gray
+        }
+    }
+
+    private var messageIconName: String {
+        switch conversationState {
+        case .noContact:
+            return "message"
+        case .waitingResponse:
+            return "clock.badge.exclamationmark"
+        case .active:
+            return "message.fill"
+        case .pendingIncoming:
+            return "envelope.badge.fill"
+        case .deferred:
+            return "questionmark.bubble"
+        case .rejected:
+            return "nosign"
+        }
+    }
+
+    private var messageButtonColor: Color {
+        switch conversationState {
+        case .noContact:
+            return ThemeColors.primaryBlue
+        case .waitingResponse, .rejected:
+            return .gray
+        case .active:
+            return Mundial2026Colors.verde
+        case .pendingIncoming:
+            return .red
+        case .deferred:
+            return .yellow
+        }
+    }
+
+    private var backgroundColorForState: Color {
+        switch conversationState {
+        case .active:
+            return Mundial2026Colors.verde.opacity(0.05)
+        case .pendingIncoming:
+            return Color.red.opacity(0.05)
+        case .rejected:
+            return Color.gray.opacity(0.05)
+        default:
+            return ThemeColors.rowBackground
+        }
+    }
+
+    private var borderColorForState: Color {
+        switch conversationState {
+        case .active:
+            return Mundial2026Colors.verde.opacity(0.3)
+        case .pendingIncoming:
+            return Color.red.opacity(0.3)
+        default:
+            return .clear
+        }
+    }
+
+    private var messageAccessibilityLabel: String {
+        switch conversationState {
+        case .noContact:
+            return "Send first message to \(peerName)"
+        case .waitingResponse:
+            return "Waiting for response from \(peerName)"
+        case .active:
+            return "Chat with \(peerName)"
+        case .pendingIncoming:
+            return "Message request from \(peerName)"
+        case .deferred:
+            return "Deferred request from \(peerName)"
+        case .rejected:
+            return "Rejected request from \(peerName)"
+        }
+    }
+
+    private var messageAccessibilityHint: String {
+        switch conversationState {
+        case .noContact:
+            return "Double tap to send your first message. You can only send one message until they respond."
+        case .waitingResponse:
+            return "Cannot send more messages until \(peerName) responds"
+        case .active:
+            return "Double tap to open chat"
+        case .pendingIncoming:
+            return "Double tap to view and respond to message request"
+        case .deferred:
+            return "Double tap to view deferred message request"
+        case .rejected:
+            return "Request was rejected. No further messages allowed"
+        }
     }
 }
 

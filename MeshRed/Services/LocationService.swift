@@ -8,6 +8,7 @@
 import Foundation
 import CoreLocation
 import Combine
+import os
 
 /// Service for managing GPS location requests and permissions
 class LocationService: NSObject, ObservableObject {
@@ -59,7 +60,7 @@ class LocationService: NSObject, ObservableObject {
         locationManager.desiredAccuracy = desiredAccuracy
         locationManager.distanceFilter = distanceFilter
 
-        print("📍 LocationService: Initialized, waiting for authorization status from delegate...")
+        LoggingService.network.info("📍 LocationService: Initialized, waiting for authorization status from delegate...")
     }
 
     // MARK: - Public Methods
@@ -68,15 +69,15 @@ class LocationService: NSObject, ObservableObject {
     func requestPermissions() {
         switch authorizationStatus {
         case .notDetermined:
-            print("📍 LocationService: Requesting location permissions...")
+            LoggingService.network.info("📍 LocationService: Requesting location permissions...")
             locationManager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse, .authorizedAlways:
-            print("📍 LocationService: Already authorized")
+            LoggingService.network.info("📍 LocationService: Already authorized")
         case .denied, .restricted:
-            print("📍 LocationService: Permission denied or restricted")
+            LoggingService.network.info("📍 LocationService: Permission denied or restricted")
             locationError = .permissionDenied
         @unknown default:
-            print("📍 LocationService: Unknown authorization status")
+            LoggingService.network.info("📍 LocationService: Unknown authorization status")
         }
     }
 
@@ -100,7 +101,7 @@ class LocationService: NSObject, ObservableObject {
                 // Check if continuation is still pending
                 if let index = self.locationContinuations.firstIndex(where: { _ in true }) {
                     let cont = self.locationContinuations.remove(at: index)
-                    print("⏱️ LocationService: Location request timed out")
+                    LoggingService.network.info("⏱️ LocationService: Location request timed out")
                     cont.resume(throwing: LocationError.timeout)
                 }
             }
@@ -110,34 +111,34 @@ class LocationService: NSObject, ObservableObject {
     /// Start continuous location monitoring
     func startMonitoring() {
         guard authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways else {
-            print("❌ LocationService: Cannot start monitoring - not authorized")
+            LoggingService.network.info("❌ LocationService: Cannot start monitoring - not authorized")
             locationError = .permissionDenied
             return
         }
 
         locationManager.startUpdatingLocation()
         isMonitoring = true
-        print("📍 LocationService: Started continuous monitoring")
+        LoggingService.network.info("📍 LocationService: Started continuous monitoring")
     }
 
     /// Stop continuous location monitoring
     func stopMonitoring() {
         locationManager.stopUpdatingLocation()
         isMonitoring = false
-        print("📍 LocationService: Stopped continuous monitoring")
+        LoggingService.network.info("📍 LocationService: Stopped continuous monitoring")
     }
 
     /// Start continuous heading (compass) monitoring
     func startMonitoringHeading() {
         guard CLLocationManager.headingAvailable() else {
-            print("❌ LocationService: Heading not available on this device")
+            LoggingService.network.info("❌ LocationService: Heading not available on this device")
             return
         }
 
         locationManager.headingFilter = headingFilter
         locationManager.startUpdatingHeading()
         isMonitoringHeading = true
-        print("🧭 LocationService: Started heading monitoring")
+        LoggingService.network.info("🧭 LocationService: Started heading monitoring")
     }
 
     /// Stop continuous heading monitoring
@@ -145,7 +146,7 @@ class LocationService: NSObject, ObservableObject {
         locationManager.stopUpdatingHeading()
         isMonitoringHeading = false
         currentHeading = nil
-        print("🧭 LocationService: Stopped heading monitoring")
+        LoggingService.network.info("🧭 LocationService: Stopped heading monitoring")
     }
 
     /// Check if location services are available
@@ -200,9 +201,9 @@ class LocationService: NSObject, ObservableObject {
     /// Enable continuous background location updates for Stadium Mode
     /// This extends background execution time significantly (1-2 hours via automotive navigation)
     func enableStadiumMode() {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🏟️ LocationService: Enabling Stadium Mode (Automotive Navigation)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🏟️ LocationService: Enabling Stadium Mode (Automotive Navigation)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Enable background location updates
         locationManager.allowsBackgroundLocationUpdates = true
@@ -212,7 +213,12 @@ class LocationService: NSObject, ObservableObject {
         // AGGRESSIVE: Automotive navigation mode for maximum background time (1-2 hours)
         // This tells iOS we're a GPS navigation app like Waze/Google Maps
         locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation  // Maximum GPS precision
-        locationManager.distanceFilter = kCLDistanceFilterNone  // CONTINUOUS updates (every change)
+
+        // FIXED: Añadir filtro de 5 metros para evitar updates redundantes
+        // Antes: kCLDistanceFilterNone causaba 60+ updates/sec con misma coordenada → ANR
+        // Ahora: Solo actualizar si el usuario se movió >5m (suficiente para navegación en estadio)
+        locationManager.distanceFilter = 5.0  // Update every 5 meters minimum
+
         locationManager.activityType = .automotiveNavigation  // GPS car navigation mode (highest priority)
 
         // Start continuous updates if not already monitoring
@@ -220,22 +226,22 @@ class LocationService: NSObject, ObservableObject {
             startMonitoring()
         }
 
-        print("✅ Background location updates enabled (AGGRESSIVE MODE)")
-        print("   Accuracy: BestForNavigation (GPS max)")
-        print("   Pause: Disabled (NEVER pauses)")
-        print("   Filter: None (CONTINUOUS)")
-        print("   Activity: Automotive Navigation (highest priority)")
-        print("   Background Indicator: Visible (blue bar)")
-        print("   Estimated Extension: 1-2 HOURS")
-        print("   ⚠️  Battery: ~20% per hour")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("✅ Background location updates enabled (AGGRESSIVE MODE)")
+        LoggingService.network.info("   Accuracy: BestForNavigation (GPS max)")
+        LoggingService.network.info("   Pause: Disabled (NEVER pauses)")
+        LoggingService.network.info("   Filter: 5 meters (prevents redundant updates)")
+        LoggingService.network.info("   Activity: Automotive Navigation (highest priority)")
+        LoggingService.network.info("   Background Indicator: Visible (blue bar)")
+        LoggingService.network.info("   Estimated Extension: 1-2 HOURS")
+        LoggingService.network.info("   ⚠️  Battery: ~15-20% per hour (reduced by filter)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     /// Disable Stadium Mode and revert to normal settings
     func disableStadiumMode() {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🏟️ LocationService: Disabling Stadium Mode")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🏟️ LocationService: Disabling Stadium Mode")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Revert to normal settings
         locationManager.allowsBackgroundLocationUpdates = false
@@ -247,11 +253,11 @@ class LocationService: NSObject, ObservableObject {
         locationManager.distanceFilter = 100  // Update every 100 meters
         locationManager.activityType = .other
 
-        print("✅ Reverted to normal mode")
-        print("   Accuracy: 100m")
-        print("   Pause: Enabled")
-        print("   Filter: 100m")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("✅ Reverted to normal mode")
+        LoggingService.network.info("   Accuracy: 100m")
+        LoggingService.network.info("   Pause: Enabled")
+        LoggingService.network.info("   Filter: 100m")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 }
 
@@ -266,9 +272,9 @@ extension LocationService: CLLocationManagerDelegate {
 
             // Log initial status or changes
             if oldStatus == .notDetermined {
-                print("📍 LocationService: Initial authorization: \(newStatus.description)")
+                LoggingService.network.info("📍 LocationService: Initial authorization: \(newStatus.description)")
             } else {
-                print("📍 LocationService: Authorization changed: \(oldStatus.description) -> \(newStatus.description)")
+                LoggingService.network.info("📍 LocationService: Authorization changed: \(oldStatus.description) -> \(newStatus.description)")
             }
 
             switch newStatus {
@@ -287,7 +293,7 @@ extension LocationService: CLLocationManagerDelegate {
 
         // Check accuracy
         guard clLocation.horizontalAccuracy >= 0 && clLocation.horizontalAccuracy <= 100 else {
-            print("⚠️ LocationService: Poor accuracy (\(clLocation.horizontalAccuracy)m), waiting for better...")
+            LoggingService.network.info("⚠️ LocationService: Poor accuracy (\(clLocation.horizontalAccuracy)m), waiting for better...")
             return
         }
 
@@ -297,7 +303,7 @@ extension LocationService: CLLocationManagerDelegate {
             self.currentLocation = userLocation
             self.locationError = nil
 
-            print("📍 LocationService: Location updated: \(userLocation.coordinateString) (\(userLocation.accuracyString))")
+            LoggingService.network.info("📍 LocationService: Location updated: \(userLocation.coordinateString) (\(userLocation.accuracyString))")
         }
 
         // Resume all pending continuations
@@ -310,7 +316,7 @@ extension LocationService: CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        print("❌ LocationService: Failed to get location: \(error.localizedDescription)")
+        LoggingService.network.info("❌ LocationService: Failed to get location: \(error.localizedDescription)")
 
         DispatchQueue.main.async {
             self.locationError = .locationUnavailable
@@ -328,7 +334,7 @@ extension LocationService: CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
         // Validate heading accuracy
         guard newHeading.headingAccuracy >= 0 else {
-            print("⚠️ LocationService: Invalid heading accuracy (\(newHeading.headingAccuracy))")
+            LoggingService.network.info("⚠️ LocationService: Invalid heading accuracy (\(newHeading.headingAccuracy))")
             return
         }
 
@@ -338,7 +344,7 @@ extension LocationService: CLLocationManagerDelegate {
             // Log heading updates (using trueHeading if available, magneticHeading otherwise)
             let heading = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
             let headingType = newHeading.trueHeading >= 0 ? "true" : "magnetic"
-            print("🧭 LocationService: Heading updated: \(String(format: "%.1f", heading))° (\(headingType), accuracy: ±\(String(format: "%.1f", newHeading.headingAccuracy))°)")
+            LoggingService.network.info("🧭 LocationService: Heading updated: \(String(format: "%.1f", heading))° (\(headingType), accuracy: ±\(String(format: "%.1f", newHeading.headingAccuracy))°)")
         }
     }
 }

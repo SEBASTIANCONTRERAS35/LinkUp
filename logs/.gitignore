@@ -1,0 +1,9 @@
+# Ignorar todos los logs pero mantener la estructura de directorios
+*.log
+*.json
+*.md
+
+# Mantener los directorios
+!.gitignore
+!sessions/.gitkeep
+!analysis/.gitkeep

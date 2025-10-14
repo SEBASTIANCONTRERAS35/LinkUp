@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import os
 
 enum NetworkMode: String, CaseIterable, Codable {
     case standard = "Estándar"
@@ -37,6 +38,14 @@ enum NetworkMode: String, CaseIterable, Codable {
         case .highAvailability: return 0.5
         }
     }
+
+    var messageQueueSize: Int {
+        switch self {
+        case .standard: return 100
+        case .powerSaving: return 50
+        case .highAvailability: return 500  // For stadiums and large events
+        }
+    }
 }
 
 class NetworkConfig: ObservableObject {
@@ -45,14 +54,14 @@ class NetworkConfig: ObservableObject {
     @Published var networkMode: NetworkMode = .standard {
         didSet {
             UserDefaults.standard.set(networkMode.rawValue, forKey: "networkMode")
-            print("🔧 Network mode changed to: \(networkMode.rawValue)")
+            LoggingService.network.info("🔧 Network mode changed to: \(self.networkMode.rawValue)")
         }
     }
 
     @Published var debugMode: Bool = false {
         didSet {
             UserDefaults.standard.set(debugMode, forKey: "debugMode")
-            print("🐛 Debug mode: \(debugMode ? "ON" : "OFF")")
+            LoggingService.network.info("🐛 Debug mode: \(self.debugMode ? "ON" : "OFF")")
         }
     }
 
@@ -60,7 +69,7 @@ class NetworkConfig: ObservableObject {
         didSet {
             UserDefaults.standard.set(silentMode, forKey: "silentMode")
             if silentMode {
-                print("🔇 Silent mode: Network logs suppressed")
+                LoggingService.network.info("🔇 Silent mode: Network logs suppressed")
             }
         }
     }
@@ -139,7 +148,7 @@ class NetworkConfig: ObservableObject {
         maxConnections = 5
         stopBrowsingWhenConnected = false
 
-        print("🔧 Settings reset to defaults")
+        LoggingService.network.info("🔧 Settings reset to defaults")
     }
 
     func getCurrentConfig() -> String {

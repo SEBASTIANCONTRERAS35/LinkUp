@@ -6,6 +6,7 @@ enum MessageType: String, Codable, CaseIterable {
     case location = "location"
     case meetup = "meetup"
     case alert = "alert"
+    case messageRequest = "messageRequest"  // New type for first message requests
 
     var displayName: String {
         switch self {
@@ -14,6 +15,7 @@ enum MessageType: String, Codable, CaseIterable {
         case .location: return "Ubicación"
         case .meetup: return "Reunión"
         case .alert: return "Alerta"
+        case .messageRequest: return "Solicitud"
         }
     }
 
@@ -23,6 +25,7 @@ enum MessageType: String, Codable, CaseIterable {
         case .alert: return 1
         case .meetup: return 2
         case .location: return 3
+        case .messageRequest: return 3  // Same priority as location
         case .chat: return 4
         }
     }
@@ -114,6 +117,80 @@ struct PongMessage: Codable {
     let timestamp: Date
 }
 
+// MARK: - GPS Location Message
+
+/// GPS Location message for fallback direction calculation
+struct GPSLocationMessage: Codable {
+    let senderId: String
+    let latitude: Double
+    let longitude: Double
+    let horizontalAccuracy: Double
+    let altitude: Double
+    let verticalAccuracy: Double
+    let timestamp: Date
+
+    init(senderId: String, latitude: Double, longitude: Double, horizontalAccuracy: Double, altitude: Double, verticalAccuracy: Double, timestamp: Date = Date()) {
+        self.senderId = senderId
+        self.latitude = latitude
+        self.longitude = longitude
+        self.horizontalAccuracy = horizontalAccuracy
+        self.altitude = altitude
+        self.verticalAccuracy = verticalAccuracy
+        self.timestamp = timestamp
+    }
+}
+
+// MARK: - Route Discovery Messages
+
+/// Route Request message for discovering paths to destination peers
+struct RouteRequest: Codable {
+    let requestID: UUID
+    let origin: String      // Origin peer ID
+    let destination: String // Destination peer ID
+    var hopCount: Int
+    var routePath: [String] // Path taken so far
+    let timestamp: Date
+
+    init(requestID: UUID = UUID(), origin: String, destination: String, hopCount: Int = 0, routePath: [String] = [], timestamp: Date = Date()) {
+        self.requestID = requestID
+        self.origin = origin
+        self.destination = destination
+        self.hopCount = hopCount
+        self.routePath = routePath
+        self.timestamp = timestamp
+    }
+}
+
+/// Route Reply message containing discovered path information
+struct RouteReply: Codable {
+    let requestID: UUID     // Original request ID
+    let destination: String // Destination peer ID
+    let routePath: [String] // Complete path from origin to destination
+    let hopCount: Int       // Total hops
+    let timestamp: Date
+
+    init(requestID: UUID, destination: String, routePath: [String], hopCount: Int, timestamp: Date = Date()) {
+        self.requestID = requestID
+        self.destination = destination
+        self.routePath = routePath
+        self.hopCount = hopCount
+        self.timestamp = timestamp
+    }
+}
+
+/// Route Error message for notifying broken routes
+struct RouteError: Codable {
+    let destination: String // Destination that is unreachable
+    let brokenNextHop: String // Next hop that failed
+    let timestamp: Date
+
+    init(destination: String, brokenNextHop: String, timestamp: Date = Date()) {
+        self.destination = destination
+        self.brokenNextHop = brokenNextHop
+        self.timestamp = timestamp
+    }
+}
+
 enum NetworkPayload: Codable {
     case message(NetworkMessage)
     case ack(AckMessage)
@@ -129,6 +206,10 @@ enum NetworkPayload: Codable {
     case topology(TopologyMessage)
     case linkfenceEvent(LinkFenceEventMessage)
     case linkfenceShare(LinkFenceShareMessage)
+    case routeRequest(RouteRequest)
+    case routeReply(RouteReply)
+    case routeError(RouteError)
+    case gpsLocation(GPSLocationMessage)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -182,6 +263,18 @@ enum NetworkPayload: Codable {
         case "linkfenceShare":
             let share = try container.decode(LinkFenceShareMessage.self, forKey: .payload)
             self = .linkfenceShare(share)
+        case "routeRequest":
+            let routeRequest = try container.decode(RouteRequest.self, forKey: .payload)
+            self = .routeRequest(routeRequest)
+        case "routeReply":
+            let routeReply = try container.decode(RouteReply.self, forKey: .payload)
+            self = .routeReply(routeReply)
+        case "routeError":
+            let routeError = try container.decode(RouteError.self, forKey: .payload)
+            self = .routeError(routeError)
+        case "gpsLocation":
+            let gpsLocation = try container.decode(GPSLocationMessage.self, forKey: .payload)
+            self = .gpsLocation(gpsLocation)
         default:
             throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown payload type: \(type)")
         }
@@ -233,6 +326,18 @@ enum NetworkPayload: Codable {
         case .linkfenceShare(let share):
             try container.encode("linkfenceShare", forKey: .type)
             try container.encode(share, forKey: .payload)
+        case .routeRequest(let routeRequest):
+            try container.encode("routeRequest", forKey: .type)
+            try container.encode(routeRequest, forKey: .payload)
+        case .routeReply(let routeReply):
+            try container.encode("routeReply", forKey: .type)
+            try container.encode(routeReply, forKey: .payload)
+        case .routeError(let routeError):
+            try container.encode("routeError", forKey: .type)
+            try container.encode(routeError, forKey: .payload)
+        case .gpsLocation(let gpsLocation):
+            try container.encode("gpsLocation", forKey: .type)
+            try container.encode(gpsLocation, forKey: .payload)
         }
     }
 }

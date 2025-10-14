@@ -9,6 +9,7 @@
 import SwiftUI
 import MultipeerConnectivity
 import CoreLocation
+import os
 
 // MARK: - Network Hub View
 /// Fullscreen network management with radar visualization
@@ -132,7 +133,7 @@ struct NetworkHubView: View {
 
     // MARK: - Radar Section
     private var radarSection: some View {
-        let _ = print("📡 RADAR: \(peerRadarData.count) peers total | hasRealConnections: \(hasRealConnections)")
+        let _ = LoggingService.network.info("📡 RADAR: \(peerRadarData.count) peers total | hasRealConnections: \(hasRealConnections)")
 
         return ZStack {
             // Radar background
@@ -154,7 +155,7 @@ struct NetworkHubView: View {
                 if let position = radarData.position.point {
                     let peerOpacity = sweepDetectionManager.opacity(for: radarData.id)
                     let peerAngle = radarData.angle() ?? -1
-                    let _ = print("👤 Peer: \(radarData.id) | Angle: \(String(format: "%.1f", peerAngle))° | Opacity: \(String(format: "%.2f", peerOpacity)) | Pos: (\(String(format: "%.1f", position.x)), \(String(format: "%.1f", position.y)))")
+                    let _ = LoggingService.network.info("👤 Peer: \(radarData.id) | Angle: \(String(format: "%.1f", peerAngle))° | Opacity: \(String(format: "%.2f", peerOpacity)) | Pos: (\(String(format: "%.1f", position.x)), \(String(format: "%.1f", position.y)))")
 
                     // TEMP: Force visibility to test rendering
                     let finalOpacity = 1.0  // TODO: Change back to peerOpacity
@@ -887,7 +888,7 @@ struct NetworkHubView: View {
     // MARK: - Radar Sweep Animation
 
     private func startRadarSweep() {
-        print("🚀 STARTING RADAR SWEEP | Speed: \(sweepDetectionManager.sweepSpeed)s per rotation")
+        LoggingService.network.info("🚀 STARTING RADAR SWEEP | Speed: \(sweepDetectionManager.sweepSpeed)s per rotation")
 
         // Invalidate any existing timer
         sweepTimer?.invalidate()
@@ -899,7 +900,7 @@ struct NetworkHubView: View {
         let timerInterval: TimeInterval = 0.05
         let degreesPerTick = 360.0 / (sweepDetectionManager.sweepSpeed / timerInterval)
 
-        print("⚙️ Timer interval: \(timerInterval)s | Degrees per tick: \(String(format: "%.2f", degreesPerTick))°")
+        LoggingService.network.info("⚙️ Timer interval: \(timerInterval)s | Degrees per tick: \(String(format: "%.2f", degreesPerTick))°")
 
         // Start timer to manually update sweep angle and detect peers
         sweepTimer = Timer.scheduledTimer(withTimeInterval: timerInterval, repeats: true) { [self] _ in
@@ -914,18 +915,18 @@ struct NetworkHubView: View {
             refreshCounter += 1
         }
 
-        print("✅ Timer started successfully")
+        LoggingService.network.info("✅ Timer started successfully")
     }
 
     private func updatePeerDetections() {
-        // Debug: Print sweep angle occasionally
+        // Debug: LoggingService.network.info sweep angle occasionally
         if Int(sweepAngle) % 45 == 0 {
-            print("🔄 Sweep at \(String(format: "%.1f", sweepAngle))° | Peers: \(peerRadarData.count)")
+            LoggingService.network.info("🔄 Sweep at \(String(format: "%.1f", sweepAngle))° | Peers: \(peerRadarData.count)")
         }
 
         for radarData in peerRadarData {
             guard let angle = radarData.angle() else {
-                print("⚠️ No angle for peer: \(radarData.id)")
+                LoggingService.network.info("⚠️ No angle for peer: \(radarData.id)")
                 continue
             }
 

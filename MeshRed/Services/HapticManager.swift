@@ -12,6 +12,7 @@ import CoreHaptics
 import UIKit
 #endif
 import Combine
+import os
 
 /// Priority levels for haptic feedback (higher priority can interrupt lower)
 enum HapticPriority: Int, Comparable {
@@ -106,17 +107,18 @@ class HapticManager: NSObject, ObservableObject {
         // Prepare feedback generators
         prepareGenerators()
 
-        // Observe settings changes
+        // Observe settings changes (DEBOUNCED to prevent spam during rapid UserDefaults validations)
         settings.objectWillChange
+            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.handleSettingsChange()
             }
             .store(in: &cancellables)
 
-        print("🎯 HapticManager: Initialized")
-        print("   Core Haptics supported: \(supportsHaptics)")
-        print("   Haptics enabled: \(settings.hapticsEnabled)")
-        print("   Intensity: \(settings.hapticIntensity)")
+        LoggingService.network.info("🎯 HapticManager: Initialized")
+        LoggingService.network.info("   Core Haptics supported: \(self.supportsHaptics)")
+        LoggingService.network.info("   Haptics enabled: \(self.settings.hapticsEnabled)")
+        LoggingService.network.info("   Intensity: \(self.settings.hapticIntensity)")
     }
 
     // MARK: - Core Haptics Setup
@@ -127,22 +129,22 @@ class HapticManager: NSObject, ObservableObject {
 
             // Handle engine reset (device locked, backgrounded, etc.)
             hapticEngine?.resetHandler = { [weak self] in
-                print("⚠️ HapticManager: Engine reset, restarting...")
+                LoggingService.network.info("⚠️ HapticManager: Engine reset, restarting...")
                 self?.restartEngine()
             }
 
             // Handle engine stopped
             hapticEngine?.stoppedHandler = { reason in
-                print("⚠️ HapticManager: Engine stopped - \(reason)")
+                LoggingService.network.info("⚠️ HapticManager: Engine stopped - \(String(describing: reason))")
             }
 
             // Start engine
             try hapticEngine?.start()
 
-            print("✅ HapticManager: Core Haptics engine started")
+            LoggingService.network.info("✅ HapticManager: Core Haptics engine started")
 
         } catch {
-            print("❌ HapticManager: Failed to create haptic engine: \(error)")
+            LoggingService.network.info("❌ HapticManager: Failed to create haptic engine: \(error)")
             supportsHaptics = false
         }
     }
@@ -153,9 +155,9 @@ class HapticManager: NSObject, ObservableObject {
 
             do {
                 try self.hapticEngine?.start()
-                print("✅ HapticManager: Engine restarted")
+                LoggingService.network.info("✅ HapticManager: Engine restarted")
             } catch {
-                print("❌ HapticManager: Failed to restart engine: \(error)")
+                LoggingService.network.info("❌ HapticManager: Failed to restart engine: \(error)")
             }
         }
     }
@@ -173,7 +175,7 @@ class HapticManager: NSObject, ObservableObject {
     }
 
     private func handleSettingsChange() {
-        print("🎯 HapticManager: Settings updated - Enabled: \(settings.hapticsEnabled), Intensity: \(settings.hapticIntensity)")
+        LoggingService.network.info("🎯 HapticManager: Settings updated - Enabled: \(self.settings.hapticsEnabled), Intensity: \(self.settings.hapticIntensity)")
     }
 
     // MARK: - Public API - Basic Haptics
@@ -229,7 +231,7 @@ class HapticManager: NSObject, ObservableObject {
             selection.selectionChanged()
         }
 
-        print("🎯 HapticManager: Played \(type) (priority: \(currentPriority))")
+        LoggingService.network.info("🎯 HapticManager: Played \(String(describing: type), privacy: .public) (priority: \(String(describing: self.currentPriority), privacy: .public))")
         #endif
     }
 
@@ -284,7 +286,7 @@ class HapticManager: NSObject, ObservableObject {
             }
         }
 
-        print("🎯 HapticManager: Geofence \(transition) - \(category.rawValue)")
+        LoggingService.network.info("🎯 HapticManager: Geofence \(String(describing: transition), privacy: .public) - \(category.rawValue, privacy: .public)")
     }
 
     private func playGeofenceHaptic(transition: GeofenceTransitionType, category: LinkFenceCategory) {
@@ -409,10 +411,10 @@ class HapticManager: NSObject, ObservableObject {
                 self?.isPlayingPattern = false
             }
 
-            print("🎯 HapticManager: Played Core Haptic pattern \(pattern)")
+            LoggingService.network.info("🎯 HapticManager: Played Core Haptic pattern \(String(describing: pattern), privacy: .public)")
 
         } catch {
-            print("❌ HapticManager: Failed to play pattern: \(error)")
+            LoggingService.network.info("❌ HapticManager: Failed to play pattern: \(error)")
             playFallbackPattern(pattern)
         }
     }
@@ -572,7 +574,7 @@ class HapticManager: NSObject, ObservableObject {
             }
         }
 
-        print("🎯 HapticManager: Played fallback pattern \(pattern)")
+        LoggingService.network.info("🎯 HapticManager: Played fallback pattern \(String(describing: pattern), privacy: .public)")
         #endif
     }
 
@@ -593,7 +595,7 @@ class HapticManager: NSObject, ObservableObject {
             }
         }
 
-        print("⏹️ HapticManager: Stopped all haptics")
+        LoggingService.network.info("⏹️ HapticManager: Stopped all haptics")
     }
 }
 

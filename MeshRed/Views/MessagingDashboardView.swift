@@ -8,6 +8,7 @@
 import SwiftUI
 import MultipeerConnectivity
 import Combine
+import os
 
 struct MessagingDashboardView: View {
     @EnvironmentObject var networkManager: NetworkManager
@@ -162,8 +163,12 @@ struct MessagingDashboardView: View {
         VStack(alignment: .leading, spacing: 12) {
             // Mock family groups (now includes simulated groups if active)
             ForEach(MockDataManager.getMockFamilyGroups()) { group in
+                // IMPORTANTE: Usar el conversationId completo para que coincida con MessageStore
+                let groupUUID = UUID(uuidString: group.id) ?? UUID()
+                let conversationId = ConversationIdentifier.familyGroup(groupId: groupUUID).rawValue
+
                 let chatItem = ChatItem(
-                    id: group.id,
+                    id: conversationId,  // Ahora usa "conversation.familyGroup.{UUID}"
                     type: .familyGroup,
                     title: group.name,
                     subtitle: group.lastMessage,
@@ -408,8 +413,13 @@ struct ChatListConnectedPeerRow: View {
     }
 
     var body: some View {
+        // Determinar el conversationId correcto basado en si es familia o directo
+        let conversationId = isFamilyMember ?
+            ConversationIdentifier.family(peerId: peer.displayName).rawValue :
+            ConversationIdentifier.direct(peerId: peer.displayName).rawValue
+
         let chatItem = ChatItem(
-            id: peer.displayName,
+            id: conversationId,  // Usar el conversationId completo
             type: .individual,
             title: displayName,
             subtitle: subtitle,
@@ -493,8 +503,9 @@ struct ChatListPersistentConversationRow: View {
             nil
         }
 
+        // IMPORTANTE: Usar el conversationId completo (summary.id) para que coincida con MessageStore
         let chatItem = ChatItem(
-            id: summary.participantId ?? summary.id,
+            id: summary.id,  // Este ya es el conversationId completo
             type: summary.isFamily ? .familyGroup : .individual,
             title: summary.title,
             subtitle: subtitle,
@@ -733,60 +744,24 @@ struct ChatConversationView: View {
         let messageCount = filteredMessages.count
 
         return LazyVStack(spacing: 12) {
-            // Show mock messages for demo
-            ForEach(MockDataManager.mockConversationMessages(for: chat.id)) { mockMsg in
-                let isFromLocal = mockMsg.type == .sent
-                MockMessageBubble(
-                    message: mockMsg,
-                    isFromLocal: isFromLocal
+            // UNIFICADO: Mostrar TODOS los mensajes desde el MessageStore
+            // Ya no separamos entre mock, simulados y reales
+            ForEach(filteredMessages) { message in
+                let isFromLocal = message.sender == networkManager.localDeviceName ||
+                                message.isFromLocalDevice(deviceName: networkManager.localDeviceName)
+
+                MessageBubble(
+                    message: message,
+                    isFromLocal: isFromLocal,
+                    showSenderName: chat.type == .familyGroup || chat.type == .broadcast // Mostrar nombre en grupos
                 )
-                .id(mockMsg.id)
+                .id(message.id)
                 .transition(.asymmetric(
                     insertion: .scale(scale: 0.85)
                         .combined(with: .move(edge: isFromLocal ? .trailing : .leading))
                         .combined(with: .opacity),
                     removal: .opacity
                 ))
-            }
-
-            // Show simulated messages if this is a simulated group
-            if chat.type == .familyGroup, let groupData = mockGroupsManager.activeGroupData {
-                ForEach(groupData.members.filter { !$0.recentMessages.isEmpty }, id: \.peerID) { member in
-                    ForEach(member.recentMessages) { simMsg in
-                        let isFromLocal = simMsg.senderId == networkManager.localDeviceName
-                        SimulatedMessageBubble(
-                            message: simMsg,
-                            senderName: member.nickname,
-                            isFromLocal: isFromLocal
-                        )
-                        .id(simMsg.id)
-                        .transition(.asymmetric(
-                            insertion: .scale(scale: 0.85)
-                                .combined(with: .move(edge: isFromLocal ? .trailing : .leading))
-                                .combined(with: .opacity),
-                            removal: .opacity
-                        ))
-                    }
-                }
-            }
-
-            // Show real messages if peer is connected
-            if chat.peerID != nil {
-                ForEach(filteredMessages) { message in
-                    let isFromLocal = message.sender == networkManager.localDeviceName
-                    MessageBubble(
-                        message: message,
-                        isFromLocal: isFromLocal,
-                        showSenderName: true
-                    )
-                    .id(message.id)
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.85)
-                            .combined(with: .move(edge: isFromLocal ? .trailing : .leading))
-                            .combined(with: .opacity),
-                        removal: .opacity
-                    ))
-                }
             }
 
             // Extra padding to ensure last message is visible
@@ -829,27 +804,27 @@ struct ChatConversationView: View {
     }
 
     private var filteredMessages: [Message] {
-        let allMessages = networkManager.messageStore.messages
-
-        switch chat.type {
-        case .familyGroup:
-            // Show family group messages
-            return allMessages.filter { message in
-                // This would need proper family group message filtering
-                true
-            }
-        case .individual:
-            // Show messages from specific peer
-            guard let peerID = chat.peerID else {
-                return []
-            }
-            return allMessages.filter { message in
-                message.sender == peerID.displayName ||
-                (message.sender == networkManager.localDeviceName && message.recipientId == peerID.displayName)
-            }
-        case .broadcast:
-            return allMessages.filter { $0.recipientId == "broadcast" }
+        // Para grupos familiares simulados, usar directamente chat.id que ya es el conversationId completo
+        if chat.type == .familyGroup {
+            // chat.id ya viene como "conversation.familyGroup.{UUID}" desde MessagingDashboardView
+            return networkManager.messageStore.getMessages(for: chat.id)
+                .sorted { $0.timestamp < $1.timestamp }
         }
+
+        // Para conversaciones individuales - usar directamente chat.id que ya es el conversationId
+        if chat.type == .individual {
+            // chat.id ya viene como "conversation.direct.{peerID}" o "conversation.family.{peerID}"
+            return networkManager.messageStore.getMessages(for: chat.id)
+                .sorted { $0.timestamp < $1.timestamp }
+        }
+
+        // Para broadcast/chat general
+        if chat.type == .broadcast {
+            return networkManager.messageStore.getMessages(for: ConversationIdentifier.public.rawValue)
+                .sorted { $0.timestamp < $1.timestamp }
+        }
+
+        return []
     }
 
     private func sendMessage() {
@@ -885,7 +860,7 @@ struct ChatConversationView: View {
 
     private func openUWBNavigation() {
         guard let peerID = chat.peerID else {
-            print("❌ No peer ID available for navigation")
+            LoggingService.network.info("❌ No peer ID available for navigation")
             return
         }
 
@@ -893,101 +868,80 @@ struct ChatConversationView: View {
         if let uwbManager = networkManager.uwbSessionManager {
             // Check if LinkFinder is supported
             guard uwbManager.isLinkFinderSupported else {
-                print("⚠️ LinkFinder not supported on this device")
+                LoggingService.network.info("⚠️ LinkFinder not supported on this device")
                 showUWBNavigation = true  // Will show fallback view
                 return
             }
 
             // Ensure LinkFinder session is active with this peer
             if !uwbManager.hasActiveSession(with: peerID) {
-                print("📡 Starting LinkFinder session for navigation with \(peerID.displayName)")
+                LoggingService.network.info("📡 Starting LinkFinder session for navigation with \(peerID.displayName)")
                 // LinkFinder session will be started automatically by NetworkManager
                 // when peer is connected
             }
 
             showUWBNavigation = true
         } else {
-            print("⚠️ LinkFinder Manager not initialized")
+            LoggingService.network.info("⚠️ LinkFinder Manager not initialized")
             showUWBNavigation = true  // Will show fallback view
         }
     }
 
     private func markMessagesAsRead() {
-        print("🔍 [MarkAsRead] Called - chat.type: \(chat.type), chat.id: \(chat.id)")
+        LoggingService.network.info("🔍 [MarkAsRead] Called - chat.type: \(String(describing: chat.type)), chat.id: \(chat.id)")
 
         switch chat.type {
         case .familyGroup:
-            // Mark simulated family group messages as read
-            guard let groupData = mockGroupsManager.activeGroupData else {
-                print("⚠️ [MarkAsRead] No active group data, skipping")
-                return
-            }
+            // Usar directamente chat.id que ya es el conversationId completo
+            LoggingService.network.info("📋 [MarkAsRead] Family Group conversation: \(chat.id)")
 
-            let groupId = groupData.id
-            print("📋 [MarkAsRead] Family Group ID: \(groupId), Name: \(groupData.name)")
+            // Marcar toda la conversación del grupo como leída en MessageStore
+            networkManager.messageStore.markConversationAsRead(conversationId: chat.id)
 
-            // Build dictionary of member messages
-            var memberMessages: [String: [UUID]] = [:]
-            for member in groupData.members {
-                if !member.recentMessages.isEmpty {
-                    memberMessages[member.peerID] = member.recentMessages.map { $0.id }
-                    print("   - \(member.nickname): \(member.recentMessages.count) messages")
+            let unreadCount = networkManager.messageStore.getUnreadCount(for: chat.id)
+            LoggingService.network.info("✅ [MarkAsRead] Marked group messages as read. Remaining unread: \(unreadCount)")
+
+            // Para compatibilidad con el sistema antiguo, también actualizar MessageReadStateManager si hay activeGroupData
+            if let groupData = mockGroupsManager.activeGroupData {
+                var memberMessages: [String: [UUID]] = [:]
+                for member in groupData.members {
+                    if !member.recentMessages.isEmpty {
+                        memberMessages[member.peerID] = member.recentMessages.map { $0.id }
+                    }
+                }
+
+                readStateManager.markAllGroupMessagesAsRead(
+                    groupId: groupData.id,
+                    memberMessages: memberMessages
+                )
+
+                // Forzar actualización de UI
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.mockGroupsManager.objectWillChange.send()
                 }
             }
 
-            let totalMessages = memberMessages.values.flatMap { $0 }.count
-            print("📊 [MarkAsRead] Total messages to mark: \(totalMessages)")
-
-            // Mark all as read
-            readStateManager.markAllGroupMessagesAsRead(
-                groupId: groupId,
-                memberMessages: memberMessages
-            )
-
-            print("✅ [MarkAsRead] Marked \(totalMessages) messages as read for group \(groupId)")
-
-            // Force refresh of parent view
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                print("🔄 [MarkAsRead] Triggering UI refresh...")
-                self.mockGroupsManager.objectWillChange.send()
-            }
-
         case .individual:
-            // CRITICAL FIX: Mark individual chat messages as read
-            guard let peerID = chat.peerID else {
-                print("⚠️ [MarkAsRead] No peerID for individual chat")
-                return
-            }
+            // Usar directamente chat.id que ya es el conversationId completo
+            LoggingService.network.info("📋 [MarkAsRead] Individual conversation: \(chat.id)")
 
-            print("📋 [MarkAsRead] Individual chat with peer: \(peerID.displayName)")
+            // Marcar toda la conversación como leída en MessageStore
+            networkManager.messageStore.markConversationAsRead(conversationId: chat.id)
 
-            // Try both direct and family conversation IDs (peer could be family member or direct)
-            let directConvId = ConversationIdentifier.direct(peerId: peerID.displayName).rawValue
-            let familyConvId = ConversationIdentifier.family(peerId: peerID.displayName).rawValue
-
-            let directUnread = networkManager.messageStore.getUnreadCount(for: directConvId)
-            let familyUnread = networkManager.messageStore.getUnreadCount(for: familyConvId)
-
-            print("   Direct conv (\(directConvId)): \(directUnread) unread")
-            print("   Family conv (\(familyConvId)): \(familyUnread) unread")
-
-            // Mark both as read (only one should have messages)
-            networkManager.messageStore.markConversationAsRead(conversationId: directConvId)
-            networkManager.messageStore.markConversationAsRead(conversationId: familyConvId)
-
-            print("✅ [MarkAsRead] Marked individual chat messages as read")
+            let unreadCount = networkManager.messageStore.getUnreadCount(for: chat.id)
+            LoggingService.network.info("✅ [MarkAsRead] Marked individual messages as read. Remaining unread: \(unreadCount)")
 
         case .broadcast:
             // Mark broadcast messages as read
-            print("📋 [MarkAsRead] Broadcast conversation")
+            LoggingService.network.info("📋 [MarkAsRead] Broadcast conversation")
             let publicConvId = ConversationIdentifier.public.rawValue
             let unreadCount = networkManager.messageStore.getUnreadCount(for: publicConvId)
 
-            print("   Public conv (\(publicConvId)): \(unreadCount) unread")
+            LoggingService.network.info("   Public conv (\(publicConvId)): \(unreadCount) unread")
 
             networkManager.messageStore.markConversationAsRead(conversationId: publicConvId)
 
-            print("✅ [MarkAsRead] Marked broadcast messages as read")
+            LoggingService.network.info("✅ [MarkAsRead] Marked broadcast messages as read")
         }
     }
 }

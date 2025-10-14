@@ -8,6 +8,7 @@
 
 import Foundation
 import Combine
+import os
 
 /// Manages user display name configuration
 class UserDisplayNameManager: ObservableObject {
@@ -23,10 +24,10 @@ class UserDisplayNameManager: ObservableObject {
         if let data = userDefaults.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode(UserDisplayNameSettings.self, from: data) {
             self.settings = decoded
-            print("📱 [DisplayName] Loaded: public='\(decoded.publicName)', family='\(decoded.familyName)'")
+            LoggingService.network.info("📱 [DisplayName] Loaded: public='\(decoded.publicName)', family='\(decoded.familyName)'")
         } else {
             self.settings = UserDisplayNameSettings()
-            print("📱 [DisplayName] No saved settings, using defaults")
+            LoggingService.network.info("📱 [DisplayName] No saved settings, using defaults")
         }
     }
 
@@ -81,10 +82,10 @@ class UserDisplayNameManager: ObservableObject {
         do {
             let encoded = try JSONEncoder().encode(settings)
             userDefaults.set(encoded, forKey: storageKey)
-            print("💾 [DisplayName] Saved: public='\(settings.publicName)', family='\(settings.familyName)'")
+            LoggingService.network.info("💾 [DisplayName] Saved: public='\(self.settings.publicName, privacy: .public)', family='\(self.settings.familyName, privacy: .public)'")
             objectWillChange.send()
         } catch {
-            print("❌ [DisplayName] Failed to save: \(error)")
+            LoggingService.network.info("❌ [DisplayName] Failed to save: \(error)")
         }
     }
 }

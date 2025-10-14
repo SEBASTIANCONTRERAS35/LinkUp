@@ -602,7 +602,7 @@ Circle()
 
 ### For QA Team:
 1. ✅ Set up physical test device with VoiceOver
-2. ✅ Print `ACCESSIBILITY_TESTING_CHECKLIST.md`
+2. ✅ LoggingService.network.info `ACCESSIBILITY_TESTING_CHECKLIST.md`
 3. ⏳ Perform baseline testing (current state)
 4. ⏳ Re-test after each implementation phase
 5. ⏳ Final validation before CSC 2025

@@ -1,8 +1,12 @@
 import Foundation
+import os
 
 class MessageQueue {
     private var heap: [NetworkMessage] = []
-    private let maxSize = 100
+    private var maxSize: Int {
+        // Dynamic queue size based on network mode
+        return NetworkConfig.shared.networkMode.messageQueueSize
+    }
     private let queue = DispatchQueue(label: "com.meshred.messagequeue", attributes: .concurrent)
 
     var count: Int {
@@ -27,14 +31,14 @@ class MessageQueue {
                     if message.priority < lowestPriority {
                         self.heap.remove(at: lowestPriorityIndex)
                         self.insertMessage(message)
-                        print("📥 Cola llena: Reemplazando mensaje de prioridad \(lowestPriority) con mensaje de prioridad \(message.priority)")
+                        LoggingService.network.info("📥 Cola llena: Reemplazando mensaje de prioridad \(lowestPriority) con mensaje de prioridad \(message.priority)")
                     } else {
-                        print("⚠️ Cola llena: Descartando mensaje de prioridad \(message.priority)")
+                        LoggingService.network.info("⚠️ Cola llena: Descartando mensaje de prioridad \(message.priority)")
                     }
                 }
             } else {
                 self.insertMessage(message)
-                print("📥 Mensaje encolado - Tipo: \(message.messageType.displayName), Prioridad: \(message.priority), Cola: \(self.heap.count)/\(self.maxSize)")
+                LoggingService.network.info("📥 Mensaje encolado - Tipo: \(message.messageType.displayName), Prioridad: \(message.priority), Cola: \(self.heap.count)/\(self.maxSize)")
             }
         }
     }
@@ -56,7 +60,7 @@ class MessageQueue {
             heap[0] = heap.removeLast()
             bubbleDown(0)
 
-            print("📤 Mensaje desencolado - Tipo: \(message.messageType.displayName), Prioridad: \(message.priority), Cola restante: \(heap.count)")
+            LoggingService.network.info("📤 Mensaje desencolado - Tipo: \(message.messageType.displayName), Prioridad: \(message.priority), Cola restante: \(self.heap.count)")
             return message
         }
     }
@@ -70,7 +74,7 @@ class MessageQueue {
     func clear() {
         queue.async(flags: .barrier) { [weak self] in
             self?.heap.removeAll()
-            print("🗑️ Cola de mensajes limpiada")
+            LoggingService.network.info("🗑️ Cola de mensajes limpiada")
         }
     }
 

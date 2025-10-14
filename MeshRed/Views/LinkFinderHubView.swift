@@ -9,6 +9,7 @@
 import SwiftUI
 import MultipeerConnectivity
 import CoreLocation
+import os
 
 // MARK: - LinkFinder Hub View
 /// Fullscreen LinkFinder management with radar visualization
@@ -29,6 +30,7 @@ struct LinkFinderHubView: View {
     @State private var sweepAngle: Double = 0
     @State private var sweepTimer: Timer?
     @State private var refreshCounter = 0
+    @State private var showUWBInfo = false
 
     private let maxLinkFinderSessions = 2
     private let radarRadius: CGFloat = 140.0
@@ -55,6 +57,11 @@ struct LinkFinderHubView: View {
             .fullScreenCover(isPresented: $showMessaging) {
                 MessagingDashboardView(hideBottomBar: .constant(false))
                     .environmentObject(networkManager)
+            }
+            .sheet(isPresented: $showUWBInfo) {
+                UWBInfoSheet()
+                    .environmentObject(networkManager)
+                    .environmentObject(accessibilitySettings)
             }
         }
     }
@@ -119,6 +126,39 @@ struct LinkFinderHubView: View {
 
                 Spacer()
             }
+
+            // Device capability warning
+            if #available(iOS 14.0, *) {
+                if let uwbManager = networkManager.uwbSessionManager,
+                   let localCaps = uwbManager.localDeviceCapabilities {
+                    HStack(spacing: 8) {
+                        Image(systemName: localCaps.hasUWB ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(localCaps.hasUWB ? Mundial2026Colors.verde : Color.orange)
+
+                        Text(localCaps.hasUWB ?
+                             "Tu \(localCaps.deviceModel) soporta LinkFinder completo" :
+                             "Tu \(localCaps.deviceModel) no tiene chip UWB")
+                            .font(.caption)
+                            .foregroundColor(localCaps.hasUWB ? accessibleTheme.textSecondary : Color.orange)
+
+                        if !localCaps.hasUWB {
+                            Button(action: showUWBInfoSheet) {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Color.orange)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(localCaps.hasUWB ? Color.green.opacity(0.1) : Color.orange.opacity(0.1))
+                    )
+                }
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
@@ -129,7 +169,7 @@ struct LinkFinderHubView: View {
 
     // MARK: - Radar Section
     private var radarSection: some View {
-        let _ = print("📡 LINKFINDER RADAR: \(peerRadarData.count) peers with LinkFinder data")
+        let _ = LoggingService.network.info("📡 LINKFINDER RADAR: \(peerRadarData.count) peers with LinkFinder data")
 
         return ZStack {
             // Radar background
@@ -406,6 +446,7 @@ struct LinkFinderHubView: View {
                         isSelected: selectedPeer == peer.displayName,
                         distance: getLinkFinderDistance(for: peer),
                         hasDirection: hasLinkFinderDirection(for: peer),
+                        directionMode: getLinkFinderDirectionMode(),
                         onTap: {
                             withAnimation(.spring(response: 0.3)) {
                                 selectedPeer = (selectedPeer == peer.displayName) ? nil : peer.displayName
@@ -444,6 +485,7 @@ struct LinkFinderHubView: View {
                         isSelected: false,
                         distance: nil,
                         hasDirection: false,
+                        directionMode: nil,
                         onTap: {},
                         onNavigate: {
                             navigateTo(peer)
@@ -623,6 +665,10 @@ struct LinkFinderHubView: View {
         }
     }
 
+    private func showUWBInfoSheet() {
+        showUWBInfo = true
+    }
+
     private func getLinkFinderDistance(for peer: MCPeerID) -> String? {
         guard let uwbManager = uwbManager,
               let distance = uwbManager.getDistance(to: peer) else {
@@ -643,6 +689,11 @@ struct LinkFinderHubView: View {
         return uwbManager.getDirection(to: peer) != nil
     }
 
+    private func getLinkFinderDirectionMode() -> DirectionMode? {
+        guard let uwbManager = uwbManager else { return nil }
+        return uwbManager.directionMode
+    }
+
     private func navigateTo(_ peer: MCPeerID) {
         // This would open LinkFinderNavigationView
         dismiss()
@@ -659,7 +710,7 @@ struct LinkFinderHubView: View {
     // MARK: - Radar Sweep Animation
 
     private func startRadarSweep() {
-        print("🚀 STARTING LINKFINDER RADAR SWEEP")
+        LoggingService.network.info("🚀 STARTING LINKFINDER RADAR SWEEP")
 
         sweepTimer?.invalidate()
 
@@ -703,12 +754,14 @@ struct LinkFinderPeerCard: View {
     let isSelected: Bool
     let distance: String?
     let hasDirection: Bool
+    let directionMode: DirectionMode?  // NEW: Direction mode indicator
     let onTap: () -> Void
     let onNavigate: () -> Void
     let onMessage: () -> Void
 
     @EnvironmentObject var accessibilitySettings: AccessibilitySettingsManager
     @Environment(\.accessibleTheme) var accessibleTheme
+    @EnvironmentObject var networkManager: NetworkManager
 
     var body: some View {
         Button(action: onTap) {
@@ -737,13 +790,42 @@ struct LinkFinderPeerCard: View {
                             .frame(width: 6, height: 6)
 
                         if let dist = distance {
-                            Text("\(dist) • \(hasDirection ? "Dirección" : "Solo distancia")")
-                                .font(.caption)
-                                .foregroundColor(accessibleTheme.textSecondary)
+                            // Show direction mode indicator if available
+                            if let mode = directionMode {
+                                Text("\(dist) • \(mode.description)")
+                                    .font(.caption)
+                                    .foregroundColor(accessibleTheme.textSecondary)
+                            } else {
+                                Text("\(dist) • \(hasDirection ? "Dirección" : "Solo distancia")")
+                                    .font(.caption)
+                                    .foregroundColor(accessibleTheme.textSecondary)
+                            }
                         } else {
                             Text(isActive ? "LinkFinder activo" : "Disponible")
                                 .font(.caption)
                                 .foregroundColor(accessibleTheme.textSecondary)
+                        }
+                    }
+
+                    // Device capability info
+                    if #available(iOS 14.0, *) {
+                        if let uwbManager = networkManager.uwbSessionManager,
+                           let peerCaps = uwbManager.peerCapabilities[peer.displayName] {
+                            HStack(spacing: 4) {
+                                Image(systemName: peerCaps.hasUWB ? "antenna.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right.slash")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(peerCaps.hasUWB ? Mundial2026Colors.verde : Color.orange)
+
+                                Text(peerCaps.deviceModel)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(accessibleTheme.textSecondary)
+
+                                if !peerCaps.hasUWB {
+                                    Text("• Sin UWB")
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundColor(Color.orange)
+                                }
+                            }
                         }
                     }
                 }

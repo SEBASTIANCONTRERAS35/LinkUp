@@ -19,6 +19,7 @@ struct AccessibilitySettingsView: View {
     @State private var selectedPreset: AccessibilitySettingsManager.AccessibilityPreset?
     @State private var showTestingPanel = false
     @State private var showDisplayNameSettings = false
+    @State private var showingClearDataAlert = false
 
     var body: some View {
         NavigationView {
@@ -39,10 +40,12 @@ struct AccessibilitySettingsView: View {
                     themeSection
                     privacySection
                     performanceSection
-                    stadiumModeSection
 
                     // Testing Panel
                     testingPanelSection
+
+                    // Developer Tools
+                    developerToolsSection
 
                     // Reset Button
                     resetButton
@@ -71,6 +74,15 @@ struct AccessibilitySettingsView: View {
                 }
             } message: {
                 Text("¿Estás seguro de que quieres restablecer toda la configuración de accesibilidad a los valores recomendados?")
+            }
+            .alert("⚠️ Borrar TODOS los Datos", isPresented: $showingClearDataAlert) {
+                Button("Cancelar", role: .cancel) { }
+                Button("Borrar Todo", role: .destructive) {
+                    DataCleaner.clearAllData()
+                    announceChange("Todos los datos han sido eliminados. Reinicia la app.")
+                }
+            } message: {
+                Text("Esta acción eliminará TODOS los datos de la app:\n• Mensajes\n• Conexiones\n• Geofences\n• Grupos familiares\n• Configuración\n• Caché\n\nDeberás reiniciar la app después. ¿Continuar?")
             }
         }
     }
@@ -643,72 +655,6 @@ struct AccessibilitySettingsView: View {
         }
     }
 
-    // MARK: - Stadium Mode Section
-
-    private var stadiumModeSection: some View {
-        SettingsSection(
-            icon: "sportscourt.fill",
-            title: "Modo Estadio",
-            description: "Conexión extendida en segundo plano",
-            iconColor: accessibleTheme.info
-        ) {
-            // Button to open full Stadium Mode settings
-            NavigationLink(destination: StadiumModeSettingsView().environmentObject(networkManager)) {
-                HStack(spacing: 12) {
-                    Image(systemName: "antenna.radiowaves.left.and.right")
-                        .font(.title2)
-                        .foregroundColor(accessibleTheme.primaryBlue)
-                        .frame(width: 40)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Configurar Modo Estadio")
-                            .font(.body)
-                            .fontWeight(settings.preferBoldText ? .bold : .semibold)
-                            .foregroundColor(accessibleTheme.textPrimary)
-
-                        Text("Mantiene conexiones hasta 25 min en segundo plano")
-                            .font(.caption)
-                            .foregroundColor(accessibleTheme.textSecondary)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .foregroundColor(accessibleTheme.textSecondary)
-                }
-                .padding()
-                .background(accessibleTheme.cardBackground)
-                .cornerRadius(12)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Configurar Modo Estadio")
-            .accessibilityHint("Toca para activar modo de conexión extendida para eventos masivos")
-
-            // Info box explaining Stadium Mode
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "info.circle.fill")
-                    .foregroundColor(accessibleTheme.info)
-                    .font(.title3)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("¿Qué es el Modo Estadio?")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(accessibleTheme.textPrimary)
-
-                    Text("Extiende el tiempo de conexión en segundo plano de 3-10 minutos a 15-30 minutos. Ideal para eventos masivos como el Mundial 2026.")
-                        .font(.caption)
-                        .foregroundColor(accessibleTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding()
-            .background(accessibleTheme.info.opacity(0.1))
-            .cornerRadius(12)
-            .accessibilityElement(children: .combine)
-        }
-    }
-
     // MARK: - Testing Panel
 
     private var testingPanelSection: some View {
@@ -772,6 +718,102 @@ struct AccessibilitySettingsView: View {
             .buttonStyle(.plain)
             .foregroundColor(accessibleTheme.textPrimary)
             .padding(.horizontal, 20)
+        }
+    }
+
+    // MARK: - Developer Tools
+
+    private var developerToolsSection: some View {
+        SettingsSection(
+            icon: "wrench.and.screwdriver.fill",
+            title: "Herramientas de Desarrollo",
+            description: "Limpiar caché y datos de prueba",
+            iconColor: .orange
+        ) {
+            VStack(spacing: 12) {
+                // Clear all data button
+                Button {
+                    clearAllDataWithConfirmation()
+                } label: {
+                    HStack {
+                        Image(systemName: "trash.circle.fill")
+                            .foregroundColor(.red)
+                        Text("Borrar TODOS los Datos")
+                            .fontWeight(.semibold)
+                        Spacer()
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(.orange)
+                    }
+                    .padding()
+                    .background(accessibleTheme.cardBackground)
+                    .cornerRadius(12)
+                }
+                .accessibilityLabel("Borrar todos los datos")
+                .accessibilityHint("Limpia completamente mensajes, conexiones, caché y configuración")
+
+                // Clear specific components
+                Menu {
+                    Button {
+                        DataCleaner.clearComponentData(component: .messages)
+                        announceChange("Mensajes eliminados")
+                    } label: {
+                        Label("Mensajes", systemImage: "message.fill")
+                    }
+
+                    Button {
+                        DataCleaner.clearComponentData(component: .connections)
+                        announceChange("Conexiones eliminadas")
+                    } label: {
+                        Label("Conexiones", systemImage: "person.2.fill")
+                    }
+
+                    Button {
+                        DataCleaner.clearComponentData(component: .geofences)
+                        announceChange("Geofences eliminados")
+                    } label: {
+                        Label("Geofences", systemImage: "mappin.circle.fill")
+                    }
+
+                    Button {
+                        DataCleaner.clearComponentData(component: .familyGroups)
+                        announceChange("Grupos familiares eliminados")
+                    } label: {
+                        Label("Grupos Familiares", systemImage: "person.3.fill")
+                    }
+
+                    Button {
+                        DataCleaner.clearComponentData(component: .reputation)
+                        announceChange("Sistema de reputación reiniciado")
+                    } label: {
+                        Label("Reputación", systemImage: "star.fill")
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "slider.horizontal.3")
+                        Text("Borrar Componentes Específicos")
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                    }
+                    .padding()
+                    .background(accessibleTheme.cardBackground)
+                    .cornerRadius(12)
+                }
+                .accessibilityLabel("Borrar componentes específicos")
+
+                // Warning message
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundColor(.orange)
+                    Text("Estas acciones son irreversibles. Usa solo para desarrollo y pruebas.")
+                        .font(.caption)
+                        .foregroundColor(accessibleTheme.textSecondary)
+                }
+                .padding()
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(8)
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(accessibleTheme.textPrimary)
         }
     }
 
@@ -842,6 +884,10 @@ struct AccessibilitySettingsView: View {
         #if os(iOS)
         UIAccessibility.post(notification: .announcement, argument: message)
         #endif
+    }
+
+    private func clearAllDataWithConfirmation() {
+        showingClearDataAlert = true
     }
 
     private func clearAllConnections() {

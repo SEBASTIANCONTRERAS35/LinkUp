@@ -159,7 +159,7 @@ class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
     // Enviar SOS desde Watch → iPhone
     func sendSOSAlert(_ alert: SOSAlert) {
         guard let session = session, session.isReachable else {
-            print("⚠️ iPhone no alcanzable")
+            LoggingService.network.info("⚠️ iPhone no alcanzable")
             return
         }
 
@@ -171,7 +171,7 @@ class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
     func session(_ session: WCSession,
                  activationDidCompleteWith activationState: WCSessionActivationState,
                  error: Error?) {
-        print("Watch session activated: \(activationState.rawValue)")
+        LoggingService.network.info("Watch session activated: \(activationState.rawValue)")
     }
 
     func session(_ session: WCSession,
@@ -374,9 +374,9 @@ class WatchEmergencyDetector: NSObject, ObservableObject {
 
         healthStore.requestAuthorization(toShare: nil, read: [heartRateType]) { success, error in
             if success {
-                print("✅ HealthKit authorized on Watch")
+                LoggingService.network.info("✅ HealthKit authorized on Watch")
             } else {
-                print("❌ HealthKit authorization failed: \(error?.localizedDescription ?? "")")
+                LoggingService.network.info("❌ HealthKit authorization failed: \(error?.localizedDescription ?? "")")
             }
         }
     }
@@ -416,7 +416,7 @@ class WatchEmergencyDetector: NSObject, ObservableObject {
 
     private func checkForAbnormalHeartRate(_ bpm: Double) {
         if bpm > highHeartRateThreshold || bpm < lowHeartRateThreshold {
-            print("⚠️ ABNORMAL HEART RATE: \(bpm) BPM")
+            LoggingService.network.info("⚠️ ABNORMAL HEART RATE: \(bpm) BPM")
             triggerEmergencyDetection()
         }
     }

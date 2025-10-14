@@ -277,7 +277,7 @@ Button(action: {}) {
 
 ---
 
-**Print This Card → Keep During Implementation**
+**LoggingService.network.info This Card → Keep During Implementation**
 
 ---
 

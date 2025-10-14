@@ -1,0 +1,330 @@
+//
+//  MapTileCache.swift
+//  MeshRed
+//
+//  Local storage system for offline map tiles
+//  Enables LinkFence maps to work without internet connection
+//  Critical for stadium environments with 80K+ users
+//
+
+import Foundation
+import UIKit
+import os
+
+/// Manages local storage and retrieval of map tiles for offline use
+class MapTileCache {
+
+    // MARK: - Properties
+
+    /// Singleton instance
+    static let shared = MapTileCache()
+
+    /// Base directory for map tiles
+    private let baseDirectory: URL
+
+    /// Maximum cache size in bytes (1.5 GB)
+    private let maxCacheSize: Int64 = 1_500_000_000
+
+    /// File manager
+    private let fileManager = FileManager.default
+
+    /// Access queue for thread safety
+    private let queue = DispatchQueue(label: "com.meshred.maptilecache", attributes: .concurrent)
+
+    /// Cache statistics
+    private(set) var stats: CacheStats = CacheStats()
+
+    struct CacheStats {
+        var totalTiles: Int = 0
+        var totalSizeBytes: Int64 = 0
+        var lastCleanup: Date?
+        var hitCount: Int = 0
+        var missCount: Int = 0
+
+        var hitRate: Double {
+            let total = hitCount + missCount
+            return total > 0 ? Double(hitCount) / Double(total) : 0.0
+        }
+
+        var sizeMB: Double {
+            return Double(totalSizeBytes) / 1_048_576.0
+        }
+    }
+
+    // MARK: - Initialization
+
+    private init() {
+        // Create cache directory in Documents
+        let documentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        self.baseDirectory = documentsPath.appendingPathComponent("MapTiles", isDirectory: true)
+
+        createCacheDirectoryIfNeeded()
+        calculateCacheStats()
+
+        LoggingService.network.info("🗺️ [MapTileCache] Initialized")
+        LoggingService.network.info("   Base directory: \(baseDirectory.path)")
+        LoggingService.network.info("   Cache size: \(String(format: "%.2f", stats.sizeMB)) MB")
+        LoggingService.network.info("   Total tiles: \(stats.totalTiles)")
+    }
+
+    // MARK: - Public Methods
+
+    /// Save a tile to local cache
+    /// - Parameters:
+    ///   - data: Tile image data (PNG/JPEG)
+    ///   - z: Zoom level
+    ///   - x: Tile X coordinate
+    ///   - y: Tile Y coordinate
+    func saveTile(data: Data, z: Int, x: Int, y: Int) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            let tileURL = self.tileURL(z: z, x: x, y: y)
+
+            do {
+                // Create directory if needed
+                let directory = tileURL.deletingLastPathComponent()
+                try self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+
+                // Write tile data
+                try data.write(to: tileURL)
+
+                // Update stats
+                self.stats.totalTiles += 1
+                self.stats.totalSizeBytes += Int64(data.count)
+
+                // Check cache size and cleanup if needed
+                if self.stats.totalSizeBytes > self.maxCacheSize {
+                    self.cleanupOldTiles()
+                }
+
+                LoggingService.network.info("💾 [MapTileCache] Saved tile z=\(z) x=\(x) y=\(y) (\(data.count) bytes)")
+
+            } catch {
+                LoggingService.network.info("❌ [MapTileCache] Failed to save tile: \(error)")
+            }
+        }
+    }
+
+    /// Load a tile from local cache
+    /// - Parameters:
+    ///   - z: Zoom level
+    ///   - x: Tile X coordinate
+    ///   - y: Tile Y coordinate
+    /// - Returns: Tile data if exists, nil otherwise
+    func loadTile(z: Int, x: Int, y: Int) -> Data? {
+        return queue.sync {
+            let tileURL = self.tileURL(z: z, x: x, y: y)
+
+            guard fileManager.fileExists(atPath: tileURL.path) else {
+                stats.missCount += 1
+                return nil
+            }
+
+            do {
+                let data = try Data(contentsOf: tileURL)
+                stats.hitCount += 1
+                return data
+            } catch {
+                LoggingService.network.info("❌ [MapTileCache] Failed to load tile: \(error)")
+                stats.missCount += 1
+                return nil
+            }
+        }
+    }
+
+    /// Check if a tile exists in cache
+    func hasTile(z: Int, x: Int, y: Int) -> Bool {
+        let tileURL = tileURL(z: z, x: x, y: y)
+        return fileManager.fileExists(atPath: tileURL.path)
+    }
+
+    /// Delete a specific tile
+    func deleteTile(z: Int, x: Int, y: Int) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            let tileURL = self.tileURL(z: z, x: x, y: y)
+
+            guard fileManager.fileExists(atPath: tileURL.path) else { return }
+
+            do {
+                // Get file size before deleting
+                let attributes = try fileManager.attributesOfItem(atPath: tileURL.path)
+                let fileSize = attributes[.size] as? Int64 ?? 0
+
+                try fileManager.removeItem(at: tileURL)
+
+                // Update stats
+                self.stats.totalTiles -= 1
+                self.stats.totalSizeBytes -= fileSize
+
+                LoggingService.network.info("🗑️ [MapTileCache] Deleted tile z=\(z) x=\(x) y=\(y)")
+
+            } catch {
+                LoggingService.network.info("❌ [MapTileCache] Failed to delete tile: \(error)")
+            }
+        }
+    }
+
+    /// Clear entire cache
+    func clearCache() {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            do {
+                if fileManager.fileExists(atPath: baseDirectory.path) {
+                    try fileManager.removeItem(at: baseDirectory)
+                }
+
+                // Recreate directory
+                self.createCacheDirectoryIfNeeded()
+
+                // Reset stats
+                self.stats = CacheStats()
+                self.stats.lastCleanup = Date()
+
+                LoggingService.network.info("🗑️ [MapTileCache] Cache cleared completely")
+
+            } catch {
+                LoggingService.network.info("❌ [MapTileCache] Failed to clear cache: \(error)")
+            }
+        }
+    }
+
+    /// Clear cache for a specific zoom level
+    func clearZoomLevel(_ z: Int) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            let zoomDir = baseDirectory.appendingPathComponent("\(z)", isDirectory: true)
+
+            guard fileManager.fileExists(atPath: zoomDir.path) else { return }
+
+            do {
+                try fileManager.removeItem(at: zoomDir)
+
+                // Recalculate stats
+                self.calculateCacheStats()
+
+                LoggingService.network.info("🗑️ [MapTileCache] Cleared zoom level \(z)")
+
+            } catch {
+                LoggingService.network.info("❌ [MapTileCache] Failed to clear zoom level: \(error)")
+            }
+        }
+    }
+
+    /// Get current cache statistics
+    func getCacheStats() -> CacheStats {
+        return queue.sync {
+            return stats
+        }
+    }
+
+    /// Recalculate cache statistics (scans filesystem)
+    func recalculateStats() {
+        queue.async(flags: .barrier) { [weak self] in
+            self?.calculateCacheStats()
+        }
+    }
+
+    // MARK: - Private Methods
+
+    /// Get file URL for a specific tile
+    private func tileURL(z: Int, x: Int, y: Int) -> URL {
+        return baseDirectory
+            .appendingPathComponent("\(z)", isDirectory: true)
+            .appendingPathComponent("\(x)", isDirectory: true)
+            .appendingPathComponent("\(y).png")
+    }
+
+    /// Create base cache directory if it doesn't exist
+    private func createCacheDirectoryIfNeeded() {
+        if !fileManager.fileExists(atPath: baseDirectory.path) {
+            do {
+                try fileManager.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+                LoggingService.network.info("📁 [MapTileCache] Created cache directory")
+            } catch {
+                LoggingService.network.info("❌ [MapTileCache] Failed to create cache directory: \(error)")
+            }
+        }
+    }
+
+    /// Calculate cache statistics by scanning filesystem
+    private func calculateCacheStats() {
+        var tileCount = 0
+        var totalSize: Int64 = 0
+
+        guard let enumerator = fileManager.enumerator(at: baseDirectory, includingPropertiesForKeys: [.fileSizeKey]) else {
+            LoggingService.network.info("⚠️ [MapTileCache] Failed to create enumerator")
+            return
+        }
+
+        for case let fileURL as URL in enumerator {
+            guard fileURL.pathExtension == "png" else { continue }
+
+            if let attributes = try? fileManager.attributesOfItem(atPath: fileURL.path),
+               let fileSize = attributes[.size] as? Int64 {
+                tileCount += 1
+                totalSize += fileSize
+            }
+        }
+
+        stats.totalTiles = tileCount
+        stats.totalSizeBytes = totalSize
+    }
+
+    /// Cleanup old tiles when cache exceeds maximum size
+    private func cleanupOldTiles() {
+        LoggingService.network.info("🧹 [MapTileCache] Starting cleanup (cache: \(String(format: "%.2f", stats.sizeMB)) MB)")
+
+        // Get all tile files with modification dates
+        var tilesWithDates: [(url: URL, date: Date, size: Int64)] = []
+
+        guard let enumerator = fileManager.enumerator(at: baseDirectory, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]) else {
+            return
+        }
+
+        for case let fileURL as URL in enumerator {
+            guard fileURL.pathExtension == "png" else { continue }
+
+            if let attributes = try? fileManager.attributesOfItem(atPath: fileURL.path),
+               let modDate = attributes[.modificationDate] as? Date,
+               let fileSize = attributes[.size] as? Int64 {
+                tilesWithDates.append((fileURL, modDate, fileSize))
+            }
+        }
+
+        // Sort by date (oldest first)
+        tilesWithDates.sort { $0.date < $1.date }
+
+        // Remove oldest tiles until we're under 80% of max size
+        let targetSize = Int64(Double(maxCacheSize) * 0.8)
+        var currentSize = stats.totalSizeBytes
+        var removedCount = 0
+
+        for tile in tilesWithDates {
+            if currentSize <= targetSize {
+                break
+            }
+
+            do {
+                try fileManager.removeItem(at: tile.url)
+                currentSize -= tile.size
+                removedCount += 1
+            } catch {
+                LoggingService.network.info("❌ [MapTileCache] Failed to remove tile during cleanup: \(error)")
+            }
+        }
+
+        // Update stats
+        stats.totalTiles -= removedCount
+        stats.totalSizeBytes = currentSize
+        stats.lastCleanup = Date()
+
+        LoggingService.network.info("🧹 [MapTileCache] Cleanup complete")
+        LoggingService.network.info("   Removed: \(removedCount) tiles")
+        LoggingService.network.info("   New size: \(String(format: "%.2f", stats.sizeMB)) MB")
+    }
+}

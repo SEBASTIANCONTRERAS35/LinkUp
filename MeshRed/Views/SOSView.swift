@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import os
 
 struct SOSView: View {
     @EnvironmentObject var networkManager: NetworkManager
@@ -133,7 +134,7 @@ struct SOSView: View {
         )
 
         // TODO: Send via network
-        print("🆘 SOS Alert sent: \(type.rawValue)")
+        LoggingService.network.info("🆘 SOS Alert sent: \(type.rawValue)")
 
         isSOSActive = true
 

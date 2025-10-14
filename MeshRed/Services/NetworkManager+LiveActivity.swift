@@ -10,6 +10,7 @@ import ActivityKit
 import Combine
 import CoreLocation
 import MultipeerConnectivity
+import os
 
 // MARK: - Live Activity Storage
 
@@ -17,6 +18,9 @@ import MultipeerConnectivity
 private class LiveActivityStorage {
     static var currentActivity: Activity<MeshActivityAttributes>?
     static var activityCancellables = Set<AnyCancellable>()
+
+    // FIXED: Throttling para Live Activity updates (previene saturación de main thread)
+    static var lastUpdate: Date = .distantPast
 }
 
 // MARK: - Live Activity Management
@@ -35,13 +39,13 @@ extension NetworkManager {
 
             // Only start if we don't already have an active activity
             guard LiveActivityStorage.currentActivity == nil else {
-                print("⚠️ Live Activity already running")
+                LoggingService.network.info("⚠️ Live Activity already running")
                 return
             }
 
             // Only start if ActivityKit is supported
             guard ActivityAuthorizationInfo().areActivitiesEnabled else {
-                print("⚠️ Live Activities are not enabled by user")
+                LoggingService.network.info("⚠️ Live Activities are not enabled by user")
                 return
             }
 
@@ -62,41 +66,41 @@ extension NetworkManager {
 
                 LiveActivityStorage.currentActivity = activity
 
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("🎬 LIVE ACTIVITY STARTED")
-                print("   Activity ID: \(activity.id)")
-                print("   Session: \(attributes.sessionId)")
-                print("   Device: \(attributes.localDeviceName)")
-                print("   Connected Peers: \(initialState.connectedPeers)")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("🎬 LIVE ACTIVITY STARTED")
+                LoggingService.network.info("   Activity ID: \(activity.id)")
+                LoggingService.network.info("   Session: \(attributes.sessionId)")
+                LoggingService.network.info("   Device: \(attributes.localDeviceName)")
+                LoggingService.network.info("   Connected Peers: \(initialState.connectedPeers)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 // Setup automatic updates based on NetworkManager changes
                 setupLiveActivityUpdates()
 
             } catch {
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("❌ FAILED TO START LIVE ACTIVITY")
-                print("   Error: \(error)")
-                print("   Error type: \(type(of: error))")
-                print("   Error localized: \(error.localizedDescription)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("❌ FAILED TO START LIVE ACTIVITY")
+                LoggingService.network.info("   Error: \(error)")
+                LoggingService.network.info("   Error type: \(type(of: error))")
+                LoggingService.network.info("   Error localized: \(error.localizedDescription)")
 
                 // Check for specific "invalid reuse" error
                 if let activityError = error as? ActivityAuthorizationError {
-                    print("   Authorization error: \(activityError)")
+                    LoggingService.network.info("   Authorization error: \(activityError)")
                 }
 
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 // Clean up on failure
                 LiveActivityStorage.currentActivity = nil
                 LiveActivityStorage.activityCancellables.removeAll()
 
                 // Wait before retry
-                print("⏳ Will retry in 3 seconds...")
+                LoggingService.network.info("⏳ Will retry in 3 seconds...")
                 Task {
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
                     await cleanupStaleActivities()
-                    print("🔄 Retrying Live Activity start...")
+                    LoggingService.network.info("🔄 Retrying Live Activity start...")
                     startLiveActivity()
                 }
             }
@@ -106,8 +110,26 @@ extension NetworkManager {
     /// Update the Live Activity with current state
     /// This is called automatically when NetworkManager properties change
     func updateLiveActivity() {
+        // FIXED: THROTTLE Live Activity updates to prevent main thread saturation
+        // Cada update requiere:
+        // - Serialización de datos
+        // - IPC (Inter-Process Communication) con SpringBoard
+        // - Renderizado de Dynamic Island/Lock Screen
+        // Updates frecuentes (cada location update) causan ANR
+        let now = Date()
+        let timeSinceLastUpdate = now.timeIntervalSince(LiveActivityStorage.lastUpdate)
+
+        // Solo actualizar cada 5 segundos (suficiente para Live Activity)
+        guard timeSinceLastUpdate >= 5.0 else {
+            // Skip este update silenciosamente
+            return
+        }
+
+        // Actualizar timestamp
+        LiveActivityStorage.lastUpdate = now
+
         guard let activity = LiveActivityStorage.currentActivity else {
-            print("⚠️ No active Live Activity to update")
+            LoggingService.network.info("⚠️ No active Live Activity to update")
             return
         }
 
@@ -121,13 +143,13 @@ extension NetworkManager {
                 )
             )
 
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("🔄 LIVE ACTIVITY UPDATED")
-            print("   Peers: \(newState.connectedPeers)")
-            print("   Unread Messages: \(newState.unreadMessageCount)")
-            print("   Latest Message Sender: \(newState.latestMessageSender ?? "nil")")
-            print("   Has New Messages: \(newState.hasNewMessages)")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("🔄 LIVE ACTIVITY UPDATED (throttled to 1/5sec)")
+            LoggingService.network.info("   Peers: \(newState.connectedPeers)")
+            LoggingService.network.info("   Unread Messages: \(newState.unreadMessageCount)")
+            LoggingService.network.info("   Latest Message Sender: \(newState.latestMessageSender ?? "nil")")
+            LoggingService.network.info("   Has New Messages: \(newState.hasNewMessages)")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         }
     }
 
@@ -135,7 +157,7 @@ extension NetworkManager {
     /// Shows a banner notification on devices without Dynamic Island
     func updateLiveActivity(withAlert title: String, body: String, sound: AlertConfiguration.AlertSound = .default) {
         guard let activity = LiveActivityStorage.currentActivity else {
-            print("⚠️ No active Live Activity to update")
+            LoggingService.network.info("⚠️ No active Live Activity to update")
             return
         }
 
@@ -153,10 +175,10 @@ extension NetworkManager {
                 alertConfiguration: alertConfig
             )
 
-            print("🔔 Live Activity updated WITH ALERT")
-            print("   Title: \(title)")
-            print("   Body: \(body)")
-            print("   This shows banner on non-Dynamic Island devices")
+            LoggingService.network.info("🔔 Live Activity updated WITH ALERT")
+            LoggingService.network.info("   Title: \(title)")
+            LoggingService.network.info("   Body: \(body)")
+            LoggingService.network.info("   This shows banner on non-Dynamic Island devices")
         }
     }
 
@@ -164,7 +186,7 @@ extension NetworkManager {
     /// This should be called when disconnecting or app is backgrounding for extended period
     func stopLiveActivity(dismissalPolicy: ActivityUIDismissalPolicy = .default) {
         guard let activity = LiveActivityStorage.currentActivity else {
-            print("⚠️ No active Live Activity to stop")
+            LoggingService.network.info("⚠️ No active Live Activity to stop")
             return
         }
 
@@ -179,10 +201,10 @@ extension NetworkManager {
             LiveActivityStorage.currentActivity = nil
             LiveActivityStorage.activityCancellables.removeAll()
 
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("🛑 LIVE ACTIVITY STOPPED")
-            print("   Final Peers: \(finalState.connectedPeers)")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("🛑 LIVE ACTIVITY STOPPED")
+            LoggingService.network.info("   Final Peers: \(finalState.connectedPeers)")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         }
     }
 
@@ -282,13 +304,13 @@ extension NetworkManager {
         let latestTimestamp = latestMessage?.timestamp
 
         // DEBUG: Log message data for Live Activity
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📊 LIVE ACTIVITY MESSAGE DATA")
-        print("   Unread Count: \(unreadMessages)")
-        print("   Latest Sender: \(latestSender ?? "nil")")
-        print("   Latest Preview: \(latestPreview ?? "nil")")
-        print("   Has New Messages: \(unreadMessages > 0)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📊 LIVE ACTIVITY MESSAGE DATA")
+        LoggingService.network.info("   Unread Count: \(unreadMessages)")
+        LoggingService.network.info("   Latest Sender: \(latestSender ?? "nil")")
+        LoggingService.network.info("   Latest Preview: \(latestPreview ?? "nil")")
+        LoggingService.network.info("   Has New Messages: \(unreadMessages > 0)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         return MeshActivityAttributes.ContentState(
             connectedPeers: connectedPeers.count,
@@ -361,11 +383,11 @@ extension NetworkManager {
                         body: messagePreview,
                         sound: .default
                     )
-                    print("💬🔔 Live Activity updated WITH ALERT for message from: \(senderName)")
+                    LoggingService.network.info("💬🔔 Live Activity updated WITH ALERT for message from: \(senderName)")
                 } else {
                     // Own message or other update - regular update without alert
                     self.updateLiveActivity()
-                    print("💬 Live Activity updated (no alert) for: \(latestMsg?.sender ?? "unknown")")
+                    LoggingService.network.info("💬 Live Activity updated (no alert) for: \(latestMsg?.sender ?? "unknown")")
                 }
             }
             .store(in: &LiveActivityStorage.activityCancellables)
@@ -391,7 +413,7 @@ extension NetworkManager {
             }
             .store(in: &LiveActivityStorage.activityCancellables)
 
-        print("✅ Live Activity auto-update observers configured")
+        LoggingService.network.info("✅ Live Activity auto-update observers configured")
     }
 
     /// Clean up any stale or zombie Live Activities
@@ -400,18 +422,18 @@ extension NetworkManager {
         // Get all active activities for our type
         let activities = Activity<MeshActivityAttributes>.activities
 
-        print("🧹 Cleaning up stale Live Activities...")
-        print("   Found \(activities.count) existing activities")
+        LoggingService.network.info("🧹 Cleaning up stale Live Activities...")
+        LoggingService.network.info("   Found \(activities.count) existing activities")
 
         for activity in activities {
             // Check if activity is ended or stale
             let activityState = activity.activityState
 
             if activityState == .dismissed || activityState == .ended {
-                print("   🗑️ Removing stale activity: \(activity.id)")
+                LoggingService.network.info("   🗑️ Removing stale activity: \(activity.id)")
                 await activity.end(nil, dismissalPolicy: .immediate)
             } else {
-                print("   ⚠️ Found active activity: \(activity.id) - ending it")
+                LoggingService.network.info("   ⚠️ Found active activity: \(activity.id) - ending it")
                 // End any existing active activities to prevent conflicts
                 await activity.end(nil, dismissalPolicy: .immediate)
             }
@@ -424,6 +446,6 @@ extension NetworkManager {
         // Wait a bit to ensure system processes the cleanup
         try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
 
-        print("✅ Cleanup complete - waited for system to process")
+        LoggingService.network.info("✅ Cleanup complete - waited for system to process")
     }
 }

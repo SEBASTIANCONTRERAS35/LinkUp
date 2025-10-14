@@ -180,7 +180,7 @@ networkManager.stopLiveActivity()
 ### Verificar si está Activa
 ```swift
 if networkManager.hasActiveLiveActivity {
-    print("Live Activity running")
+    LoggingService.network.info("Live Activity running")
 }
 ```
 

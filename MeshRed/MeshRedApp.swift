@@ -8,6 +8,7 @@
 import SwiftUI
 import ActivityKit
 import Combine
+import os
 
 @main
 struct MeshRedApp: App {
@@ -30,8 +31,8 @@ struct MeshRedApp: App {
                 .withAccessibleTheme(AccessibleThemeColors(settings: accessibilitySettings))
                 .preferredColorScheme(preferredColorScheme)
                 .onAppear {
-                    print("🚀 StadiumConnect Pro: App started with device: \(networkManager.localDeviceName)")
-                    print("♿️ Accessibility: High Contrast = \(accessibilitySettings.enableHighContrast), Bold Text = \(accessibilitySettings.preferBoldText)")
+                    LoggingService.network.info("🚀 StadiumConnect Pro: App started with device: \(networkManager.localDeviceName)")
+                    LoggingService.network.info("♿️ Accessibility: High Contrast = \(accessibilitySettings.enableHighContrast), Bold Text = \(accessibilitySettings.preferBoldText)")
 
                     // FORCE cleanup all Live Activities on app start
                     forceCleanupAllLiveActivities()
@@ -45,7 +46,7 @@ struct MeshRedApp: App {
                     // ✅ REMOVED automatic Live Activity start
                     // Live Activity is now ONLY managed by Stadium Mode
                     // User must manually enable Stadium Mode from Settings
-                    print("💡 Live Activity will start when user enables Stadium Mode")
+                    LoggingService.network.info("💡 Live Activity will start when user enables Stadium Mode")
 
                     // Start observing widget stop requests
                     startObservingStopRequests()
@@ -81,7 +82,7 @@ struct MeshRedApp: App {
             // Increased delay to ensure cleanup completes
             DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
                 if !networkManager.connectedPeers.isEmpty && !networkManager.hasActiveLiveActivity {
-                    print("⏰ Starting Live Activity after cleanup delay...")
+                    LoggingService.network.info("⏰ Starting Live Activity after cleanup delay...")
                     networkManager.startLiveActivity()
                 }
             }
@@ -95,18 +96,18 @@ struct MeshRedApp: App {
         if #available(iOS 16.1, *) {
             switch newPhase {
             case .active:
-                print("📱 App became active")
+                LoggingService.network.info("📱 App became active")
                 // Cancel background timer if app comes back
                 backgroundTimer?.cancel()
                 backgroundTimer = nil
-                print("   ⏱️ Background timer cancelled - app is active")
+                LoggingService.network.info("   ⏱️ Background timer cancelled - app is active")
 
             case .inactive:
-                print("📱 App became inactive")
+                LoggingService.network.info("📱 App became inactive")
                 // Keep Live Activity running to maintain background priority
 
             case .background:
-                print("📱 App entered background")
+                LoggingService.network.info("📱 App entered background")
                 // Start timer to auto-stop Live Activity if user doesn't return
                 startBackgroundTimer()
 
@@ -124,8 +125,8 @@ struct MeshRedApp: App {
             // Cancel any existing timer
             backgroundTimer?.cancel()
 
-            print("⏱️ Starting 30-second background timer...")
-            print("   Live Activity will auto-stop if app doesn't return")
+            LoggingService.network.info("⏱️ Starting 30-second background timer...")
+            LoggingService.network.info("   Live Activity will auto-stop if app doesn't return")
 
             backgroundTimer = Task {
                 // Wait 30 seconds
@@ -133,15 +134,15 @@ struct MeshRedApp: App {
 
                 // Check if task was cancelled (user returned to app)
                 guard !Task.isCancelled else {
-                    print("⏱️ Background timer cancelled - user returned")
+                    LoggingService.network.info("⏱️ Background timer cancelled - user returned")
                     return
                 }
 
                 // Still in background after 30 seconds - stop Live Activity
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("⏱️ BACKGROUND TIMER EXPIRED (30s)")
-                print("   App appears to be closed - stopping Live Activity")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("⏱️ BACKGROUND TIMER EXPIRED (30s)")
+                LoggingService.network.info("   App appears to be closed - stopping Live Activity")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 await MainActor.run {
                     networkManager.stopLiveActivity(dismissalPolicy: .immediate)
@@ -158,18 +159,18 @@ struct MeshRedApp: App {
             Task {
                 let activities = Activity<MeshActivityAttributes>.activities
 
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("🧹 FORCE CLEANUP ALL LIVE ACTIVITIES")
-                print("   Found \(activities.count) existing activities")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("🧹 FORCE CLEANUP ALL LIVE ACTIVITIES")
+                LoggingService.network.info("   Found \(activities.count) existing activities")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 for activity in activities {
-                    print("   🗑️ Ending activity: \(activity.id)")
+                    LoggingService.network.info("   🗑️ Ending activity: \(activity.id)")
                     await activity.end(nil, dismissalPolicy: .immediate)
                 }
 
-                print("✅ All Live Activities cleaned up")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("✅ All Live Activities cleaned up")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
         }
         #endif
@@ -184,32 +185,32 @@ struct MeshRedApp: App {
             let appGroupName = "group.EmilioContreras.MeshRed"
 
             guard let sharedDefaults = UserDefaults(suiteName: appGroupName) else {
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("❌ OBSERVER SETUP FAILED")
-                print("   Cannot access App Group: \(appGroupName)")
-                print("   Stop button will NOT work!")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("❌ OBSERVER SETUP FAILED")
+                LoggingService.network.info("   Cannot access App Group: \(appGroupName)")
+                LoggingService.network.info("   Stop button will NOT work!")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 return
             }
 
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("👂 OBSERVER SETUP SUCCESSFUL")
-            print("   📂 App Group: \(appGroupName)")
-            print("   ⏱️ Polling interval: 0.5 seconds")
-            print("   🔍 Watching key: 'stop_live_activity'")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("👂 OBSERVER SETUP SUCCESSFUL")
+            LoggingService.network.info("   📂 App Group: \(appGroupName)")
+            LoggingService.network.info("   ⏱️ Polling interval: 0.5 seconds")
+            LoggingService.network.info("   🔍 Watching key: 'stop_live_activity'")
 
             // Clear any stale flags
             let initialValue = sharedDefaults.bool(forKey: "stop_live_activity")
             if initialValue {
-                print("   🧹 Clearing stale stop flag from previous session")
+                LoggingService.network.info("   🧹 Clearing stale stop flag from previous session")
                 sharedDefaults.set(false, forKey: "stop_live_activity")
                 sharedDefaults.synchronize()
             } else {
-                print("   ✅ No stale flags detected")
+                LoggingService.network.info("   ✅ No stale flags detected")
             }
 
-            print("   ✅ Observer ready - Stop button will work!")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("   ✅ Observer ready - Stop button will work!")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             var checkCount = 0
 
@@ -220,10 +221,10 @@ struct MeshRedApp: App {
                 .sink { _ in
                     checkCount += 1
 
-                    // Debug: print poll status every 10 checks (5 seconds)
+                    // Debug: LoggingService.network.info poll status every 10 checks (5 seconds)
                     if checkCount % 10 == 0 {
                         let flagValue = sharedDefaults.bool(forKey: "stop_live_activity")
-                        print("👂 Observer check #\(checkCount): stop_live_activity = \(flagValue)")
+                        LoggingService.network.info("👂 Observer check #\(checkCount): stop_live_activity = \(flagValue)")
                     }
 
                     if sharedDefaults.bool(forKey: "stop_live_activity") {
@@ -231,34 +232,34 @@ struct MeshRedApp: App {
                         let timestampDate = Date(timeIntervalSince1970: timestamp)
                         let timestampString = DateFormatter.localizedString(from: timestampDate, dateStyle: .none, timeStyle: .medium)
 
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                        print("🛑 STOP REQUEST RECEIVED FROM WIDGET")
-                        print("   ⏰ Widget timestamp: \(timestampString)")
-                        print("   🔍 Current check #\(checkCount)")
-                        print("   📱 Process: MAIN APP")
-                        print("   🔄 Terminating Live Activity...")
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("🛑 STOP REQUEST RECEIVED FROM WIDGET")
+                        LoggingService.network.info("   ⏰ Widget timestamp: \(timestampString)")
+                        LoggingService.network.info("   🔍 Current check #\(checkCount)")
+                        LoggingService.network.info("   📱 Process: MAIN APP")
+                        LoggingService.network.info("   🔄 Terminating Live Activity...")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                         // Clear the flag IMMEDIATELY
                         sharedDefaults.set(false, forKey: "stop_live_activity")
                         let syncSuccess = sharedDefaults.synchronize()
-                        print("   🧹 Cleared stop flag, synchronize() = \(syncSuccess)")
+                        LoggingService.network.info("   🧹 Cleared stop flag, synchronize() = \(syncSuccess)")
 
                         // Stop Live Activity
                         Task {
                             let activities = Activity<MeshActivityAttributes>.activities
-                            print("   📊 Found \(activities.count) active Live Activities")
+                            LoggingService.network.info("   📊 Found \(activities.count) active Live Activities")
 
                             for activity in activities {
-                                print("   🗑️  Ending activity ID: \(activity.id)")
+                                LoggingService.network.info("   🗑️  Ending activity ID: \(activity.id)")
                                 await activity.end(nil, dismissalPolicy: .immediate)
-                                print("      ✅ Activity ended successfully")
+                                LoggingService.network.info("      ✅ Activity ended successfully")
                             }
 
-                            print("✅ ALL LIVE ACTIVITIES STOPPED")
-                            print("   🎯 Triggered by: Widget Stop button")
-                            print("   ⏱️ Total checks before detection: \(checkCount)")
-                            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            LoggingService.network.info("✅ ALL LIVE ACTIVITIES STOPPED")
+                            LoggingService.network.info("   🎯 Triggered by: Widget Stop button")
+                            LoggingService.network.info("   ⏱️ Total checks before detection: \(checkCount)")
+                            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                             // Reset check count after successful stop
                             checkCount = 0
@@ -273,44 +274,44 @@ struct MeshRedApp: App {
 
     /// Handle deep links from Live Activity Stop button
     private func handleDeepLink(_ url: URL) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔗 DEEP LINK RECEIVED")
-        print("   📱 URL: \(url.absoluteString)")
-        print("   🔍 Scheme: \(url.scheme ?? "none")")
-        print("   🔍 Host: \(url.host ?? "none")")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔗 DEEP LINK RECEIVED")
+        LoggingService.network.info("   📱 URL: \(url.absoluteString)")
+        LoggingService.network.info("   🔍 Scheme: \(url.scheme ?? "none")")
+        LoggingService.network.info("   🔍 Host: \(url.host ?? "none")")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         guard url.scheme == "meshred" else {
-            print("   ❌ Unknown URL scheme: \(url.scheme ?? "nil")")
+            LoggingService.network.info("   ❌ Unknown URL scheme: \(url.scheme ?? "nil")")
             return
         }
 
         if url.host == "stop-live-activity" || url.absoluteString.contains("stop-live-activity") {
-            print("   ✅ STOP LIVE ACTIVITY COMMAND DETECTED")
-            print("   🛑 Processing stop request immediately...")
+            LoggingService.network.info("   ✅ STOP LIVE ACTIVITY COMMAND DETECTED")
+            LoggingService.network.info("   🛑 Processing stop request immediately...")
 
             #if !targetEnvironment(simulator)
             if #available(iOS 16.1, *) {
                 Task {
                     let activities = Activity<MeshActivityAttributes>.activities
-                    print("   📊 Found \(activities.count) active Live Activities")
+                    LoggingService.network.info("   📊 Found \(activities.count) active Live Activities")
 
                     for activity in activities {
-                        print("   🗑️  Ending activity ID: \(activity.id)")
+                        LoggingService.network.info("   🗑️  Ending activity ID: \(activity.id)")
                         await activity.end(nil, dismissalPolicy: .immediate)
-                        print("      ✅ Activity ended successfully")
+                        LoggingService.network.info("      ✅ Activity ended successfully")
                     }
 
-                    print("✅ ALL LIVE ACTIVITIES STOPPED VIA DEEP LINK")
-                    print("   🎯 Triggered by: Dynamic Island Stop button")
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("✅ ALL LIVE ACTIVITIES STOPPED VIA DEEP LINK")
+                    LoggingService.network.info("   🎯 Triggered by: Dynamic Island Stop button")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                     // Minimize app after a brief delay to allow stop to complete
                     try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
 
                     await MainActor.run {
                         // Request to minimize app (return to home screen)
-                        print("📱 Attempting to minimize app...")
+                        LoggingService.network.info("📱 Attempting to minimize app...")
 
                         // Note: There's no official API to programmatically minimize the app
                         // The app will remain in foreground, but Live Activity will be stopped
@@ -320,7 +321,7 @@ struct MeshRedApp: App {
             }
             #endif
         } else {
-            print("   ❌ Unknown deep link host: \(url.host ?? "nil")")
+            LoggingService.network.info("   ❌ Unknown deep link host: \(url.host ?? "nil")")
         }
     }
 }

@@ -8,6 +8,7 @@
 
 import SwiftUI
 import MapKit
+import os
 
 struct LinkFenceCreatorView: View {
     @Environment(\.dismiss) var dismiss
@@ -23,6 +24,8 @@ struct LinkFenceCreatorView: View {
     )
     @State private var shareWithFamily: Bool = true
     @State private var showSaveConfirmation = false
+    @State private var showOfflineMapSheet = false
+    @StateObject private var offlineManager = OfflineMapManager.shared
 
     var body: some View {
         NavigationView {
@@ -149,10 +152,18 @@ struct LinkFenceCreatorView: View {
             } message: {
                 Text("'\(name)' está ahora activo. Recibirás notificaciones cuando familiares entren o salgan.")
             }
+            .sheet(isPresented: $showOfflineMapSheet) {
+                OfflineMapDownloadSheet(
+                    center: region.center,
+                    locationName: "Estadio actual",
+                    radiusKm: 20.0
+                )
+            }
         }
         .onAppear {
             centerOnUser()
             debugMapState()
+            checkOfflineMapAvailability()
         }
     }
 
@@ -162,7 +173,7 @@ struct LinkFenceCreatorView: View {
 
     private func centerOnUser() {
         guard let location = locationService.currentLocation else {
-            print("⚠️ GeofenceCreator: No location available, using default (Estadio Azteca)")
+            LoggingService.network.info("⚠️ GeofenceCreator: No location available, using default (Estadio Azteca)")
             return
         }
 
@@ -176,7 +187,7 @@ struct LinkFenceCreatorView: View {
             )
         }
 
-        print("📍 GeofenceCreator: Centered map on user location: \(location.latitude), \(location.longitude)")
+        LoggingService.network.info("📍 GeofenceCreator: Centered map on user location: \(location.latitude), \(location.longitude)")
     }
 
     private func saveGeofence() {
@@ -193,17 +204,27 @@ struct LinkFenceCreatorView: View {
     }
 
     private func debugMapState() {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🗺️ GEOFENCE CREATOR VIEW APPEARED")
-        print("   Region Center: \(region.center.latitude), \(region.center.longitude)")
-        print("   Region Span: \(region.span.latitudeDelta), \(region.span.longitudeDelta)")
-        print("   Location Available: \(locationService.isLocationAvailable)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🗺️ GEOFENCE CREATOR VIEW APPEARED")
+        LoggingService.network.info("   Region Center: \(region.center.latitude), \(region.center.longitude)")
+        LoggingService.network.info("   Region Span: \(region.span.latitudeDelta), \(region.span.longitudeDelta)")
+        LoggingService.network.info("   Location Available: \(locationService.isLocationAvailable)")
         if let loc = locationService.currentLocation {
-            print("   Current Location: \(loc.latitude), \(loc.longitude)")
+            LoggingService.network.info("   Current Location: \(loc.latitude), \(loc.longitude)")
         } else {
-            print("   Current Location: nil")
+            LoggingService.network.info("   Current Location: nil")
         }
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
+
+    private func checkOfflineMapAvailability() {
+        // Check if current region is downloaded
+        if !offlineManager.isRegionDownloaded(center: region.center, radiusKm: 20.0) {
+            // Delay to allow view to appear first
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                showOfflineMapSheet = true
+            }
+        }
     }
 }
 
@@ -231,6 +252,19 @@ struct GeofenceMapEditor: UIViewRepresentable {
 
         mapView.setRegion(region, animated: false)
 
+        // OFFLINE MAPS: Add offline tile overlay
+        let offlineOverlay = OfflineTileOverlay(urlTemplate: nil)
+
+        // Configure mode based on OfflineMapManager
+        if OfflineMapManager.shared.isOfflineModeEnabled {
+            offlineOverlay.setOfflineOnly()
+        } else {
+            offlineOverlay.setHybridMode()
+        }
+
+        // Add overlay at appropriate level
+        mapView.addOverlay(offlineOverlay, level: .aboveLabels)
+
         // Add TAP gesture for quick pin placement
         let tapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
         tapGesture.delegate = context.coordinator
@@ -242,7 +276,7 @@ struct GeofenceMapEditor: UIViewRepresentable {
         longPress.delegate = context.coordinator
         mapView.addGestureRecognizer(longPress)
 
-        print("🗺️ GeofenceMapEditor: Created with tap and long press gestures")
+        LoggingService.network.info("🗺️ GeofenceMapEditor: Created with tap and long press gestures")
 
         return mapView
     }
@@ -264,7 +298,7 @@ struct GeofenceMapEditor: UIViewRepresentable {
             let circle = MKCircle(center: coordinate, radius: radius)
             mapView.addOverlay(circle)
 
-            print("📍 GeofenceMapEditor: Updated annotation at \(coordinate.latitude), \(coordinate.longitude) with radius \(Int(radius))m")
+            LoggingService.network.info("📍 GeofenceMapEditor: Updated annotation at \(coordinate.latitude), \(coordinate.longitude) with radius \(Int(radius))m")
         }
     }
 
@@ -301,7 +335,7 @@ struct GeofenceMapEditor: UIViewRepresentable {
             // Haptic feedback
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
-            print("📍 GeofenceMapEditor: TAP at \(coordinate.latitude), \(coordinate.longitude)")
+            LoggingService.network.info("📍 GeofenceMapEditor: TAP at \(coordinate.latitude), \(coordinate.longitude)")
         }
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
@@ -318,7 +352,7 @@ struct GeofenceMapEditor: UIViewRepresentable {
             // Stronger haptic feedback for long press
             UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
 
-            print("📍 GeofenceMapEditor: LONG PRESS at \(coordinate.latitude), \(coordinate.longitude)")
+            LoggingService.network.info("📍 GeofenceMapEditor: LONG PRESS at \(coordinate.latitude), \(coordinate.longitude)")
         }
 
         // MARK: - MKMapViewDelegate
@@ -330,6 +364,10 @@ struct GeofenceMapEditor: UIViewRepresentable {
                 renderer.strokeColor = UIColor.systemBlue
                 renderer.lineWidth = 2
                 return renderer
+            }
+            else if let tileOverlay = overlay as? MKTileOverlay {
+                // OFFLINE MAPS: Renderer for offline tiles
+                return MKTileOverlayRenderer(tileOverlay: tileOverlay)
             }
             return MKOverlayRenderer(overlay: overlay)
         }

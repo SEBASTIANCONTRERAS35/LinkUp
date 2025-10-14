@@ -8,6 +8,7 @@
 
 import SwiftUI
 import MultipeerConnectivity
+import os
 
 struct NetworkManagementView: View {
     @Environment(\.dismiss) var dismiss
@@ -331,7 +332,7 @@ struct NetworkManagementView: View {
 
     private func connectToPeer(_ peer: MCPeerID) {
         guard canConnectMore else {
-            print("⚠️ Cannot connect: At maximum capacity (\(maxConnections))")
+            LoggingService.network.info("⚠️ Cannot connect: At maximum capacity (\(maxConnections))")
             return
         }
 
@@ -343,7 +344,7 @@ struct NetworkManagementView: View {
         generator.notificationOccurred(.success)
         #endif
 
-        print("✅ Connecting to: \(peer.displayName)")
+        LoggingService.network.info("✅ Connecting to: \(peer.displayName)")
     }
 
     private func disconnectPeer(_ peer: MCPeerID) {
@@ -355,7 +356,7 @@ struct NetworkManagementView: View {
         generator.notificationOccurred(.warning)
         #endif
 
-        print("🚫 Disconnected from: \(peer.displayName)")
+        LoggingService.network.info("🚫 Disconnected from: \(peer.displayName)")
     }
 
     private func getDistance(for peer: MCPeerID) -> String? {

@@ -8,6 +8,7 @@
 
 import SwiftUI
 import Combine
+import os
 
 // MARK: - Radar Sweep Line
 /// Rotating sweep line with gradient trail effect
@@ -87,7 +88,7 @@ class RadarSweepDetectionManager: ObservableObject {
         let wrappedDifference = min(angleDifference, 360 - angleDifference)
 
         if wrappedDifference <= detectionWindow {
-            print("🎯 DETECTED: \(peerId) | PeerAngle: \(String(format: "%.1f", normalizedPeerAngle))° | SweepAngle: \(String(format: "%.1f", normalizedSweepAngle))° | Diff: \(String(format: "%.1f", wrappedDifference))°")
+            LoggingService.network.info("🎯 DETECTED: \(peerId) | PeerAngle: \(String(format: "%.1f", normalizedPeerAngle))° | SweepAngle: \(String(format: "%.1f", normalizedSweepAngle))° | Diff: \(String(format: "%.1f", wrappedDifference))°")
             lastDetectionTime[peerId] = Date()
         }
     }
@@ -95,7 +96,7 @@ class RadarSweepDetectionManager: ObservableObject {
     /// Calculate opacity for a peer based on time since last detection
     func opacity(for peerId: String) -> Double {
         guard let lastDetected = lastDetectionTime[peerId] else {
-            // print("⚫️ \(peerId): Not detected yet (opacity: 0.0)")
+            // LoggingService.network.info("⚫️ \(peerId): Not detected yet (opacity: 0.0)")
             return 0.0  // Not yet detected
         }
 
@@ -109,7 +110,7 @@ class RadarSweepDetectionManager: ObservableObject {
         let opacity = 1.0 - (timeSinceDetection / fadeOutDuration)
         let finalOpacity = max(0.0, min(1.0, opacity))
 
-        // print("✨ \(peerId): opacity \(String(format: "%.2f", finalOpacity)) | time since: \(String(format: "%.2f", timeSinceDetection))s")
+        // LoggingService.network.info("✨ \(peerId): opacity \(String(format: "%.2f", finalOpacity)) | time since: \(String(format: "%.2f", timeSinceDetection))s")
 
         return finalOpacity
     }

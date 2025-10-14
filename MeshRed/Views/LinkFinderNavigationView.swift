@@ -7,6 +7,7 @@
 
 import SwiftUI
 import MultipeerConnectivity
+import os
 
 /// Vista de navegación LinkFinder híbrida con 4 niveles de fallback
 /// Nivel 1: LinkFinder Direction precisa (SIMD3)
@@ -29,22 +30,17 @@ struct LinkFinderNavigationView: View {
     // Proximity haptic engine for navigation feedback
     @State private var proximityEngine = ProximityHapticEngine()
 
-    // Computed properties que se actualizan automáticamente desde LinkFinder
+    // FIXED: Removed logging from computed properties
+    // These are accessed 60+ times/second during SwiftUI rendering
+    // Logging here caused 180+ logs/sec → performance degradation
     private var distance: Float? {
-        let dist = uwbManager.getDistance(to: targetPeerID)
-        print("🔍 LinkFinderNavigationView: Getting distance for \(targetPeerID.displayName) = \(dist?.description ?? "nil")")
-        return dist
+        uwbManager.getDistance(to: targetPeerID)
     }
 
     private var direction: DirectionVector? {
         if let simd = uwbManager.getDirection(to: targetPeerID) {
-            let dirVector = DirectionVector(from: simd)
-            print("🔍 LinkFinderNavigationView: Getting direction for \(targetPeerID.displayName)")
-            print("   SIMD: x=\(simd.x), y=\(simd.y), z=\(simd.z)")
-            print("   DirectionVector created: x=\(dirVector.x), y=\(dirVector.y), z=\(dirVector.z)")
-            return dirVector
+            return DirectionVector(from: simd)
         }
-        print("⚠️ LinkFinderNavigationView: No direction available for \(targetPeerID.displayName)")
         return nil
     }
 
@@ -131,12 +127,13 @@ struct LinkFinderNavigationView: View {
 
         // Check if we have direction (precise LinkFinder)
         if direction != nil {
-            // PRIORITY: Level 0 - Show radar view ONLY when direction is available
+            // PRIORITY: Level 0 - Show radar view when direction is available
             return .level0_radar
         }
 
-        // If only distance (no direction), show distance-only view
-        return .level5_estimatedDistance
+        // If we have distance but no direction, still show radar view
+        // (Direction may be temporarily unavailable during ARKit convergence or without Motion permission)
+        return .level0_radar
     }
 
     var body: some View {
@@ -164,8 +161,33 @@ struct LinkFinderNavigationView: View {
             case .loading:
                 loadingView
             }
+
+            // Overlay calibration indicator when converging
+            if uwbManager.isConverging && distance != nil {
+                VStack {
+                    CalibrationIndicatorView(
+                        uwbManager: uwbManager,
+                        targetName: targetName
+                    )
+                    .padding(.top, 100)
+
+                    Spacer()
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .animation(.easeInOut(duration: 0.3), value: uwbManager.isConverging)
+            }
         }
         .onAppear {
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("🎯 LinkFinder VIEW OPENED")
+            LoggingService.network.info("   Target: \(targetName)")
+            LoggingService.network.info("   Now starting LinkFinder session...")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            // START LINKFINDER SESSION ON DEMAND (Privacy mode)
+            // Only starts when user explicitly opens this view
+            networkManager.startLinkFinderSession(with: targetPeerID)
+
             // Start heading monitoring when navigation view appears
             if locationService.isHeadingAvailable {
                 locationService.startMonitoringHeading()
@@ -181,9 +203,17 @@ struct LinkFinderNavigationView: View {
 
             // Start proximity haptic feedback
             proximityEngine.start()
-            print("🎯 LinkFinderNavigationView: Started proximity haptic engine")
+            LoggingService.network.info("🎯 LinkFinderNavigationView: Started proximity haptic engine")
         }
         .onDisappear {
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("🔒 LinkFinder VIEW CLOSED")
+            LoggingService.network.info("   Stopping LinkFinder session for privacy")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            // STOP LINKFINDER SESSION for privacy
+            networkManager.stopLinkFinderSession(with: targetPeerID)
+
             // Stop GPS location sharing when navigation ends
             networkManager.stopSharingLocationWithPeer(peerID: targetPeerID.displayName)
 
@@ -192,7 +222,7 @@ struct LinkFinderNavigationView: View {
 
             // Stop proximity haptic feedback
             proximityEngine.stop()
-            print("🎯 LinkFinderNavigationView: Stopped proximity haptic engine")
+            LoggingService.network.info("🎯 LinkFinderNavigationView: Stopped proximity haptic engine")
         }
         .onChange(of: distance) { newDistance in
             // Update proximity engine when distance changes
@@ -414,7 +444,7 @@ struct LinkFinderNavigationView: View {
             },
             onDirectionCalculated: { bearing in
                 // Direction calculated! Could transition to showing arrow
-                print("✅ Triangulation complete: \(bearing)°")
+                LoggingService.network.info("✅ Triangulation complete: \(bearing)°")
                 // For now, just exit triangulation mode
                 isTriangulationMode = false
             }
@@ -521,17 +551,11 @@ struct DirectionalArrow: View {
     @State private var isAnimating = false
 
     init(direction: DirectionVector, distance: Float) {
+        // FIXED: Removed logging to prevent performance issues
+        // SwiftUI recreates this view frequently during animations
+        // Logging here caused excessive I/O and contributed to crash
         self.direction = direction
         self.distance = distance
-
-        // 🔍 DEBUG: Log when arrow is initialized/updated
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🎯 DIRECTIONAL ARROW UPDATE")
-        print("   Direction: x=\(direction.x), y=\(direction.y), z=\(direction.z)")
-        print("   Distance: \(distance)m")
-        print("   Bearing will be: \(direction.bearing)°")
-        print("   Rotation effect: \(-direction.bearing)°")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     var body: some View {

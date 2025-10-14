@@ -8,6 +8,7 @@
 
 import SwiftUI
 import CoreLocation
+import os
 
 struct StadiumModeSettingsView: View {
     @Environment(\.dismiss) var dismiss
@@ -18,6 +19,7 @@ struct StadiumModeSettingsView: View {
     @State private var showLocationPermissionAlert = false
     @State private var testMessagesSent = 0
     @State private var showMessageSentConfirmation = false
+    @AppStorage("autoActivateStadiumMode") private var autoActivateStadiumMode: Bool = true
 
     var body: some View {
         NavigationView {
@@ -27,6 +29,9 @@ struct StadiumModeSettingsView: View {
 
                 // Main Toggle Section
                 mainToggleSection
+
+                // Auto-Activation Section
+                autoActivationSection
 
                 // Features Section (when enabled)
                 if stadiumMode.isActive {
@@ -163,6 +168,40 @@ struct StadiumModeSettingsView: View {
             Text("Configuración Principal")
         } footer: {
             Text("El Modo Estadio mantiene las conexiones activas cuando la app está en segundo plano, ideal para eventos masivos.")
+                .font(.caption)
+        }
+    }
+
+    // MARK: - Auto-Activation Section
+
+    private var autoActivationSection: some View {
+        Section {
+            Toggle(isOn: $autoActivateStadiumMode) {
+                HStack(spacing: 12) {
+                    Image(systemName: "wand.and.rays")
+                        .font(.body)
+                        .foregroundColor(.orange)
+                        .frame(width: 32)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Auto-activación")
+                            .font(.body)
+
+                        Text(autoActivateStadiumMode ?
+                             "Se activa automáticamente al conectar" :
+                             "Activación manual desde configuración")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .tint(.orange)
+        } header: {
+            Text("Comportamiento Automático")
+        } footer: {
+            Text(autoActivateStadiumMode ?
+                 "El Modo Estadio se activará automáticamente cuando se conecte el primer dispositivo." :
+                 "Deberás activar manualmente el Modo Estadio cuando lo necesites.")
                 .font(.caption)
         }
     }
@@ -411,13 +450,13 @@ struct StadiumModeSettingsView: View {
             }
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🧪 TEST MESSAGE SENT FROM UI")
-        print("   Total test messages: \(testMessagesSent)")
-        print("   Sender: \(randomSender)")
-        print("   Content: \(randomMessage)")
-        print("   ✅ Check Dynamic Island for message counter!")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🧪 TEST MESSAGE SENT FROM UI")
+        LoggingService.network.info("   Total test messages: \(testMessagesSent)")
+        LoggingService.network.info("   Sender: \(randomSender)")
+        LoggingService.network.info("   Content: \(randomMessage)")
+        LoggingService.network.info("   ✅ Check Dynamic Island for message counter!")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 }
 

@@ -11,6 +11,7 @@ import Foundation
 import HealthKit
 import WatchKit
 import Combine
+import os
 
 /// Estado de detección de emergencias
 enum EmergencyDetectionState {
@@ -67,31 +68,31 @@ class WatchEmergencyDetector: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        print("🚨 WatchEmergencyDetector: Initialized")
+        LoggingService.network.info("🚨 WatchEmergencyDetector: Initialized")
     }
 
     // MARK: - Public Methods
 
     /// Iniciar monitoreo de emergencias
     func startMonitoring() {
-        print("▶️ WatchEmergencyDetector: Starting monitoring...")
+        LoggingService.network.info("▶️ WatchEmergencyDetector: Starting monitoring...")
 
         requestHealthKitAuthorization { [weak self] success in
             guard success else {
-                print("❌ WatchEmergencyDetector: HealthKit authorization failed")
+                LoggingService.network.info("❌ WatchEmergencyDetector: HealthKit authorization failed")
                 return
             }
 
             self?.startHeartRateMonitoring()
             self?.isMonitoring = true
 
-            print("✅ WatchEmergencyDetector: Monitoring started")
+            LoggingService.network.info("✅ WatchEmergencyDetector: Monitoring started")
         }
     }
 
     /// Detener monitoreo
     func stopMonitoring() {
-        print("⏹️ WatchEmergencyDetector: Stopping monitoring...")
+        LoggingService.network.info("⏹️ WatchEmergencyDetector: Stopping monitoring...")
 
         if let query = heartRateQuery {
             healthStore.stop(query)
@@ -105,14 +106,14 @@ class WatchEmergencyDetector: NSObject, ObservableObject {
     func confirmEmergency(type: DetectedEmergencyType) {
         detectedEmergencyType = type
         detectionState = .confirmed
-        print("🚨 WatchEmergencyDetector: Emergency confirmed - \(type)")
+        LoggingService.network.info("🚨 WatchEmergencyDetector: Emergency confirmed - \(type)")
     }
 
     /// Cancelar emergencia detectada
     func cancelEmergency() {
         detectionState = .userCancelled
         detectedEmergencyType = nil
-        print("✅ WatchEmergencyDetector: Emergency cancelled by user")
+        LoggingService.network.info("✅ WatchEmergencyDetector: Emergency cancelled by user")
 
         // Volver a monitoring después de 3 segundos
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
@@ -135,16 +136,16 @@ class WatchEmergencyDetector: NSObject, ObservableObject {
             lowHeartRateThreshold = 40
         }
 
-        print("🎯 WatchEmergencyDetector: Thresholds adjusted for age \(age)")
-        print("   High HR: \(highHeartRateThreshold) BPM")
-        print("   Low HR: \(lowHeartRateThreshold) BPM")
+        LoggingService.network.info("🎯 WatchEmergencyDetector: Thresholds adjusted for age \(age)")
+        LoggingService.network.info("   High HR: \(highHeartRateThreshold) BPM")
+        LoggingService.network.info("   Low HR: \(lowHeartRateThreshold) BPM")
     }
 
     // MARK: - HealthKit Authorization
 
     private func requestHealthKitAuthorization(completion: @escaping (Bool) -> Void) {
         guard HKHealthStore.isHealthDataAvailable() else {
-            print("❌ HealthKit not available on this device")
+            LoggingService.network.info("❌ HealthKit not available on this device")
             completion(false)
             return
         }
@@ -154,12 +155,12 @@ class WatchEmergencyDetector: NSObject, ObservableObject {
 
         healthStore.requestAuthorization(toShare: nil, read: typesToRead) { success, error in
             if let error = error {
-                print("❌ HealthKit authorization error: \(error.localizedDescription)")
+                LoggingService.network.info("❌ HealthKit authorization error: \(error.localizedDescription)")
                 completion(false)
                 return
             }
 
-            print("✅ HealthKit authorized: \(success)")
+            LoggingService.network.info("✅ HealthKit authorized: \(success)")
             completion(success)
         }
     }
@@ -187,7 +188,7 @@ class WatchEmergencyDetector: NSObject, ObservableObject {
         healthStore.execute(query)
         heartRateQuery = query
 
-        print("📊 WatchEmergencyDetector: Heart rate monitoring started")
+        LoggingService.network.info("📊 WatchEmergencyDetector: Heart rate monitoring started")
     }
 
     private func processHeartRateSamples(_ samples: [HKSample]?) {
@@ -245,19 +246,19 @@ class WatchEmergencyDetector: NSObject, ObservableObject {
 
         // 1. Taquicardia
         if currentBPM > highHeartRateThreshold {
-            print("⚠️ High heart rate detected: \(currentBPM) BPM (threshold: \(highHeartRateThreshold))")
+            LoggingService.network.info("⚠️ High heart rate detected: \(currentBPM) BPM (threshold: \(highHeartRateThreshold))")
             return .highHeartRate
         }
 
         // 2. Bradicardia
         if currentBPM < lowHeartRateThreshold && currentBPM > 0 {
-            print("⚠️ Low heart rate detected: \(currentBPM) BPM (threshold: \(lowHeartRateThreshold))")
+            LoggingService.network.info("⚠️ Low heart rate detected: \(currentBPM) BPM (threshold: \(lowHeartRateThreshold))")
             return .lowHeartRate
         }
 
         // 3. Cambio abrupto de HR
         if let rapidChange = detectRapidHeartRateChange() {
-            print("⚠️ Rapid heart rate change detected: \(rapidChange) BPM")
+            LoggingService.network.info("⚠️ Rapid heart rate change detected: \(rapidChange) BPM")
             return .rapidHeartRateChange
         }
 
@@ -289,7 +290,7 @@ class WatchEmergencyDetector: NSObject, ObservableObject {
     }
 
     private func triggerEmergencyDetection(type: DetectedEmergencyType) {
-        print("🚨🚨 EMERGENCY DETECTED: \(type)")
+        LoggingService.network.info("🚨🚨 EMERGENCY DETECTED: \(type)")
 
         detectedEmergencyType = type
         detectionState = .suspected
@@ -311,7 +312,7 @@ class WatchEmergencyDetector: NSObject, ObservableObject {
 
     private func activateCountdown() {
         detectionState = .countdownActive
-        print("⏱️ WatchEmergencyDetector: Countdown activated")
+        LoggingService.network.info("⏱️ WatchEmergencyDetector: Countdown activated")
 
         // Haptic más intenso
         WKInterfaceDevice.current().play(.start)

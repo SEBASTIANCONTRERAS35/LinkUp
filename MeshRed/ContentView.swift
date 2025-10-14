@@ -8,6 +8,7 @@
 import SwiftUI
 import MultipeerConnectivity
 import CoreLocation
+import os
 
 struct ContentView: View {
     @EnvironmentObject var networkManager: NetworkManager
@@ -53,6 +54,17 @@ struct ContentView: View {
     private var mainContent: some View {
         ScrollView {
             LazyVStack(spacing: 20) {
+                // WiFi Configuration Warning Banner
+                NetworkConfigurationWarningBanner(
+                    status: networkManager.networkConfigDetector.currentStatus,
+                    onFix: {
+                        // Open Settings app
+                        if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(settingsUrl)
+                        }
+                    }
+                )
+
                 StatusOverviewCard(
                     deviceName: networkManager.localDeviceName,
                     statusText: connectionStatusText,
@@ -89,10 +101,16 @@ struct ContentView: View {
                         networkManager.familyGroupManager.isFamilyMember(peerID: peer.displayName)
                     },
                     reachableFamilyMembers: getReachableFamilyMembers(),
+                    isPeerPendingDisconnect: { peer in
+                        networkManager.isPeerPendingDisconnect(peer)
+                    },
                     onRequestLocation: requestLocation,
                     onNavigate: startNavigation,
                     onReconnectTap: networkManager.restartServicesIfNeeded,
-                    onStartChat: startChat(with:)
+                    onStartChat: startChat(with:),
+                    onDisconnect: { peer in
+                        networkManager.requestDisconnect(from: peer)
+                    }
                 )
 
                 MessagesSection(
@@ -155,8 +173,8 @@ struct ContentView: View {
         .onChange(of: networkManager.messageStore.activeConversationId) { oldValue, newValue in
             // CRITICAL: Sync recipientId whenever the active conversation changes
             syncRecipientWithActiveConversation()
-            print("🔄 Active conversation changed to: \(newValue)")
-            print("   Synced recipientId to: \(recipientId)")
+            LoggingService.network.info("🔄 Active conversation changed to: \(newValue)")
+            LoggingService.network.info("   Synced recipientId to: \(recipientId)")
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("UWBPermissionDenied"))) { notification in
             if let userInfo = notification.userInfo,
@@ -241,14 +259,14 @@ struct ContentView: View {
         if let activeDescriptor = networkManager.messageStore.descriptor(for: networkManager.messageStore.activeConversationId) {
             let actualRecipient = activeDescriptor.defaultRecipientId
 
-            print("📤 ContentView.sendMessage:")
-            print("   Active conversation: \(networkManager.messageStore.activeConversationId)")
-            print("   Active descriptor recipient: \(actualRecipient)")
-            print("   Current recipientId state: \(recipientId)")
+            LoggingService.network.info("📤 ContentView.sendMessage:")
+            LoggingService.network.info("   Active conversation: \(networkManager.messageStore.activeConversationId)")
+            LoggingService.network.info("   Active descriptor recipient: \(actualRecipient)")
+            LoggingService.network.info("   Current recipientId state: \(recipientId)")
 
             // Sync recipientId to match active conversation
             if recipientId != actualRecipient {
-                print("   ⚠️ MISMATCH DETECTED - Syncing recipientId to active conversation")
+                LoggingService.network.info("   ⚠️ MISMATCH DETECTED - Syncing recipientId to active conversation")
                 recipientId = actualRecipient
             }
 
@@ -260,7 +278,7 @@ struct ContentView: View {
             )
         } else {
             // Fallback to broadcast if no active conversation descriptor
-            print("⚠️ No active conversation descriptor - defaulting to broadcast")
+            LoggingService.network.info("⚠️ No active conversation descriptor - defaulting to broadcast")
             networkManager.sendMessage(
                 messageText,
                 type: selectedMessageType,
@@ -295,7 +313,7 @@ struct ContentView: View {
             return
         }
 
-        print("📍 User requested location for \(peer.displayName)")
+        LoggingService.network.info("📍 User requested location for \(peer.displayName)")
         networkManager.sendLocationRequest(to: peer.displayName)
     }
 
@@ -359,7 +377,7 @@ struct ContentView: View {
 
         // CRITICAL FIX: Force refresh after creating new conversation
         // This ensures the UI is ready to display messages
-        print("🔄 Forcing UI refresh after creating new conversation")
+        LoggingService.network.info("🔄 Forcing UI refresh after creating new conversation")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             networkManager.messageStore.refreshPublishedState()
         }
@@ -386,13 +404,13 @@ struct ContentView: View {
                 withAnimation {
                     showUWBNavigation = true
                 }
-                print("🧭 Starting LinkFinder navigation to \(peer.displayName)")
+                LoggingService.network.info("🧭 Starting LinkFinder navigation to \(peer.displayName)")
                 return
             }
         }
 
         // Si no hay sesión LinkFinder activa, solicitar ubicación primero
-        print("⚠️ No active LinkFinder session for \(peer.displayName), requesting location first")
+        LoggingService.network.info("⚠️ No active LinkFinder session for \(peer.displayName), requesting location first")
         requestLocation(for: peer)
     }
 
@@ -505,19 +523,19 @@ struct ContentView: View {
 
                 // Log detailed status every check when session exists but no ranging
                 if hasSession && distance == nil {
-                    print("⚠️ LinkFinder Session exists but no ranging data yet for \(peer.displayName)")
-                    // Print detailed status for debugging
-                    print(uwbManager.getUWBStatus(for: peer))
+                    LoggingService.network.info("⚠️ LinkFinder Session exists but no ranging data yet for \(peer.displayName)")
+                    // LoggingService.network.info detailed status for debugging
+                    LoggingService.network.info("\(uwbManager.getUWBStatus(for: peer))")
                 }
 
-                print("🔍 LinkFinder Check for \(peer.displayName): Session=\(hasSession), Distance=\(distance?.description ?? "nil")")
+                LoggingService.network.info("🔍 LinkFinder Check for \(peer.displayName): Session=\(hasSession), Distance=\(distance?.description ?? "nil")")
 
                 return hasSession && distance != nil
             } else {
-                print("🔍 LinkFinder Check: uwbSessionManager is nil")
+                LoggingService.network.info("🔍 LinkFinder Check: uwbSessionManager is nil")
             }
         } else {
-            print("🔍 LinkFinder Check: iOS < 14.0")
+            LoggingService.network.info("🔍 LinkFinder Check: iOS < 14.0")
         }
         return false
     }
@@ -782,10 +800,12 @@ private struct DeviceSection: View {
     let uwbSessionChecker: (MCPeerID) -> Bool
     let isFamilyMember: (MCPeerID) -> Bool
     let reachableFamilyMembers: [(peerID: String, displayName: String, route: [String])]
+    let isPeerPendingDisconnect: (MCPeerID) -> Bool
     let onRequestLocation: (MCPeerID) -> Void
     let onNavigate: (MCPeerID) -> Void
     let onReconnectTap: () -> Void
     let onStartChat: (MCPeerID) -> Void
+    let onDisconnect: (MCPeerID) -> Void
 
     var body: some View {
         SectionCard(
@@ -833,9 +853,11 @@ private struct DeviceSection: View {
                                     hasUWBSession: uwbSessionChecker(peer),
                                     isFamilyMember: isFamilyMember(peer),
                                     localDeviceName: localDeviceName,
+                                    isPendingDisconnect: isPeerPendingDisconnect(peer),
                                     onRequestLocation: onRequestLocation,
                                     onNavigate: onNavigate,
-                                    onStartChat: onStartChat
+                                    onStartChat: onStartChat,
+                                    onDisconnect: onDisconnect
                                 )
                             }
                         }
@@ -935,17 +957,17 @@ private struct MessagesSection: View {
         let messages = messageStore.messages
         let summaries = messageStore.conversationSummaries
 
-        let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        let _ = print("📨 MessagesSection RENDERING")
-        let _ = print("   Total summaries: \(summaries.count)")
-        let _ = print("   Active messages: \(messages.count)")
-        let _ = print("   Active conversation: \(messageStore.activeConversationId)")
-        let _ = print("   Connected peers: \(connectedPeers.map { $0.displayName })")
+        let _ = LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        let _ = LoggingService.network.info("📨 MessagesSection RENDERING")
+        let _ = LoggingService.network.info("   Total summaries: \(summaries.count)")
+        let _ = LoggingService.network.info("   Active messages: \(messages.count)")
+        let _ = LoggingService.network.info("   Active conversation: \(messageStore.activeConversationId)")
+        let _ = LoggingService.network.info("   Connected peers: \(connectedPeers.map { $0.displayName })")
         let _ = summaries.forEach { summary in
             let isConnected = summary.participantId == nil || connectedPeers.contains { $0.displayName == summary.participantId }
-            print("   • \(summary.title) - Connected: \(isConnected), Messages: \(messageStore.messages(for: summary.id).count)")
+            LoggingService.network.info("   • \(summary.title) - Connected: \(isConnected), Messages: \(messageStore.messages(for: summary.id).count)")
         }
-        let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        let _ = LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         return SectionCard(
             title: "Mensajes",
@@ -966,7 +988,7 @@ private struct MessagesSection: View {
                 )
 
                 if messages.isEmpty {
-                    let _ = print("⚠️ MessagesSection: No messages to display for active conversation")
+                    let _ = LoggingService.network.info("⚠️ MessagesSection: No messages to display for active conversation")
                     VStack(spacing: 12) {
                         Image(systemName: "text.bubble")
                             .font(.title3)
@@ -978,9 +1000,9 @@ private struct MessagesSection: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
                 } else {
-                    let _ = print("💬 MessagesSection: Rendering \(messages.count) message bubbles")
+                    let _ = LoggingService.network.info("💬 MessagesSection: Rendering \(messages.count) message bubbles")
                     let _ = messages.forEach { msg in
-                        print("   • [\(msg.id)] \(msg.sender): \(msg.content.prefix(30))...")
+                        LoggingService.network.info("   • [\(msg.id)] \(msg.sender): \(msg.content.prefix(30))...")
                     }
 
                     MessageListView(messages: messages, localDeviceName: localDeviceName)
@@ -1128,12 +1150,12 @@ private struct AdvancedControlsCard: View {
                         }
                         .pickerStyle(.menu)
                         .onChange(of: recipientId) { oldValue, newValue in
-                            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                            print("⚠️ PICKER: recipientId changed")
-                            print("   Old value: \(oldValue)")
-                            print("   New value: \(newValue)")
-                            print("   Active conversation: \(messageStore.activeConversationId)")
-                            print("   Was triggered by: \(oldValue == newValue ? "programmatic (same)" : "user interaction or SwiftUI invalidation")")
+                            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            LoggingService.network.info("⚠️ PICKER: recipientId changed")
+                            LoggingService.network.info("   Old value: \(oldValue)")
+                            LoggingService.network.info("   New value: \(newValue)")
+                            LoggingService.network.info("   Active conversation: \(messageStore.activeConversationId)")
+                            LoggingService.network.info("   Was triggered by: \(oldValue == newValue ? "programmatic (same)" : "user interaction or SwiftUI invalidation")")
 
                             // Check if the new value is valid
                             let allAvailableRecipients: [String] = {
@@ -1154,8 +1176,8 @@ private struct AdvancedControlsCard: View {
                                 return recipients
                             }()
 
-                            print("   Available recipients: \(allAvailableRecipients)")
-                            print("   Is new value valid: \(allAvailableRecipients.contains(newValue))")
+                            LoggingService.network.info("   Available recipients: \(allAvailableRecipients)")
+                            LoggingService.network.info("   Is new value valid: \(allAvailableRecipients.contains(newValue))")
 
                             // CRITICAL FIX: Prevent unwanted conversation switching
                             // If the change is from a specific peer to "broadcast" AND we're viewing a private conversation,
@@ -1167,14 +1189,14 @@ private struct AdvancedControlsCard: View {
                             )
 
                             if isLikelySwiftUIInvalidation {
-                                print("   🛡️ PREVENTED: Automatic switch to broadcast (likely SwiftUI invalidation)")
-                                print("   Keeping active conversation: \(messageStore.activeConversationId)")
-                                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                                LoggingService.network.info("   🛡️ PREVENTED: Automatic switch to broadcast (likely SwiftUI invalidation)")
+                                LoggingService.network.info("   Keeping active conversation: \(messageStore.activeConversationId)")
+                                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                                 // Don't call onRecipientChange - just keep the current state
                                 return
                             }
 
-                            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                             if newValue != "broadcast" {
                                 // Create private conversation (family or direct)
@@ -1305,19 +1327,19 @@ private struct ConversationSelector: View {
     }
 
     var body: some View {
-        let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        let _ = print("🎨 ConversationSelector RENDERING")
-        let _ = print("   Total summaries: \(summaries.count)")
-        let _ = print("   Active conversation ID: \(activeConversationId)")
+        let _ = LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        let _ = LoggingService.network.info("🎨 ConversationSelector RENDERING")
+        let _ = LoggingService.network.info("   Total summaries: \(summaries.count)")
+        let _ = LoggingService.network.info("   Active conversation ID: \(activeConversationId)")
         let _ = summaries.enumerated().forEach { index, summary in
             let connected = isConnected(summary.participantId)
-            print("   [\(index)] \(summary.title)")
-            print("       ID: \(summary.id)")
-            print("       Active: \(activeConversationId == summary.id)")
-            print("       Connected: \(connected)")
-            print("       ParticipantID: \(summary.participantId ?? "nil")")
+            LoggingService.network.info("   [\(index)] \(summary.title)")
+            LoggingService.network.info("       ID: \(summary.id)")
+            LoggingService.network.info("       Active: \(activeConversationId == summary.id)")
+            LoggingService.network.info("       Connected: \(connected)")
+            LoggingService.network.info("       ParticipantID: \(summary.participantId ?? "nil")")
         }
-        let _ = print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        let _ = LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
@@ -1579,15 +1601,17 @@ private struct ConnectedPeerRow: View {
     let hasUWBSession: Bool
     let isFamilyMember: Bool
     let localDeviceName: String
+    let isPendingDisconnect: Bool
     let onRequestLocation: (MCPeerID) -> Void
     let onNavigate: (MCPeerID) -> Void
     let onStartChat: (MCPeerID) -> Void
+    let onDisconnect: (MCPeerID) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 Circle()
-                    .fill(Color.green)
+                    .fill(isPendingDisconnect ? Color.orange : Color.green)
                     .frame(width: 8, height: 8)
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -1595,17 +1619,24 @@ private struct ConnectedPeerRow: View {
                         Text(peer.displayName)
                             .font(.subheadline)
                             .fontWeight(.semibold)
+                            .foregroundColor(isPendingDisconnect ? .secondary : .primary)
 
                         if isFamilyMember {
                             Image(systemName: "person.3.fill")
                                 .font(.caption)
                                 .foregroundColor(.green)
                         }
+
+                        if isPendingDisconnect {
+                            Image(systemName: "clock")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
                     }
 
-                    Text("Conectado")
+                    Text(isPendingDisconnect ? "Desconectando..." : "Conectado")
                         .font(.caption2)
-                        .foregroundColor(.green)
+                        .foregroundColor(isPendingDisconnect ? .orange : .green)
                 }
 
                 Spacer(minLength: 0)
@@ -1621,6 +1652,8 @@ private struct ConnectedPeerRow: View {
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .disabled(isPendingDisconnect)
+                    .opacity(isPendingDisconnect ? 0.5 : 1.0)
 
                     if hasUWBSession {
                         Button(action: { onNavigate(peer) }) {
@@ -1633,6 +1666,8 @@ private struct ConnectedPeerRow: View {
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
+                        .disabled(isPendingDisconnect)
+                        .opacity(isPendingDisconnect ? 0.5 : 1.0)
                     } else {
                         Button(action: { onRequestLocation(peer) }) {
                             Label("Ubicar", systemImage: "location.circle")
@@ -1644,7 +1679,17 @@ private struct ConnectedPeerRow: View {
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
+                        .disabled(isPendingDisconnect)
+                        .opacity(isPendingDisconnect ? 0.5 : 1.0)
                     }
+
+                    // Disconnect button
+                    Button(action: { onDisconnect(peer) }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundColor(isPendingDisconnect ? .orange : .red.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
@@ -2080,7 +2125,284 @@ struct DateDivider: View {
     }
 }
 
+// MARK: - Stadium Mode (Auto-activated by default)
+// Lightning Mode is now automatically activated in NetworkManager.init()
+// No manual UI needed - it's always on for FIFA 2026 performance
+
+// MARK: - Preview
+
 #Preview {
     ContentView()
         .environmentObject(NetworkManager())
 }
+
+/*
+// MARK: - Legacy Stadium Mode Card (removed - auto-activated now)
+
+struct StadiumModeCard_Legacy: View {
+    @ObservedObject var networkManager: NetworkManager
+    @State private var isStadiumModeActive = false
+    @State private var showingStadiumOptions = false
+    @State private var selectedProfile: StadiumMode.StadiumProfile = .megaStadium
+    @State private var connectionSpeed: String = "---"
+    @State private var stadiumStatus: String = "Stadium Mode: OFF"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack {
+                Label("⚡ Stadium Mode FIFA 2026", systemImage: "bolt.circle.fill")
+                    .font(.headline)
+                    .foregroundColor(.orange)
+
+                Spacer()
+
+                if isStadiumModeActive {
+                    HStack(spacing: 4) {
+                        Image(systemName: "bolt.fill")
+                            .foregroundColor(.yellow)
+                            .font(.caption)
+                        Text("ACTIVE")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundColor(.yellow)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.yellow.opacity(0.2))
+                    .clipShape(Capsule())
+                }
+            }
+
+            // Description
+            Text("Modo ultra-rápido para estadios y conciertos con miles de personas en movimiento")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            // Performance Metrics
+            if isStadiumModeActive {
+                HStack(spacing: 20) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Velocidad")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text(connectionSpeed)
+                            .font(.system(.headline, design: .monospaced))
+                            .foregroundColor(connectionSpeedColor)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Objetivo")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text("<1s")
+                            .font(.system(.headline, design: .monospaced))
+                            .foregroundColor(.green)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Modo")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text(profileName)
+                            .font(.system(.caption, design: .default))
+                            .fontWeight(.medium)
+                    }
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .background(Color.meshCardBackground.opacity(0.5))
+                .cornerRadius(8)
+            }
+
+            // Action Buttons
+            HStack(spacing: 12) {
+                if !isStadiumModeActive {
+                    Button(action: activateStadiumMode) {
+                        HStack {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 16))
+                            Text("ACTIVAR LIGHTNING MODE")
+                                .font(.system(size: 14, weight: .bold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    }
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [Color.orange, Color.red]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(10)
+
+                    Button(action: { showingStadiumOptions = true }) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    Button(action: deactivateStadiumMode) {
+                        Label("Desactivar", systemImage: "stop.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+
+                    Button(action: refreshStatus) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+
+            // Status
+            if isStadiumModeActive {
+                Text(stadiumStatus)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(16)
+        .background(
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    Color.orange.opacity(0.1),
+                    Color.yellow.opacity(0.05)
+                ]),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.orange.opacity(0.3), lineWidth: 2)
+        )
+        .cornerRadius(16)
+        .shadow(color: Color.orange.opacity(0.2), radius: 10, y: 2)
+        .sheet(isPresented: $showingStadiumOptions) {
+            StadiumOptionsSheet(selectedProfile: $selectedProfile)
+        }
+        .onAppear {
+            refreshStatus()
+        }
+    }
+
+    private var profileName: String {
+        switch selectedProfile {
+        case .smallVenue: return "Venue Pequeño"
+        case .mediumVenue: return "Venue Medio"
+        case .largeStadium: return "Estadio Grande"
+        case .megaStadium: return "Mega Estadio"
+        }
+    }
+
+    private var connectionSpeedColor: Color {
+        guard let speed = Double(connectionSpeed.replacingOccurrences(of: "s", with: "")) else { return .gray }
+        if speed < 1.0 { return .green }
+        else if speed < 2.0 { return .orange }
+        else { return .red }
+    }
+
+    private func activateStadiumMode() {
+        networkManager.activateStadiumMode(profile: selectedProfile)
+        isStadiumModeActive = true
+
+        // Update status after a moment
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            refreshStatus()
+        }
+    }
+
+    private func deactivateStadiumMode() {
+        networkManager.deactivateStadiumMode()
+        isStadiumModeActive = false
+        connectionSpeed = "---"
+        stadiumStatus = "Stadium Mode: OFF"
+    }
+
+    private func refreshStatus() {
+        let status = networkManager.getStadiumModeStatus()
+        stadiumStatus = status
+
+        // Extract connection speed from status
+        if status.contains("Avg Connection Time:") {
+            if let range = status.range(of: "Avg Connection Time: "),
+               let endRange = status[range.upperBound...].range(of: "s") {
+                let speedStr = String(status[range.upperBound..<endRange.lowerBound])
+                connectionSpeed = speedStr + "s"
+            }
+        } else if status.contains("Average:") {
+            if let range = status.range(of: "Average: "),
+               let endRange = status[range.upperBound...].range(of: "s") {
+                let speedStr = String(status[range.upperBound..<endRange.lowerBound])
+                connectionSpeed = speedStr + "s"
+            }
+        }
+
+        isStadiumModeActive = !status.contains("INACTIVE")
+    }
+}
+
+// Stadium Options Sheet
+struct StadiumOptionsSheet: View {
+    @Binding var selectedProfile: StadiumMode.StadiumProfile
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("Seleccionar Perfil de Estadio")
+                    .font(.headline)
+                    .padding(.top)
+
+                ForEach([
+                    (StadiumMode.StadiumProfile.smallVenue, "Venue Pequeño", "< 10,000 personas"),
+                    (StadiumMode.StadiumProfile.mediumVenue, "Venue Medio", "10,000 - 30,000 personas"),
+                    (StadiumMode.StadiumProfile.largeStadium, "Estadio Grande", "30,000 - 60,000 personas"),
+                    (StadiumMode.StadiumProfile.megaStadium, "Mega Estadio FIFA 2026", "60,000+ personas")
+                ], id: \.0.hashValue) { profile, name, description in
+                    Button(action: {
+                        selectedProfile = profile
+                        dismiss()
+                    }) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(name)
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(.primary)
+                                Text(description)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            if selectedProfile == profile {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.accentColor)
+                            }
+                        }
+                        .padding()
+                        .background(Color.meshCardBackground.opacity(selectedProfile == profile ? 1 : 0.5))
+                        .cornerRadius(12)
+                    }
+                }
+
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Opciones Stadium Mode")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Listo") { dismiss() }
+                }
+            }
+        }
+    }
+}
+*/

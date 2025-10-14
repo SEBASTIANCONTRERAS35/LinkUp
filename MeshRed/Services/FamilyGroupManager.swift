@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import os
 
 /// Manages family groups with UserDefaults persistence
 /// Similar pattern to MessageStore but for family groups
@@ -45,13 +46,13 @@ class FamilyGroupManager: ObservableObject {
                 self.hasActiveGroup = true
                 self.saveGroup()
 
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("👨‍👩‍👧‍👦 FAMILY GROUP CREATED")
-                print("   Name: \(group.name)")
-                print("   Code: \(group.code.displayCode)")
-                print("   Creator: \(creatorPeerID)")
-                print("   Members: \(group.memberCount)")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("👨‍👩‍👧‍👦 FAMILY GROUP CREATED")
+                LoggingService.network.info("   Name: \(group.name)")
+                LoggingService.network.info("   Code: \(group.code.displayCode)")
+                LoggingService.network.info("   Creator: \(creatorPeerID)")
+                LoggingService.network.info("   Members: \(group.memberCount)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
         }
     }
@@ -81,12 +82,12 @@ class FamilyGroupManager: ObservableObject {
                 self.hasActiveGroup = true
                 self.saveGroup()
 
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("👨‍👩‍👧‍👦 JOINED FAMILY GROUP")
-                print("   Code: \(code.displayCode)")
-                print("   Member: \(memberPeerID)")
-                print("   Nickname: \(memberNickname ?? "N/A")")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("👨‍👩‍👧‍👦 JOINED FAMILY GROUP")
+                LoggingService.network.info("   Code: \(code.displayCode)")
+                LoggingService.network.info("   Member: \(memberPeerID)")
+                LoggingService.network.info("   Nickname: \(memberNickname ?? "N/A")")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
         }
     }
@@ -134,13 +135,13 @@ class FamilyGroupManager: ObservableObject {
                 self.hasActiveGroup = true
                 self.saveGroup()
 
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("✅ JOINED FAMILY GROUP WITH FULL INFO")
-                print("   Name: \(groupName)")
-                print("   Code: \(code.displayCode)")
-                print("   Members: \(allMembers.count)")
-                print("   Creator: \(creatorPeerID)")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("✅ JOINED FAMILY GROUP WITH FULL INFO")
+                LoggingService.network.info("   Name: \(groupName)")
+                LoggingService.network.info("   Code: \(code.displayCode)")
+                LoggingService.network.info("   Members: \(allMembers.count)")
+                LoggingService.network.info("   Creator: \(creatorPeerID)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
         }
     }
@@ -155,7 +156,7 @@ class FamilyGroupManager: ObservableObject {
                 self.hasActiveGroup = false
                 self.saveGroup()
 
-                print("👨‍👩‍👧‍👦 Left family group")
+                LoggingService.network.info("👨‍👩‍👧‍👦 Left family group")
             }
         }
     }
@@ -165,21 +166,21 @@ class FamilyGroupManager: ObservableObject {
         queue.async { [weak self] in
             guard let self = self,
                   var group = self.currentGroup else {
-                print("⚠️ FamilyGroupManager: No active group, ignoring sync")
+                LoggingService.network.info("⚠️ FamilyGroupManager: No active group, ignoring sync")
                 return
             }
 
             // Check if codes match
             guard group.code == syncMessage.groupCode else {
-                print("⚠️ FamilyGroupManager: Code mismatch - \(group.code.displayCode) != \(syncMessage.groupCode.displayCode)")
+                LoggingService.network.info("⚠️ FamilyGroupManager: Code mismatch - \(group.code.displayCode) != \(syncMessage.groupCode.displayCode)")
                 return
             }
 
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("🤝 FAMILY SYNC RECEIVED")
-            print("   From: \(syncMessage.senderId)")
-            print("   Code Match: ✅")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("🤝 FAMILY SYNC RECEIVED")
+            LoggingService.network.info("   From: \(syncMessage.senderId)")
+            LoggingService.network.info("   Code Match: ✅")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             // Convert sync message to family member
             let member = syncMessage.memberInfo.toFamilyMember(peerID: syncMessage.senderId)
@@ -191,8 +192,8 @@ class FamilyGroupManager: ObservableObject {
                 self.currentGroup = group
                 self.saveGroup()
 
-                print("✅ Family member added/updated: \(syncMessage.senderId)")
-                print("   Total members: \(group.memberCount)")
+                LoggingService.network.info("✅ Family member added/updated: \(syncMessage.senderId)")
+                LoggingService.network.info("   Total members: \(group.memberCount)")
             }
         }
     }
@@ -283,7 +284,7 @@ class FamilyGroupManager: ObservableObject {
     private func loadGroup() {
         guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
               let group = try? JSONDecoder().decode(FamilyGroup.self, from: data) else {
-            print("👨‍👩‍👧‍👦 FamilyGroupManager: No saved family group found")
+            LoggingService.network.info("👨‍👩‍👧‍👦 FamilyGroupManager: No saved family group found")
             DispatchQueue.main.async {
                 self.currentGroup = nil
                 self.hasActiveGroup = false
@@ -294,7 +295,7 @@ class FamilyGroupManager: ObservableObject {
         DispatchQueue.main.async {
             self.currentGroup = group
             self.hasActiveGroup = true
-            print("👨‍👩‍👧‍👦 FamilyGroupManager: Loaded family group '\(group.name)' with \(group.memberCount) members")
+            LoggingService.network.info("👨‍👩‍👧‍👦 FamilyGroupManager: Loaded family group '\(group.name)' with \(group.memberCount) members")
         }
     }
 
@@ -303,7 +304,7 @@ class FamilyGroupManager: ObservableObject {
             if let group = currentGroup {
                 let data = try JSONEncoder().encode(group)
                 UserDefaults.standard.set(data, forKey: userDefaultsKey)
-                print("💾 FamilyGroupManager: Saved family group '\(group.name)'")
+                LoggingService.network.info("💾 FamilyGroupManager: Saved family group '\(group.name)'")
 
                 // Update historical members
                 for member in group.members {
@@ -312,10 +313,10 @@ class FamilyGroupManager: ObservableObject {
                 saveHistoricalMembers()
             } else {
                 UserDefaults.standard.removeObject(forKey: userDefaultsKey)
-                print("💾 FamilyGroupManager: Cleared family group")
+                LoggingService.network.info("💾 FamilyGroupManager: Cleared family group")
             }
         } catch {
-            print("❌ FamilyGroupManager: Failed to save group: \(error.localizedDescription)")
+            LoggingService.network.info("❌ FamilyGroupManager: Failed to save group: \(error.localizedDescription)")
         }
     }
 
@@ -323,7 +324,7 @@ class FamilyGroupManager: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: historicalMembersKey),
            let memberIDs = try? JSONDecoder().decode(Set<String>.self, from: data) {
             historicalMemberPeerIDs = memberIDs
-            print("📚 FamilyGroupManager: Loaded \(memberIDs.count) historical members")
+            LoggingService.network.info("📚 FamilyGroupManager: Loaded \(memberIDs.count) historical members")
         }
     }
 
@@ -331,9 +332,9 @@ class FamilyGroupManager: ObservableObject {
         do {
             let data = try JSONEncoder().encode(historicalMemberPeerIDs)
             UserDefaults.standard.set(data, forKey: historicalMembersKey)
-            print("💾 FamilyGroupManager: Saved \(historicalMemberPeerIDs.count) historical members")
+            LoggingService.network.info("💾 FamilyGroupManager: Saved \(self.historicalMemberPeerIDs.count, privacy: .public) historical members")
         } catch {
-            print("❌ FamilyGroupManager: Failed to save historical members: \(error.localizedDescription)")
+            LoggingService.network.info("❌ FamilyGroupManager: Failed to save historical members: \(error.localizedDescription)")
         }
     }
 

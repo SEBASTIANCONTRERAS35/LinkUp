@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import os
 
 struct JoinFamilyGroupView: View {
     @Environment(\.dismiss) var dismiss
@@ -258,7 +259,7 @@ struct JoinFamilyGroupView: View {
         requestTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
             if case .validating = validationState {
                 validationState = .notFoundInNetwork
-                print("⏱️ Family group verification timeout - code not found")
+                LoggingService.network.info("⏱️ Family group verification timeout - code not found")
             }
         }
     }
@@ -285,7 +286,7 @@ struct JoinFamilyGroupView: View {
             memberCount: groupInfo.memberCount
         )
 
-        print("✅ Group info received and displayed in UI")
+        LoggingService.network.info("✅ Group info received and displayed in UI")
     }
 
     private func joinGroup() {

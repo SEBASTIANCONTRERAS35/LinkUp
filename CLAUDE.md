@@ -358,11 +358,41 @@ Uses Swift Testing framework (`import Testing`) with `@Test` attribute instead o
 
 ## Troubleshooting
 
+### Requisitos de Configuración de Red ⚠️ **IMPORTANTE**
+
+MeshRed utiliza MultipeerConnectivity que require UNA de estas configuraciones:
+
+✅ **Opción 1: Bluetooth puro (Recomendado para modo avión)**
+- WiFi: **DESACTIVADO** (Settings → WiFi → OFF)
+- Bluetooth: **ACTIVADO**
+- Resultado: Conexión estable usando Bluetooth RFCOMM
+
+✅ **Opción 2: WiFi + Bluetooth (Recomendado para uso normal)**
+- WiFi: **CONECTADO** a una red
+- Bluetooth: **ACTIVADO**
+- Resultado: Conexión de alta velocidad usando WiFi Direct + fallback Bluetooth
+
+❌ **Configuración NO soportada (CAUSA FALLOS):**
+- WiFi: Habilitado pero **NO conectado a ninguna red**
+- Bluetooth: ACTIVADO
+- **Resultado**: Conexiones fallan con `SocketStream read error: Code=60 "Operation timed out"`
+
+**¿Por qué falla?**
+- MultipeerConnectivity prioriza WiFi cuando está habilitado
+- Intenta establecer conexión TCP/IP via WiFi Direct
+- Si WiFi no está conectado a red, el TCP handshake falla después de 10 segundos
+- Bluetooth NUNCA se usa porque iOS detecta WiFi habilitado
+
+**Solución:**
+- En ambos dispositivos: Conecta a una red WiFi, O desactiva WiFi completamente
+- La app ahora detecta esta configuración problemática y muestra advertencia
+
 ### Peer Not Connecting
 - Check conflict resolution: only lower peer ID should initiate
 - Verify SessionManager cooldown hasn't blocked the peer
 - Check ConnectionMutex for active lock
 - Ensure Bluetooth and local network permissions granted
+- **NUEVO:** Verifica configuración de red (ver sección arriba)
 
 ### Messages Not Relaying
 - Verify TTL hasn't reached 0 (hopCount >= ttl)

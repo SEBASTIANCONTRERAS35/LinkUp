@@ -815,7 +815,7 @@ class FraudDetector:
 let wallet = StadiumWallet()
 let tx = Transaction(amount: 10, merchant: "TEST")
 let signed = wallet.signTransaction(tx)
-print(wallet.verifyTransaction(signed))  // true
+LoggingService.network.info(wallet.verifyTransaction(signed))  // true
 ```
 
 ---

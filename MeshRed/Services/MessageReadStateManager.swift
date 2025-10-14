@@ -8,6 +8,7 @@
 
 import Foundation
 import Combine
+import os
 
 /// Manages read state for all simulated group messages
 class MessageReadStateManager: ObservableObject {
@@ -102,16 +103,16 @@ class MessageReadStateManager: ObservableObject {
             userDefaults.set(data, forKey: storageKey)
 
             #if DEBUG
-            print("💾 [MessageReadState] Saved \(groupStates.count) group states")
+            LoggingService.network.info("💾 [MessageReadState] Saved \(self.groupStates.count, privacy: .public) group states")
             #endif
         } catch {
-            print("❌ [MessageReadState] Failed to save: \(error)")
+            LoggingService.network.info("❌ [MessageReadState] Failed to save: \(error)")
         }
     }
 
     private func loadFromStorage() {
         guard let data = userDefaults.data(forKey: storageKey) else {
-            print("📭 [MessageReadState] No saved state found")
+            LoggingService.network.info("📭 [MessageReadState] No saved state found")
             return
         }
 
@@ -121,10 +122,10 @@ class MessageReadStateManager: ObservableObject {
             groupStates = try decoder.decode([UUID: GroupReadState].self, from: data)
 
             #if DEBUG
-            print("📬 [MessageReadState] Loaded \(groupStates.count) group states")
+            LoggingService.network.info("📬 [MessageReadState] Loaded \(self.groupStates.count, privacy: .public) group states")
             #endif
         } catch {
-            print("❌ [MessageReadState] Failed to load: \(error)")
+            LoggingService.network.info("❌ [MessageReadState] Failed to load: \(error)")
             groupStates = [:]
         }
     }
@@ -133,13 +134,13 @@ class MessageReadStateManager: ObservableObject {
 
     func printState(for groupId: UUID) {
         guard let state = groupStates[groupId] else {
-            print("📊 [MessageReadState] No state for group \(groupId)")
+            LoggingService.network.info("📊 [MessageReadState] No state for group \(groupId)")
             return
         }
 
-        print("📊 [MessageReadState] Group \(groupId):")
+        LoggingService.network.info("📊 [MessageReadState] Group \(groupId):")
         for (memberId, memberState) in state.memberStates {
-            print("   - \(memberId): \(memberState.readMessageIds.count) messages read, last read: \(memberState.lastReadTimestamp)")
+            LoggingService.network.info("   - \(memberId): \(memberState.readMessageIds.count) messages read, last read: \(memberState.lastReadTimestamp)")
         }
     }
 }

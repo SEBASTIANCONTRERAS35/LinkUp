@@ -8,6 +8,7 @@
 import SwiftUI
 import CoreLocation
 import MultipeerConnectivity
+import os
 
 /// Interactive walking triangulation wizard (Nivel 4)
 /// Guides user through taking two distance readings to calculate precise direction
@@ -562,7 +563,7 @@ struct WalkingTriangulationView: View {
             timestamp: Date()
         )
 
-        print("✅ Triangulation Reading 1 taken: \(reading1!.coordinateString)")
+        LoggingService.network.info("✅ Triangulation Reading 1 taken: \(reading1!.coordinateString)")
 
         withAnimation {
             currentStep = .walking
@@ -581,7 +582,7 @@ struct WalkingTriangulationView: View {
             timestamp: Date()
         )
 
-        print("✅ Triangulation Reading 2 taken: \(reading2!.coordinateString)")
+        LoggingService.network.info("✅ Triangulation Reading 2 taken: \(reading2!.coordinateString)")
 
         withAnimation {
             currentStep = .calculating
@@ -633,7 +634,7 @@ struct WalkingTriangulationView: View {
 
         calculatedDirection = bearing
 
-        print("✅ Triangulation complete! Bearing: \(bearing)°")
+        LoggingService.network.info("✅ Triangulation complete! Bearing: \(bearing)°")
 
         withAnimation {
             currentStep = .result
@@ -673,7 +674,7 @@ struct InstructionRow: View {
         locationService: LocationService(),
         onDismiss: {},
         onDirectionCalculated: { bearing in
-            print("Calculated bearing: \(bearing)°")
+            LoggingService.network.info("Calculated bearing: \(bearing)°")
         }
     )
 }

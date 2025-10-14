@@ -12,6 +12,7 @@ import CoreHaptics
 import UIKit
 #endif
 import simd
+import os
 
 /// Proximity zones based on distance
 enum ProximityZone {
@@ -143,7 +144,7 @@ class ProximityHapticEngine {
             setupCoreHapticsEngine()
         }
 
-        print("🎯 ProximityHapticEngine: Initialized (Core Haptics: \(supportsHaptics))")
+        LoggingService.network.info("🎯 ProximityHapticEngine: Initialized (Core Haptics: \(self.supportsHaptics, privacy: .public))")
     }
 
     deinit {
@@ -157,19 +158,22 @@ class ProximityHapticEngine {
             hapticEngine = try CHHapticEngine()
 
             hapticEngine?.resetHandler = { [weak self] in
-                print("⚠️ ProximityHapticEngine: Engine reset")
+                LoggingService.network.info("⚠️ ProximityHapticEngine: Engine reset")
                 self?.restartEngine()
             }
 
-            hapticEngine?.stoppedHandler = { reason in
-                print("⚠️ ProximityHapticEngine: Engine stopped - \(reason)")
+            // FIXED: Restart engine when stopped to prevent crashes
+            hapticEngine?.stoppedHandler = { [weak self] reason in
+                LoggingService.network.info("⚠️ ProximityHapticEngine: Engine stopped - \(String(describing: reason), privacy: .public)")
+                LoggingService.network.info("   🔄 Attempting to restart engine...")
+                self?.restartEngine()
             }
 
             try hapticEngine?.start()
-            print("✅ ProximityHapticEngine: Core Haptics engine started")
+            LoggingService.network.info("✅ ProximityHapticEngine: Core Haptics engine started")
 
         } catch {
-            print("❌ ProximityHapticEngine: Failed to create engine: \(error)")
+            LoggingService.network.info("❌ ProximityHapticEngine: Failed to create engine: \(error)")
             supportsHaptics = false
         }
     }
@@ -178,9 +182,9 @@ class ProximityHapticEngine {
         queue.async { [weak self] in
             do {
                 try self?.hapticEngine?.start()
-                print("✅ ProximityHapticEngine: Engine restarted")
+                LoggingService.network.info("✅ ProximityHapticEngine: Engine restarted")
             } catch {
-                print("❌ ProximityHapticEngine: Failed to restart: \(error)")
+                LoggingService.network.info("❌ ProximityHapticEngine: Failed to restart: \(error)")
             }
         }
     }
@@ -190,12 +194,12 @@ class ProximityHapticEngine {
     /// Start proximity haptic feedback
     func start() {
         guard settings.hapticsEnabled else {
-            print("⚠️ ProximityHapticEngine: Haptics disabled in settings")
+            LoggingService.network.info("⚠️ ProximityHapticEngine: Haptics disabled in settings")
             return
         }
 
         guard !isActive else {
-            print("⚠️ ProximityHapticEngine: Already active")
+            LoggingService.network.info("⚠️ ProximityHapticEngine: Already active")
             return
         }
 
@@ -207,7 +211,7 @@ class ProximityHapticEngine {
         // Start timer for continuous feedback
         startPulseTimer()
 
-        print("🎯 ProximityHapticEngine: Started")
+        LoggingService.network.info("🎯 ProximityHapticEngine: Started")
     }
 
     /// Stop proximity haptic feedback
@@ -221,7 +225,7 @@ class ProximityHapticEngine {
         currentZone = .veryFar
         currentDirection = .ahead
 
-        print("🎯 ProximityHapticEngine: Stopped")
+        LoggingService.network.info("🎯 ProximityHapticEngine: Stopped")
     }
 
     /// Update proximity based on distance and direction
@@ -239,7 +243,7 @@ class ProximityHapticEngine {
 
         // Check if zone changed significantly
         if newZone != lastZone {
-            print("🎯 ProximityHapticEngine: Zone changed: \(lastZone) → \(newZone) (\(String(format: "%.1f", distance))m)")
+            LoggingService.network.info("🎯 ProximityHapticEngine: Zone changed: \(String(describing: self.lastZone), privacy: .public) → \(String(describing: newZone), privacy: .public) (\(String(format: "%.1f", distance), privacy: .public)m)")
 
             currentZone = newZone
 
@@ -263,7 +267,7 @@ class ProximityHapticEngine {
         let newDirection = RelativeDirection.from(bearing: bearing)
 
         if newDirection != lastDirection {
-            print("🎯 ProximityHapticEngine: Direction changed: \(lastDirection.description) → \(newDirection.description)")
+            LoggingService.network.info("🎯 ProximityHapticEngine: Direction changed: \(self.lastDirection.description, privacy: .public) → \(newDirection.description, privacy: .public)")
 
             currentDirection = newDirection
 
@@ -304,7 +308,7 @@ class ProximityHapticEngine {
             self?.playProximityPulse()
         }
 
-        print("🎯 ProximityHapticEngine: Pulse timer started (interval: \(String(format: "%.1f", interval))s)")
+        LoggingService.network.info("🎯 ProximityHapticEngine: Pulse timer started (interval: \(String(format: "%.1f", interval))s)")
     }
 
     private func restartPulseTimer() {
@@ -360,7 +364,7 @@ class ProximityHapticEngine {
             try player.start(atTime: CHHapticTimeImmediate)
 
         } catch {
-            print("❌ ProximityHapticEngine: Failed to play pulse: \(error)")
+            LoggingService.network.info("❌ ProximityHapticEngine: Failed to play pulse: \(error)")
         }
     }
 
@@ -424,10 +428,10 @@ class ProximityHapticEngine {
             let player = try engine.makePlayer(with: pattern)
             try player.start(atTime: CHHapticTimeImmediate)
 
-            print("🎯 ProximityHapticEngine: Played arrival pattern")
+            LoggingService.network.info("🎯 ProximityHapticEngine: Played arrival pattern")
 
         } catch {
-            print("❌ ProximityHapticEngine: Failed to play arrival: \(error)")
+            LoggingService.network.info("❌ ProximityHapticEngine: Failed to play arrival: \(error)")
         }
     }
 
@@ -510,7 +514,7 @@ class ProximityHapticEngine {
             try player.start(atTime: CHHapticTimeImmediate)
 
         } catch {
-            print("❌ ProximityHapticEngine: Failed to play directional hint: \(error)")
+            LoggingService.network.info("❌ ProximityHapticEngine: Failed to play directional hint: \(error)")
         }
     }
 
@@ -519,7 +523,7 @@ class ProximityHapticEngine {
             try continuousPlayer?.stop(atTime: CHHapticTimeImmediate)
             continuousPlayer = nil
         } catch {
-            print("❌ ProximityHapticEngine: Failed to stop continuous player: \(error)")
+            LoggingService.network.info("❌ ProximityHapticEngine: Failed to stop continuous player: \(error)")
         }
     }
 
