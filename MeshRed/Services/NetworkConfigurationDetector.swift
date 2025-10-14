@@ -121,13 +121,9 @@ class NetworkConfigurationDetector: ObservableObject {
         let isConstrainedPath = path.isConstrained
 
         // CRITICAL PROBLEM: WiFi enabled but not connected
+        // This causes Socket Error 61 because iOS tries WiFi Direct but fails
         if hasWiFi && !isWiFiConnected && !isCellularConnected {
             return .wifiEnabledButNotConnected
-        }
-
-        // PROBLEM: No network at all
-        if path.status == .unsatisfied && !hasWiFi && !hasCellular {
-            return .noNetworkAtAll
         }
 
         // GOOD: WiFi connected
@@ -147,11 +143,14 @@ class NetworkConfigurationDetector: ObservableObject {
             return .cellularOnly
         }
 
-        // GOOD: WiFi disabled, using Bluetooth
+        // GOOD: WiFi and Cellular disabled - Bluetooth-only mode
+        // FIXED: This is VALID for MultipeerConnectivity (Bluetooth pure works)
+        // Not a problem - don't report as .noNetworkAtAll
         if !hasWiFi && !hasCellular {
             return .bluetoothOnly
         }
 
+        // Unknown configuration
         return .unknown
     }
 }
@@ -172,8 +171,8 @@ enum NetworkStatus: String, Codable {
         switch self {
         case .wifiEnabledButNotConnected:
             return true  // CRITICAL: Causes Socket Error 61
-        case .noNetworkAtAll:
-            return true  // WARNING: Bluetooth-only may have issues
+        // REMOVED: .noNetworkAtAll is now unused (replaced by .bluetoothOnly)
+        // FIXED: .bluetoothOnly is VALID for MultipeerConnectivity
         default:
             return false
         }
@@ -187,11 +186,11 @@ enum NetworkStatus: String, Codable {
         case .cellularOnly:
             return "Datos celulares activos - MultipeerConnectivity usará Bluetooth para conexiones P2P."
         case .bluetoothOnly:
-            return "Solo Bluetooth - MultipeerConnectivity usará Bluetooth puro (más lento pero confiable)."
+            return "✅ Modo Bluetooth puro - Configuración ÓPTIMA para MultipeerConnectivity (conexiones estables)."
         case .wifiEnabledButNotConnected:
             return "WiFi habilitado pero NO conectado - Esto causa fallos de conexión. iOS intenta usar WiFi Direct pero falla porque no hay red."
         case .noNetworkAtAll:
-            return "Sin red - Asegúrate de que Bluetooth esté activado para conexiones P2P."
+            return "Sin red detectada - Configuración inusual."
         case .unknown, .optimal:
             return "Configuración desconocida"
         }
@@ -202,8 +201,7 @@ enum NetworkStatus: String, Codable {
         switch self {
         case .wifiEnabledButNotConnected:
             return "SOLUCIÓN: Desactiva WiFi completamente O conéctate a una red WiFi"
-        case .noNetworkAtAll:
-            return "SOLUCIÓN: Activa Bluetooth en Ajustes"
+        // REMOVED: .noNetworkAtAll suggestion (false positive eliminated)
         default:
             return ""
         }
@@ -214,8 +212,7 @@ enum NetworkStatus: String, Codable {
         switch self {
         case .wifiEnabledButNotConnected:
             return .critical
-        case .noNetworkAtAll:
-            return .warning
+        // REMOVED: .noNetworkAtAll warning (false positive eliminated)
         default:
             return .ok
         }

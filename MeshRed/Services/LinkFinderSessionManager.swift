@@ -251,37 +251,38 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
                 print("   Camera assistance (ARKit): \(supportsCameraAssist ? "✅" : "❌")")
             }
 
-            // Trust the API for direction capability
-            let effectiveDirectionSupport: Bool
-
             // Log actual API values for debugging
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print("📱 REAL API CAPABILITIES:")
             print("   supportsDirectionMeasurement: \(nativeDirectionSupport)")
             print("   supportsCameraAssistance: \(supportsCameraAssist)")
 
+            // TRUST THE API: If supportsDirectionMeasurement OR supportsCameraAssistance = true,
+            // device CAN provide direction (either via hardware or ARKit)
+            let effectiveDirectionSupport = nativeDirectionSupport || supportsCameraAssist
+
             if nativeDirectionSupport && !supportsCameraAssist {
-                // iPhone 11-13: Native direction via multiple UWB antennas
-                effectiveDirectionSupport = true
-                print("   ✅ Native UWB direction (multiple antennas)")
-                print("   ℹ️ iPhone 11-13 with U1 chip")
+                // iPhone 11-13: Native direction via multiple UWB antennas (U1 chip)
+                print("   ✅ Native UWB direction (hardware triangulation)")
+                print("   ℹ️ Likely iPhone 11-13 with U1 chip")
                 print("   💡 Direction via time-of-flight triangulation")
-            } else if supportsCameraAssist {
-                // iPhone 14 Pro+: Direction via camera assistance
-                effectiveDirectionSupport = true
-                print("   ✅ Direction via camera assistance")
+                print("   ⚡ NO ARKit needed - instant, low power")
+            } else if nativeDirectionSupport && supportsCameraAssist {
+                // Device with BOTH native + camera assistance (unlikely combo)
+                print("   ✅ Native UWB direction + camera assistance available")
+                print("   ℹ️ Will prefer native hardware direction")
+                print("   💡 ARKit can be used as optional enhancement")
+            } else if !nativeDirectionSupport && supportsCameraAssist {
+                // iPhone 14 Pro/Max: NO native direction, but camera assistance available
+                print("   📱 Direction via camera assistance ONLY")
+                print("   ℹ️ Likely iPhone 14 Pro/Max (1 UWB antenna)")
                 print("   ⚠️ Requires: Camera + Motion permissions")
                 print("   ⚠️ Requires: Device movement for ARKit calibration")
-            } else if !nativeDirectionSupport && !supportsCameraAssist {
-                // iPhone 14 base or devices without direction capability
-                effectiveDirectionSupport = false
-                print("   ❌ Direction NOT AVAILABLE")
-                print("   ℹ️ Device limitation (possibly iPhone 14 base with 1 antenna)")
-                print("   💡 Will use GPS+Compass fallback for direction")
             } else {
-                // Trust the API response
-                effectiveDirectionSupport = nativeDirectionSupport || supportsCameraAssist
-                print("   ℹ️ Using combined capability: \(effectiveDirectionSupport)")
+                // iPhone 14 base or older devices without direction capability
+                print("   ❌ Direction NOT AVAILABLE")
+                print("   ℹ️ Device limitation (no native hardware, no camera assist)")
+                print("   💡 Will use GPS+Compass fallback for direction")
             }
 
             print("   Final effectiveDirectionSupport: \(effectiveDirectionSupport)")
@@ -558,6 +559,10 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
         print("   Token extracted: \(String(describing: token).prefix(40))...")
         print("   State: preparing")
         print("   Ready to send token to peer")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📡 COMPARTIENDO TOKEN UWB con \(peerId)")
+        print("   Este token se enviará al peer para iniciar ranging")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         return token
     }
@@ -628,8 +633,7 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
                 let isIPhone17OrNewer = deviceModel.contains("iPhone 17") || deviceModel.contains("iPhone 18")
 
                 // U1 Chip Detection (iPhone 11-13)
-                // Since iOS 16, U1 chips REQUIRE ARKit for direction measurement
-                // Apple deprecated native direction for U1, now needs camera assistance
+                // TIENE direction nativa via múltiples antenas UWB - NO necesita ARKit
                 let isU1ChipDevice = deviceModel.contains("iPhone 11") ||
                                      deviceModel.contains("iPhone 12") ||
                                      deviceModel.contains("iPhone 13")
@@ -640,18 +644,31 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
                                      isIPhone17OrNewer
 
                 // Determine if camera assistance is needed
-                let needsCameraForDirection = isU1ChipDevice && hasNativeDirection
+                // ONLY use ARKit if device DOESN'T have native direction but DOES support camera assist
+                // Example: iPhone 14 Pro/Max (no native direction, but has camera assistance)
+                let needsCameraForDirection = supportsCameraAssist && !hasNativeDirection
 
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 if needsCameraForDirection {
-                    print("⚡ U1 CHIP DETECTED - ARKit Required for Direction")
+                    print("📱 CAMERA ASSISTANCE REQUIRED")
                     print("   Device: \(deviceModel)")
-                    print("   Since iOS 16, U1 chips need camera assistance")
-                    print("   Will enable: Camera + Motion + ARKit for precise direction")
+                    print("   Reason: No native direction hardware")
+                    print("   Example: iPhone 14 Pro/Max (1 antenna only)")
+                    print("   Will enable: Camera + Motion + ARKit for direction")
+                } else if isU1ChipDevice && hasNativeDirection {
+                    print("⚡ U1 CHIP - NATIVE DIRECTION AVAILABLE")
+                    print("   Device: \(deviceModel)")
+                    print("   Method: Hardware triangulation (multiple UWB antennas)")
+                    print("   ✅ NO ARKit needed - pure hardware direction")
+                    print("   ✅ Lower power consumption, instant direction")
                 } else if isU2ChipDevice {
-                    print("⚡ U2 CHIP DETECTED - Native Direction Available")
+                    print("⚡ U2 CHIP - NATIVE DIRECTION AVAILABLE")
                     print("   Device: \(deviceModel)")
-                    print("   No ARKit needed - pure hardware direction")
+                    print("   ✅ NO ARKit needed - pure hardware direction")
+                } else if hasNativeDirection {
+                    print("✅ NATIVE DIRECTION AVAILABLE")
+                    print("   Device: \(deviceModel)")
+                    print("   Using hardware-based direction")
                 } else {
                     print("⚠️ NO DIRECTION SUPPORT - Using Fallback")
                     print("   Device: \(deviceModel)")
@@ -661,9 +678,9 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
 
                 if needsCameraForDirection {
                     #if !targetEnvironment(simulator)
-                    print("   📱 Device REQUIRES camera assistance for direction (iPhone 14+ without native support)")
-                    print("   Native direction: \(hasNativeDirection)")
-                    print("   Camera assist available: \(supportsCameraAssist)")
+                    print("   📱 Device REQUIRES camera assistance for direction")
+                    print("   Native direction: \(hasNativeDirection) (NO native hardware)")
+                    print("   Camera assist available: \(supportsCameraAssist) (Will use ARKit)")
 
                     // Step 1: Check camera permission
                     let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
@@ -804,9 +821,21 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
                     print("   ✅ Camera assistance ENABLED (simulator)")
                     #endif
                 } else {
-                    // ARKit NOT needed - either U2 chip or no direction support
+                    // ARKit NOT needed - device has native direction OR no direction at all
 
-                    if isU2ChipDevice {
+                    if isU1ChipDevice && hasNativeDirection {
+                        // iPhone 11-13 with U1 chip - NATIVE direction via hardware
+                        print("   ✅ U1 Chip native direction enabled")
+                        print("   📱 Using U1 chip's multiple antenna triangulation")
+                        print("   🎯 NO ARKit needed - pure hardware")
+                        print("   ⚡ Instant direction, lower power consumption")
+
+                        config.isCameraAssistanceEnabled = false
+
+                        DispatchQueue.main.async {
+                            self.directionMode = .preciseUWB
+                        }
+                    } else if isU2ChipDevice {
                         // iPhone 15+ with U2 chip - true native direction
                         print("   ✅ U2 Chip native direction enabled")
                         print("   📱 Using U2 chip's advanced triangulation")
@@ -817,7 +846,7 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
                         DispatchQueue.main.async {
                             self.directionMode = .preciseUWB
                         }
-                    } else if hasNativeDirection && !isU1ChipDevice {
+                    } else if hasNativeDirection {
                         // Unknown device claiming native direction (not U1, not U2)
                         print("   ✅ Device reports native direction")
                         print("   Attempting without ARKit...")
@@ -1224,9 +1253,14 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
         // Start GPS location sharing with peer for fallback direction calculation
         if let peerID = activeSessions.keys.first(where: { $0 == peerId }) {
             if let mcPeerID = networkManager?.connectedPeers.first(where: { $0.displayName == peerID }) {
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("📍 COMPARTIENDO MI UBICACIÓN GPS con \(peerId)")
                 print("   🔄 Starting GPS location sharing with peer...")
+                print("   Modo: Fallback direction (UWB + GPS + Compass)")
+                print("   Frecuencia: Cada vez que cambia mi ubicación")
                 networkManager?.startGPSLocationSharingForLinkFinder(with: mcPeerID)
-                print("   ✅ GPS sharing initiated")
+                print("   ✅ GPS sharing iniciado - enviando ubicación activamente")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             } else {
                 print("   ⚠️ Peer not found in NetworkManager - GPS sharing delayed")
             }
@@ -1288,11 +1322,12 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
         let peerId = peerID.displayName
 
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📍 RECEIVED PEER GPS LOCATION")
-        print("   Peer: \(peerId)")
+        print("📍 RECIBIENDO UBICACIÓN GPS de \(peerId)")
+        print("   El peer está compartiendo su ubicación conmigo")
         print("   Latitude: \(location.coordinate.latitude)")
         print("   Longitude: \(location.coordinate.longitude)")
         print("   Accuracy: \(location.horizontalAccuracy)m")
+        print("   Timestamp: \(location.timestamp)")
 
         // Update fallback service with peer location
         fallbackService?.updatePeerLocation(location, for: peerId)
@@ -1390,8 +1425,12 @@ extension LinkFinderSessionManager: NISessionDelegate {
 
                 // Stop GPS location sharing since we have precise direction now
                 if let mcPeerID = networkManager?.connectedPeers.first(where: { $0.displayName == peerId }) {
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("📍 DETENIENDO COMPARTIR UBICACIÓN GPS con \(peerId)")
+                    print("   Razón: UWB direction ahora disponible (más preciso)")
+                    print("   ✅ Ahorrando batería - GPS ya no necesario")
                     networkManager?.stopGPSLocationSharingForLinkFinder(with: mcPeerID)
-                    print("   ✅ GPS sharing stopped (no longer needed)")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 }
 
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

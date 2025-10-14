@@ -602,12 +602,13 @@ class NetworkManager: NSObject, ObservableObject {
 
             // CRITICAL FIX: Add extra delay after session recreation
             // iOS needs time to fully clean up internal MCSession state after disconnect
-            // INCREASED: 5s grace period to prevent state corruption (was 1s - too fast)
+            // INCREASED: 15s grace period to clear Socket Error 61 blacklist (was 5s - too fast)
             let timeSinceRecreation = Date().timeIntervalSince(lastSessionRecreation)
-            if timeSinceRecreation < 10.0 {
-                // Session was recently recreated - add 5s grace period for iOS internal cleanup
-                // This prevents mDNS resolution failures and transport layer corruption
-                let extraDelay: TimeInterval = 5.0
+            if timeSinceRecreation < 20.0 {
+                // Session was recently recreated - add 15s grace period for iOS internal cleanup
+                // This prevents mDNS resolution failures, transport layer corruption, and Socket Error 61
+                // iOS networking stack needs more time to clear blacklisted peers
+                let extraDelay: TimeInterval = 15.0
                 delay += extraDelay
                 LoggingService.network.info("⏰ Session recently recreated (\(String(format: "%.1f", timeSinceRecreation))s ago)")
                 LoggingService.network.info("   Adding \(Int(extraDelay))s grace period for iOS cleanup (prevents transport corruption)")
@@ -1698,19 +1699,15 @@ class NetworkManager: NSObject, ObservableObject {
         }
         LoggingService.network.info("   ✓ Not manually blocked")
 
-        // Check for bidirectional mode (Connection refused recovery OR Ultra-Fast mode)
+        // Check for bidirectional mode (Connection refused recovery only - Ultra-Fast disabled)
         LoggingService.network.info("   Step 2.5: Checking bidirectional mode...")
-        let useBidirectionalMode = sessionManager.shouldUseBidirectionalConnection(for: peerID) || isUltraFastModeEnabled
+        // FIXED: Removed isUltraFastModeEnabled to prevent race conditions
+        // Bidirectional mode now only activates after actual connection failures
+        let useBidirectionalMode = sessionManager.shouldUseBidirectionalConnection(for: peerID) // || isUltraFastModeEnabled
         if useBidirectionalMode {
-            if isUltraFastModeEnabled {
-                LoggingService.network.info("   ⚡ ULTRA-FAST BIDIRECTIONAL MODE ALWAYS ACTIVE")
-                LoggingService.network.info("      Lightning Mode Ultra-Fast: Both peers always connect simultaneously")
-                LoggingService.network.info("      Target: <3 second connections for FIFA 2026 stadiums")
-            } else {
-                LoggingService.network.info("   🔀 BIDIRECTIONAL MODE ACTIVE for \(peerID.displayName)")
-                LoggingService.network.info("      Previous connection attempts failed with 'Connection refused'")
-                LoggingService.network.info("      Both peers will attempt connection simultaneously")
-            }
+            LoggingService.network.info("   🔀 BIDIRECTIONAL MODE ACTIVE for \(peerID.displayName)")
+            LoggingService.network.info("      Previous connection attempts failed with 'Connection refused'")
+            LoggingService.network.info("      Both peers will attempt connection simultaneously")
         }
 
         // Check conflict resolution (unless forcing or bidirectional mode)
@@ -3640,6 +3637,10 @@ extension NetworkManager: MCSessionDelegate {
                 let handshakeStartTime = Date()
                 let peerName = peerID.displayName
 
+                // FINAL TIMEOUT: Monitor full handshake timeout
+                // Lightning Mode: 6s (ultra-fast recovery), Normal: 11s
+                let handshakeTimeout: TimeInterval = UserDefaults.standard.bool(forKey: "lightningModeUltraFast") ? 6.0 : 11.0
+
                 // EARLY DETECTION: Check if certificate exchange starts within 3 seconds
                 // In healthy handshakes, certificate exchange happens almost immediately
                 // If it doesn't start within 3s, the handshake is likely stalled
@@ -3656,15 +3657,28 @@ extension NetworkManager: MCSessionDelegate {
                         LoggingService.network.info("   Peer: \(peerName)")
                         LoggingService.network.info("   Elapsed: 3.0s")
                         LoggingService.network.info("   Status: Still in .connecting but no certificate exchange")
-                        LoggingService.network.info("   Likely cause: Handshake stalled, corrupted session state")
-                        LoggingService.network.info("   This will likely timeout in ~8 more seconds")
+
+                        // DEBUGGING: Add detailed diagnostic information
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("🔍 DIAGNOSTIC INFORMATION:")
+                        LoggingService.network.info("   Session connected peers: \(self.session.connectedPeers.map { $0.displayName })")
+                        LoggingService.network.info("   Connection mutex has active operation: \(self.connectionMutex.hasActiveOperation(for: peerID))")
+                        LoggingService.network.info("   Network status: \(self.networkConfigDetector.currentStatus.rawValue)")
+                        LoggingService.network.info("   Bidirectional mode would be: \(self.sessionManager.shouldUseBidirectionalConnection(for: peerID))")
+                        LoggingService.network.info("   Failed connection attempts: \(self.failedConnectionAttempts[peerName] ?? 0)")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                        LoggingService.network.info("   Likely causes:")
+                        LoggingService.network.info("   1. Race condition - both peers trying to connect simultaneously")
+                        LoggingService.network.info("   2. iOS networking stack has blacklisted peer (Socket Error 61)")
+                        LoggingService.network.info("   3. WiFi enabled but not connected (tries WiFi Direct, fails)")
+                        LoggingService.network.info("   4. Session state corrupted from previous failed attempt")
+                        LoggingService.network.info("   This will likely timeout in ~\(Int(handshakeTimeout - 3.0)) more seconds")
                         LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     }
                 }
 
-                // FINAL TIMEOUT: Monitor full handshake timeout
-                // Lightning Mode: 6s (ultra-fast recovery), Normal: 11s
-                let handshakeTimeout: TimeInterval = UserDefaults.standard.bool(forKey: "lightningModeUltraFast") ? 6.0 : 11.0
+                // Second timeout check after full handshake timeout period
                 DispatchQueue.main.asyncAfter(deadline: .now() + handshakeTimeout) { [weak self] in
                     guard let self = self else { return }
                     // Check if still in connecting state after 11 seconds (iOS internal timeout is 10s)
@@ -4045,7 +4059,8 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
         LoggingService.network.info("🔍 DEBUG STEP 6: Checking conflict resolution...")
         let hasFailedConnections = (failedConnectionAttempts[peerKey] ?? 0) > 0
         let sessionManagerBlocking = !sessionManager.shouldAttemptConnection(to: peerID)
-        let useBidirectionalMode = sessionManager.shouldUseBidirectionalConnection(for: peerID) || isUltraFastModeEnabled
+        // FIXED: Removed isUltraFastModeEnabled to prevent race conditions
+        let useBidirectionalMode = sessionManager.shouldUseBidirectionalConnection(for: peerID) // || isUltraFastModeEnabled
         let conflictResolutionSaysAccept = ConnectionConflictResolver.shouldAcceptInvitation(localPeer: localPeerID, fromPeer: peerID, overrideBidirectional: useBidirectionalMode)
 
         LoggingService.network.info("   Failed connections count: \(self.failedConnectionAttempts[peerKey] ?? 0)")
