@@ -3,6 +3,7 @@
 ## ✅ Archivos Creados
 
 ### 1. **Extensión de Color (AppColors.swift)**
+
 - **Ubicación:** `MeshRed/Theme/AppColors.swift`
 - **Descripción:** Extensión de `Color` y `UIColor` para acceder a los nuevos colores desde Assets
 - **Colores incluidos:**
@@ -13,6 +14,7 @@
   - `Color.appBackgroundSecondary` - Azul grisáceo #1E293B
 
 ### 2. **Vista de Demostración (ModernColorDemoView.swift)**
+
 - **Ubicación:** `MeshRed/Views/ModernColorDemoView.swift`
 - **Descripción:** Vista completa para probar y visualizar los nuevos colores
 - **Características:**
@@ -22,6 +24,7 @@
   - Paleta de colores completa con valores HEX
 
 ### 3. **Color Sets en Assets.xcassets**
+
 - **Ubicación:** `MeshRed/Assets.xcassets/Colors/`
 - **Color Sets creados:**
   - `PrimaryColor.colorset` - Violeta (#7c3aed)
@@ -31,6 +34,7 @@
   - `BackgroundSecondary.colorset` - Azul grisáceo (#1E293B)
 
 ### 4. **Actualización de AccessibilitySettingsView**
+
 - **Archivo modificado:** `MeshRed/Settings/AccessibilitySettingsView.swift`
 - **Cambio:** Agregado botón de navegación a `ModernColorDemoView` en el panel de pruebas
 
@@ -43,6 +47,7 @@
 1. **Cierra Xcode** completamente si está abierto
 
 2. **Abre el proyecto** en Xcode:
+
    ```bash
    open /Users/alexgrim/GitHub/LinkUp/MeshRed.xcodeproj
    ```
@@ -59,6 +64,7 @@
 Si los archivos no se detectan automáticamente:
 
 #### Para AppColors.swift:
+
 1. En Xcode, click derecho en la carpeta `MeshRed/Theme/`
 2. Selecciona **"Add Files to 'MeshRed'..."**
 3. Navega a `/Users/alexgrim/GitHub/LinkUp/MeshRed/Theme/`
@@ -69,6 +75,7 @@ Si los archivos no se detectan automáticamente:
 6. Click **"Add"**
 
 #### Para ModernColorDemoView.swift:
+
 1. En Xcode, click derecho en la carpeta `MeshRed/Views/`
 2. Selecciona **"Add Files to 'MeshRed'..."**
 3. Navega a `/Users/alexgrim/GitHub/LinkUp/MeshRed/Views/`
@@ -79,6 +86,7 @@ Si los archivos no se detectan automáticamente:
 6. Click **"Add"**
 
 #### Para Color Sets en Assets:
+
 Los Color Sets deberían aparecer automáticamente en `Assets.xcassets`. Si no:
 
 1. En Xcode, abre `Assets.xcassets`
@@ -95,6 +103,7 @@ Los Color Sets deberían aparecer automáticamente en `Assets.xcassets`. Si no:
 ## 🧪 Cómo Probar la Implementación
 
 ### 1. Compilar el Proyecto
+
 ```bash
 # Desde la terminal (opcional)
 cd /Users/alexgrim/GitHub/LinkUp
@@ -104,6 +113,7 @@ xcodebuild -scheme MeshRed -destination 'platform=iOS Simulator,name=iPhone 15 P
 O simplemente presiona **⌘B** en Xcode.
 
 ### 2. Ejecutar la App
+
 1. En Xcode, selecciona un simulador (iPhone 15 Pro recomendado)
 2. Presiona **⌘R** para ejecutar
 3. Navega a **Configuración** → **Accesibilidad**
@@ -111,7 +121,9 @@ O simplemente presiona **⌘B** en Xcode.
 5. Toca **"Ver Sistema de Colores"**
 
 ### 3. Verificar los Colores
+
 Deberías ver:
+
 - ✅ Header con icono de paleta en violeta
 - ✅ Botones en violeta, cyan y teal
 - ✅ Tarjetas con bordes de colores
@@ -124,6 +136,7 @@ Deberías ver:
 ### Componentes a Actualizar (Próximas Tareas)
 
 #### 1. **MainDashboardContainer.swift**
+
 ```swift
 // Actualizar barra de navegación inferior
 BottomNavButton(
@@ -134,6 +147,7 @@ BottomNavButton(
 ```
 
 #### 2. **ThemeComponents.swift**
+
 ```swift
 // Actualizar botones de acción
 AccessibleActionButton(
@@ -146,6 +160,7 @@ AccessibleActionButton(
 ```
 
 #### 3. **AccessibleThemeColors.swift**
+
 ```swift
 // Integrar con el sistema de accesibilidad
 var primaryGreen: Color {
@@ -174,13 +189,13 @@ grep -r "Mundial2026Colors" MeshRed/ --include="*.swift"
 
 ## 🎨 Tabla de Migración de Colores
 
-| Color Actual | Nuevo Color | Uso Recomendado | Componentes Afectados |
-|--------------|-------------|-----------------|----------------------|
-| `Mundial2026Colors.azul` | `Color.appPrimary` | Botones principales | MainDashboardContainer, ThemeComponents |
-| `Mundial2026Colors.verde` | `Color.appAccent` | Estados activos | NetworkStatusCard, ConnectionStatusView |
-| `Color.blue` | `Color.appSecondary` | Acciones secundarias | SecondaryButtons, Links |
-| `Color(.systemBackground)` | `Color.appBackgroundDark` | Fondo de pantallas | MainDashboardContainer, SettingsViews |
-| `Color(.secondarySystemBackground)` | `Color.appBackgroundSecondary` | Tarjetas/Cards | CardViews, Panels |
+| Color Actual                        | Nuevo Color                    | Uso Recomendado      | Componentes Afectados                   |
+| ----------------------------------- | ------------------------------ | -------------------- | --------------------------------------- |
+| `Mundial2026Colors.azul`            | `Color.appPrimary`             | Botones principales  | MainDashboardContainer, ThemeComponents |
+| `Mundial2026Colors.verde`           | `Color.appAccent`              | Estados activos      | NetworkStatusCard, ConnectionStatusView |
+| `Color.blue`                        | `Color.appSecondary`           | Acciones secundarias | SecondaryButtons, Links                 |
+| `Color(.systemBackground)`          | `Color.appBackgroundDark`      | Fondo de pantallas   | MainDashboardContainer, SettingsViews   |
+| `Color(.secondarySystemBackground)` | `Color.appBackgroundSecondary` | Tarjetas/Cards       | CardViews, Panels                       |
 
 ---
 
@@ -207,18 +222,24 @@ grep -r "Mundial2026Colors" MeshRed/ --include="*.swift"
 ## 🐛 Troubleshooting
 
 ### Error: "Cannot find 'PrimaryColor' in scope"
+
 **Solución:**
+
 1. Verifica que los Color Sets estén en `Assets.xcassets/Colors/`
 2. Asegúrate de que el proyecto compile limpiamente (**⌘⇧K** para limpiar)
 3. Reinicia Xcode
 
 ### Error: "Cannot find type 'ModernColorDemoView' in scope"
+
 **Solución:**
+
 1. Verifica que `ModernColorDemoView.swift` esté en el target "MeshRed"
 2. En Xcode, selecciona el archivo → File Inspector → Target Membership → ✅ MeshRed
 
 ### Los colores se ven incorrectos
+
 **Solución:**
+
 1. Verifica que los valores RGB en los Color Sets sean correctos
 2. Asegúrate de usar "sRGB" como color space
 3. Verifica que Alpha esté en 1.000 (100%)
@@ -228,6 +249,7 @@ grep -r "Mundial2026Colors" MeshRed/ --include="*.swift"
 ## 📚 Recursos Adicionales
 
 ### Convertir HEX a RGB (0-1)
+
 Para convertir valores HEX a RGB en formato decimal (0-1):
 
 ```swift
@@ -238,11 +260,14 @@ Para convertir valores HEX a RGB en formato decimal (0-1):
 ```
 
 ### Verificar Contraste WCAG
+
 Usa herramientas como:
+
 - [WebAIM Contrast Checker](https://webaim.org/resources/contrastchecker/)
 - [Contrast Ratio Calculator](https://contrast-ratio.com/)
 
 **Requisitos:**
+
 - **AA (Texto normal):** Ratio mínimo 4.5:1
 - **AA (Texto grande):** Ratio mínimo 3:1
 - **AAA (Texto normal):** Ratio mínimo 7:1

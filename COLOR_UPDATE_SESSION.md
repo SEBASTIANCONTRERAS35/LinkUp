@@ -11,6 +11,7 @@
 ### 1. **FamilyGroupEmptyStateView.swift** (7 cambios)
 
 #### Cambios realizados:
+
 - ✅ Icono principal: `Mundial2026Colors.azul` → `Color.appPrimary` (violeta)
 - ✅ Botón "Crear nuevo grupo": Fondo y sombra violeta
 - ✅ Botón "Unirme a un grupo": Borde y texto violeta
@@ -18,6 +19,7 @@
 - ✅ Botón "Cerrar": `Mundial2026Colors.azul` → `Color.appPrimary`
 
 #### Resumen:
+
 ```swift
 // Antes: Azul del Mundial 2026
 Mundial2026Colors.azul
@@ -31,6 +33,7 @@ Color.appPrimary
 ### 2. **LinkFinderHubView.swift** (8 cambios)
 
 #### Cambios realizados:
+
 - ✅ Indicadores de capacidad (dots): Azul → Cyan (`Color.appSecondary`)
 - ✅ Gradiente de radar: Azul → Cyan
 - ✅ Anillos concéntricos: Azul → Cyan
@@ -41,6 +44,7 @@ Color.appPrimary
 - ✅ Botones de acción: Mensaje (Violeta), Navegación (Teal)
 
 #### Colores aplicados:
+
 ```swift
 // Estados activos/conectados
 Color.appSecondary  // Cyan para LinkFinder
@@ -53,12 +57,14 @@ Color.appPrimary    // Violeta para mensajes
 ### 3. **MainDashboardContainer.swift** (4 cambios)
 
 #### Cambios realizados:
+
 - ✅ FeatureCard "Tu red": Verde → Teal (`Color.appAccent`)
 - ✅ FeatureCard "Ubicaciones": Azul → Violeta (`Color.appPrimary`)
 - ✅ FeatureCard "Perimetros": Rojo (mantenido para alertas)
 - ✅ Sombra del card de partido: Verde → Teal
 
 #### Esquema de colores:
+
 ```swift
 Tu red:       Color.appAccent   // Teal
 Ubicaciones:  Color.appPrimary  // Violeta
@@ -72,12 +78,14 @@ Perimetros:   Mundial2026Colors.rojo  // Rojo (emergencias)
 #### Cambios realizados:
 
 **Top Bar:**
+
 - ✅ Título "Mensajes": `Mundial2026Colors.textPrimary` → `.white`
 - ✅ Subtítulo conectados: `Mundial2026Colors.textSecondary` → `.white.opacity(0.7)`
 - ✅ Botón broadcast: Rojo (mantenido para alertas)
 - ✅ Botón "+" crear grupo: Azul → Cyan
 
 **Lista de Chats:**
+
 - ✅ Grupo familiar: Verde → Teal (`Color.appAccent`)
 - ✅ Grupos genéricos: Verde → Teal
 - ✅ Chats individuales: Azul → Violeta (`Color.appPrimary`)
@@ -85,6 +93,7 @@ Perimetros:   Mundial2026Colors.rojo  // Rojo (emergencias)
 - ✅ Peers conectados (otros): Purple → Violeta
 
 **Vista de Chat:**
+
 - ✅ Botón enviar broadcast: Verde → Cyan
 - ✅ Botón enviar mensaje: Verde → Cyan
 - ✅ Botón ubicación (toolbar): Azul → Teal
@@ -92,6 +101,7 @@ Perimetros:   Mundial2026Colors.rojo  // Rojo (emergencias)
 - ✅ Botón "Cerrar" (UWB no disponible): Azul → Violeta
 
 #### Esquema de colores para mensajería:
+
 ```swift
 // Tipos de chat
 Grupo familiar:     Color.appAccent     // Teal
@@ -114,19 +124,19 @@ Mensajes recibidos: Color.gray.opacity(0.2)
 
 ### Colores Nuevos Utilizados
 
-| Color | HEX | Uso Principal | Archivos |
-|-------|-----|---------------|----------|
+| Color                 | HEX       | Uso Principal                                     | Archivos   |
+| --------------------- | --------- | ------------------------------------------------- | ---------- |
 | **Primary (Violeta)** | `#7c3aed` | Botones principales, chats individuales, mensajes | 4 archivos |
-| **Secondary (Cyan)** | `#06B6D4` | LinkFinder, acciones de envío, estados activos | 3 archivos |
-| **Accent (Teal)** | `#14B8A6` | Familia, grupos, navegación, ubicación | 4 archivos |
-| **Background Dark** | `#0F172A` | Fondos de pantallas | 1 archivo |
+| **Secondary (Cyan)**  | `#06B6D4` | LinkFinder, acciones de envío, estados activos    | 3 archivos |
+| **Accent (Teal)**     | `#14B8A6` | Familia, grupos, navegación, ubicación            | 4 archivos |
+| **Background Dark**   | `#0F172A` | Fondos de pantallas                               | 1 archivo  |
 
 ### Colores Originales Mantenidos
 
-| Color | Uso | Razón |
-|-------|-----|-------|
-| **Rojo** (`Mundial2026Colors.rojo`) | SOS, broadcast, alertas, badges | Emergencias requieren color universal |
-| **Gray** | Elementos deshabilitados, mensajes recibidos | Neutralidad |
+| Color                               | Uso                                          | Razón                                 |
+| ----------------------------------- | -------------------------------------------- | ------------------------------------- |
+| **Rojo** (`Mundial2026Colors.rojo`) | SOS, broadcast, alertas, badges              | Emergencias requieren color universal |
+| **Gray**                            | Elementos deshabilitados, mensajes recibidos | Neutralidad                           |
 
 ---
 
@@ -161,6 +171,7 @@ TOTAL:                             30 cambios  100%
 ## 🎯 Decisiones de Diseño
 
 ### 1. **Familia y Grupos → Teal (Accent)**
+
 **Razón:** El teal representa comunidad, conexión y confianza. Ideal para funcionalidades relacionadas con familia y grupos.
 
 ```swift
@@ -169,6 +180,7 @@ backgroundColor: Color.appAccent  // Teal cálido
 ```
 
 ### 2. **Chats Individuales → Violeta (Primary)**
+
 **Razón:** El violeta es moderno y representa comunicación 1-a-1 de forma elegante.
 
 ```swift
@@ -177,6 +189,7 @@ backgroundColor: Color.appPrimary  // Violeta distintivo
 ```
 
 ### 3. **Acciones de Envío → Cyan (Secondary)**
+
 **Razón:** El cyan representa acción, tecnología y dinamismo. Perfecto para botones de envío.
 
 ```swift
@@ -185,6 +198,7 @@ backgroundColor: Color.appPrimary  // Violeta distintivo
 ```
 
 ### 4. **LinkFinder/UWB → Cyan (Secondary)**
+
 **Razón:** El cyan representa tecnología avanzada y precisión, ideal para funcionalidades de localización ultra-precisa.
 
 ```swift
@@ -193,6 +207,7 @@ Color.appSecondary.opacity(0.2)  // Cyan tecnológico
 ```
 
 ### 5. **Alertas/Emergencias → Rojo (Original)**
+
 **Razón:** El rojo es un color universal para emergencias. No se cambia para mantener consistencia con convenciones globales.
 
 ```swift
@@ -205,6 +220,7 @@ Mundial2026Colors.rojo  // Rojo de emergencia (NO cambiar)
 ## 🔄 Colores NO Cambiados (Intencionalmente)
 
 ### Emergencias y Alertas
+
 ```swift
 ✅ CORRECTO - Mantener rojo original:
 - Botón SOS
@@ -216,6 +232,7 @@ Mundial2026Colors.rojo  // Rojo de emergencia (NO cambiar)
 ```
 
 ### Elementos Neutrales
+
 ```swift
 ✅ CORRECTO - Mantener grises:
 - Mensajes recibidos
@@ -272,20 +289,24 @@ DESPUÉS:
 ### Archivos Pendientes de Alta Prioridad
 
 1. **NetworkHubView.swift** (11 ocurrencias)
+
    - Estados de conexión
    - Gráficos de red
    - Botones de acción
 
 2. **StadiumDashboardView.swift** (2 ocurrencias)
+
    - Iconos principales
    - Sombras y efectos
 
 3. **FamilyLinkFenceMapView.swift** (9 ocurrencias)
+
    - Overlays de mapa
    - Markers y polígonos
    - Controles UI
 
 4. **CreateFamilyGroupView.swift** (3 ocurrencias)
+
    - Botones de creación
    - Formularios
 
@@ -298,12 +319,14 @@ DESPUÉS:
 ## 📝 Notas Técnicas
 
 ### Compatibilidad
+
 - ✅ Todos los colores nuevos están definidos en `AppColors.swift`
 - ✅ Extensiones disponibles para SwiftUI (`Color`) y UIKit (`UIColor`)
 - ✅ Compatibilidad con Dark Mode automática
 - ✅ Colores originales accesibles como `Color.mundial2026*`
 
 ### Testing
+
 ```bash
 # Verificar compilación
 xcodebuild -scheme MeshRed clean build
@@ -314,6 +337,7 @@ open -a Simulator
 ```
 
 ### Commit Sugerido
+
 ```bash
 git add .
 git commit -m "feat(colors): Update messaging and navigation views with modern palette
@@ -336,12 +360,14 @@ Total changes: 30 color updates across 4 files"
 ## 🎉 Resultado
 
 ### Mejoras Visuales
+
 - ✅ **Más moderno:** Paleta de colores actualizada 2025
 - ✅ **Mejor jerarquía:** Colores semánticos por función
 - ✅ **Mayor contraste:** Mejor legibilidad en modo oscuro
 - ✅ **Consistencia:** Sistema unificado en toda la app
 
 ### Mejoras de UX
+
 - ✅ **Claridad:** Colores distinguen tipos de chat visualmente
 - ✅ **Familiaridad:** Teal = familia/grupos, Violeta = privado
 - ✅ **Acción:** Cyan indica elementos accionables (enviar)

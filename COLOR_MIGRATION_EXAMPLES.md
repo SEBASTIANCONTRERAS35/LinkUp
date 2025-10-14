@@ -96,7 +96,7 @@ AccessibleQuickActionCard(
 ZStack {
     Color(.systemBackground)
         .ignoresSafeArea()
-    
+
     // contenido
 }
 
@@ -104,7 +104,7 @@ ZStack {
 ZStack {
     Color.appBackgroundDark
         .ignoresSafeArea()
-    
+
     // contenido
 }
 ```
@@ -509,11 +509,11 @@ struct NetworkStatusCard: View {
             Image(systemName: "wifi")
                 .font(.largeTitle)
                 .foregroundColor(Mundial2026Colors.azul)
-            
+
             Text("Conectado")
                 .font(.headline)
                 .foregroundColor(.primary)
-            
+
             Text("12 dispositivos")
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -532,11 +532,11 @@ struct NetworkStatusCard: View {
             Image(systemName: "wifi")
                 .font(.largeTitle)
                 .foregroundColor(Color.appPrimary)  // Violeta moderno
-            
+
             Text("Conectado")
                 .font(.headline)
                 .foregroundColor(.white)
-            
+
             Text("12 dispositivos")
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.7))
@@ -557,14 +557,14 @@ struct QuickActionButton: View {
     let title: String
     let icon: String
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: icon)
                     .font(.title)
                     .foregroundColor(Mundial2026Colors.verde)
-                
+
                 Text(title)
                     .font(.caption)
                     .foregroundColor(.primary)
@@ -581,14 +581,14 @@ struct QuickActionButton: View {
     let title: String
     let icon: String
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: icon)
                     .font(.title)
                     .foregroundColor(Color.appAccent)  // Teal moderno
-                
+
                 Text(title)
                     .font(.caption)
                     .foregroundColor(.white)
@@ -607,13 +607,13 @@ struct QuickActionButton: View {
 // ❌ ANTES
 struct StatusBadge: View {
     let isConnected: Bool
-    
+
     var body: some View {
         HStack(spacing: 6) {
             Circle()
                 .fill(isConnected ? Color.green : Color.red)
                 .frame(width: 8, height: 8)
-            
+
             Text(isConnected ? "Conectado" : "Desconectado")
                 .font(.caption)
                 .foregroundColor(isConnected ? Color.green : Color.red)
@@ -630,13 +630,13 @@ struct StatusBadge: View {
 // ✅ DESPUÉS
 struct StatusBadge: View {
     let isConnected: Bool
-    
+
     var body: some View {
         HStack(spacing: 6) {
             Circle()
                 .fill(isConnected ? Color.appAccent : Mundial2026Colors.rojo)
                 .frame(width: 8, height: 8)
-            
+
             Text(isConnected ? "Conectado" : "Desconectado")
                 .font(.caption)
                 .foregroundColor(isConnected ? Color.appAccent : Mundial2026Colors.rojo)

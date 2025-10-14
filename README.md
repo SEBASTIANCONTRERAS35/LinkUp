@@ -38,6 +38,7 @@ import SwiftUI              // Interfaz moderna
 ### Componentes Core
 
 #### 1. **Mesh Networking**
+
 - **NetworkManager**: Coordinador central de comunicación P2P
 - **Multi-hop routing**: Mensajes atraviesan hasta 5 peers intermedios
 - **Priority Queue**: Sistema de prioridades (Emergency → Alert → Meetup → Location → Chat)
@@ -46,6 +47,7 @@ import SwiftUI              // Interfaz moderna
 - **PeerHealthMonitor**: Monitoreo de calidad de conexión
 
 #### 2. **UWB LinkFinder (Localización Precisa)**
+
 - **LinkFinderSessionManager**: Gestión de sesiones NearbyInteraction
 - **Precisión**: Centimétrica con dirección 3D
 - **Requisitos**: iPhone 11+ con chip U1/U2
@@ -53,17 +55,20 @@ import SwiftUI              // Interfaz moderna
 - **ProximityHapticEngine**: Feedback táctil direccional
 
 #### 3. **Geofencing Inteligente**
+
 - **LinkFenceManager**: Hasta 20 geofences simultáneas
 - **Categorías**: Entradas, baños, concesiones, primeros auxilios, puntos de encuentro
 - **Eventos**: Notificaciones automáticas entrada/salida
 - **Compartir**: Sincronización con familia vía mesh
 
 #### 4. **Family Groups**
+
 - **FamilyGroupManager**: Grupos con códigos de 6 dígitos
 - **Sincronización**: Estado en tiempo real vía mesh
 - **Members tracking**: Ubicación de todos los miembros
 
 #### 5. **Emergency Detection (Apple Watch)**
+
 - **WatchEmergencyDetector**: Monitoreo multi-sensor
 - **Heart Rate**: Detección de anomalías cardíacas
 - **Audio Analysis**: Reconocimiento de gritos
@@ -71,6 +76,7 @@ import SwiftUI              // Interfaz moderna
 - **Validación**: Alerta a personal médico del estadio (NO 911 directo)
 
 #### 6. **Accesibilidad**
+
 - **VoiceOver**: Navegación completa por voz
 - **Dynamic Type**: Tamaños de texto adaptativos
 - **HapticManager**: Feedback táctil rico
@@ -83,13 +89,13 @@ import SwiftUI              // Interfaz moderna
 
 ### Tipos de Mensajes (Prioridad)
 
-| Tipo | Prioridad | Uso |
-|------|-----------|-----|
-| Emergency | 0 | Alertas críticas (SOS médico) |
-| Alert | 1 | Avisos importantes |
-| Meetup | 2 | Coordinación de encuentros |
-| Location | 3 | Compartir ubicación |
-| Chat | 4 | Conversación normal |
+| Tipo      | Prioridad | Uso                           |
+| --------- | --------- | ----------------------------- |
+| Emergency | 0         | Alertas críticas (SOS médico) |
+| Alert     | 1         | Avisos importantes            |
+| Meetup    | 2         | Coordinación de encuentros    |
+| Location  | 3         | Compartir ubicación           |
+| Chat      | 4         | Conversación normal           |
 
 ### Network Payloads
 
@@ -114,6 +120,7 @@ Peer A → Peer B → Peer C → Peer D
 ```
 
 Características:
+
 - TTL: 5 hops máximo
 - Route path tracking: Previene loops
 - Cache: 5 minutos para evitar duplicados
@@ -125,6 +132,7 @@ Características:
 ### Escenario: Familia en Estadio Azteca (87,000 personas)
 
 **1. Setup Inicial**
+
 ```
 📱 Papá crea grupo "Familia González"
 👨‍👩‍👧‍👦 Mamá, hijo, hija se unen con código 482951
@@ -132,6 +140,7 @@ Características:
 ```
 
 **2. Niño Perdido**
+
 ```
 🔍 Hijo se pierde buscando baño
 📡 Papá activa LinkFinder
@@ -141,6 +150,7 @@ Características:
 ```
 
 **3. Emergencia Médica**
+
 ```
 ⚠️ Abuelo sufre episodio cardíaco
 ⌚ Apple Watch detecta HR anormal (150 bpm)
@@ -150,6 +160,7 @@ Características:
 ```
 
 **4. Red Saturada**
+
 ```
 📶 80,000+ usuarios colapsan LTE/5G
 ✅ StadiumConnect sigue funcionando (Bluetooth/WiFi Direct)
@@ -281,18 +292,21 @@ networkManager.sendMessage(
 ## 🏆 Innovación y Diferenciación
 
 ### Tecnológica
+
 - ✅ Primera app que combina MultipeerConnectivity + NearbyInteraction + CoreLocation
 - ✅ Routing multi-hop con cola de prioridades
 - ✅ Sistema de emergencias con validación humana (no 911 directo)
 - ✅ Arquitectura 100% descentralizada
 
 ### Social
+
 - ✅ Resuelve problema real del Mundial 2026
 - ✅ Diseñada desde el inicio para accesibilidad
 - ✅ Beneficia a personas con discapacidad
 - ✅ Escalable a cualquier evento masivo
 
 ### Categoría CSC 2025: App Inclusiva
+
 - ♿ VoiceOver nativo completo
 - 👁️ Dynamic Type y alto contraste
 - 🤚 Navegación háptica direccional
@@ -310,11 +324,11 @@ networkManager.sendMessage(
 
 ### Limitaciones de Background
 
-| Estado | Funcionalidad |
-|--------|---------------|
-| Foreground | ✅ Completa |
+| Estado     | Funcionalidad                          |
+| ---------- | -------------------------------------- |
+| Foreground | ✅ Completa                            |
 | Background | ⚠️ 3-10 min (solo mantiene conexiones) |
-| Suspended | ❌ Conexiones se pierden |
+| Suspended  | ❌ Conexiones se pierden               |
 
 **Recomendación**: App debe estar abierta durante eventos masivos.
 
@@ -328,25 +342,28 @@ StadiumConnect Pro implementa **Live Activities** (iOS 16.1+) que **extienden si
 
 #### Beneficios Clave
 
-| Característica | Sin Live Activity | Con Live Activity |
-|----------------|-------------------|-------------------|
-| **Tiempo en Background** | 3-10 minutos | 30-60 minutos |
-| **Estado Visible** | ❌ | ✅ Isla Dinámica |
-| **Prioridad iOS** | Baja | Alta |
-| **Reconexión Automática** | Manual | Automática |
+| Característica            | Sin Live Activity | Con Live Activity |
+| ------------------------- | ----------------- | ----------------- |
+| **Tiempo en Background**  | 3-10 minutos      | 30-60 minutos     |
+| **Estado Visible**        | ❌                | ✅ Isla Dinámica  |
+| **Prioridad iOS**         | Baja              | Alta              |
+| **Reconexión Automática** | Manual            | Automática        |
 
 ### 🏝️ Dynamic Island UI
 
 La Live Activity muestra estado en tiempo real en la Isla Dinámica:
 
 #### Vista Compacta
+
 ```
 [🌐] ··· [23m NE]
 ```
+
 - **Izquierda**: Icono de estado (red, tracking, emergencia)
 - **Derecha**: Distancia y dirección (si tracking activo)
 
 #### Vista Expandida
+
 ```
 ┌─────────────────────────┐
 │ 🌐  Buscando a Papá    │
@@ -360,6 +377,7 @@ La Live Activity muestra estado en tiempo real en la Isla Dinámica:
 ### 📊 Estados Mostrados
 
 #### 1. **Tracking Activo (UWB)**
+
 ```swift
 🔷 Buscando a "Papá"
 📏 23m NE
@@ -367,18 +385,21 @@ La Live Activity muestra estado en tiempo real en la Isla Dinámica:
 ```
 
 #### 2. **Red Mesh Normal**
+
 ```swift
 🌐 15 conectados
 💚 Mesh activo
 ```
 
 #### 3. **Emergencia**
+
 ```swift
 🚨 Alerta Médica
 👨‍⚕️ Personal notificado
 ```
 
 #### 4. **Geofence Activo**
+
 ```swift
 📍 Sección 104
 ✅ Dentro · 12 personas cerca
@@ -437,6 +458,7 @@ Timer.publish(every: 2.0)
 ### ⚙️ Configuración
 
 #### Info.plist
+
 ```xml
 <key>NSSupportsLiveActivities</key>
 <true/>
@@ -445,7 +467,9 @@ Timer.publish(every: 2.0)
 ```
 
 #### Widget Extension
+
 El proyecto incluye `MeshRedLiveActivity` Widget Extension con:
+
 - `MeshActivityWidget.swift` - Widget principal
 - Views para Compact/Expanded/Minimal
 - Integración con Dynamic Island
@@ -471,17 +495,18 @@ El proyecto incluye `MeshRedLiveActivity` Widget Extension con:
 
 ### ⚠️ Limitaciones
 
-| Aspecto | Limitación |
-|---------|------------|
-| **Inicio** | Solo desde foreground |
-| **Duración** | Máximo 8 horas |
-| **Datos** | Límite 4KB total |
-| **Red** | No acceso directo (actualiza desde app) |
+| Aspecto       | Limitación                              |
+| ------------- | --------------------------------------- |
+| **Inicio**    | Solo desde foreground                   |
+| **Duración**  | Máximo 8 horas                          |
+| **Datos**     | Límite 4KB total                        |
+| **Red**       | No acceso directo (actualiza desde app) |
 | **Ubicación** | No acceso directo (actualiza desde app) |
 
 ### 🎯 Diferenciación para CSC 2025
 
 Esta combinación de **MultipeerConnectivity + Live Activities** es:
+
 - ✅ **Única**: Nadie más lo implementará
 - ✅ **Técnicamente impresionante**: Demuestra conocimiento profundo de iOS
 - ✅ **Práctica**: Resuelve el problema real de background
@@ -607,13 +632,13 @@ LinkUp implementa un sistema de colores moderno y centralizado usando **Assets.x
 
 #### Paleta Principal
 
-| Color | HEX | Uso |
-|-------|-----|-----|
-| **Primary (Violeta)** | `#7c3aed` | Botones principales, iconos destacados |
-| **Secondary (Cyan)** | `#06B6D4` | Acciones secundarias, enlaces |
-| **Accent (Teal)** | `#14B8A6` | Estados activos, confirmaciones |
-| **Background Dark** | `#0F172A` | Fondo principal de pantallas |
-| **Background Secondary** | `#1E293B` | Tarjetas, paneles, cards |
+| Color                    | HEX       | Uso                                    |
+| ------------------------ | --------- | -------------------------------------- |
+| **Primary (Violeta)**    | `#7c3aed` | Botones principales, iconos destacados |
+| **Secondary (Cyan)**     | `#06B6D4` | Acciones secundarias, enlaces          |
+| **Accent (Teal)**        | `#14B8A6` | Estados activos, confirmaciones        |
+| **Background Dark**      | `#0F172A` | Fondo principal de pantallas           |
+| **Background Secondary** | `#1E293B` | Tarjetas, paneles, cards               |
 
 #### Uso en Código
 
@@ -645,6 +670,7 @@ button.tintColor = UIColor.appPrimary
 #### Documentación
 
 Ver documentación completa en:
+
 - [`COLOR_SYSTEM_COMPLETE.md`](COLOR_SYSTEM_COMPLETE.md) - Guía completa de implementación
 - [`COLOR_MIGRATION_EXAMPLES.md`](COLOR_MIGRATION_EXAMPLES.md) - Ejemplos prácticos de migración
 - [`find_hardcoded_colors.sh`](find_hardcoded_colors.sh) - Script de búsqueda de colores
