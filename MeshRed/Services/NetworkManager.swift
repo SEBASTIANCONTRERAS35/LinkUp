@@ -991,7 +991,10 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     // MARK: - Safe Send Helper
+    // NOTE: Implementation moved to NetworkManager+Diagnostics.swift
+    // This section is commented to avoid duplication
 
+    /*
     /// Safely send data to peers by validating against actual session state
     /// This prevents "Peers not connected" errors caused by race conditions
     /// between local connectedPeers array and session.connectedPeers
@@ -1026,17 +1029,21 @@ class NetworkManager: NSObject, ObservableObject {
         // Send to validated peers only
         try session.send(data, toPeers: validPeers, with: mode)
     }
+    */
 
     // MARK: - Transport Diagnostics
+    // NOTE: Diagnostics implementation moved to NetworkManager+Diagnostics.swift
 
     /// Track connection success/failure for transport layer diagnostics
-    private var connectionMetrics: [String: ConnectionMetrics] = [:]
+    var connectionMetrics: [String: ConnectionMetrics] = [:]
 
     // Transport failure detection and automatic fallback
-    private var transportFailureCount: [String: Int] = [:]
-    private let maxTransportFailuresBeforeFallback = 2
-    private var isBluetoothOnlyMode = false
+    var transportFailureCount: [String: Int] = [:]
+    let maxTransportFailuresBeforeFallback = 2
+    var isBluetoothOnlyMode = false
 
+    // NOTE: struct ConnectionMetrics moved to NetworkManager+Diagnostics.swift
+    /*
     private struct ConnectionMetrics {
         var successfulSends: Int = 0
         var failedSends: Int = 0
@@ -1070,7 +1077,10 @@ class NetworkManager: NSObject, ObservableObject {
             return false
         }
     }
+    */
 
+    // NOTE: recordConnectionMetrics, ConnectionMetricEvent, and logTransportDiagnostics moved to NetworkManager+Diagnostics.swift
+    /*
     /// Log connection metrics for diagnostics
     private func recordConnectionMetrics(peer: MCPeerID, event: ConnectionMetricEvent) {
         let peerKey = peer.displayName
@@ -1146,6 +1156,8 @@ class NetworkManager: NSObject, ObservableObject {
         }
     }
 
+    // NOTE: enum ConnectionMetricEvent moved to NetworkManager+Diagnostics.swift
+    /*
     enum ConnectionMetricEvent {
         case sendSuccess
         case sendFailure
@@ -1153,6 +1165,7 @@ class NetworkManager: NSObject, ObservableObject {
         case connected
         case disconnected
     }
+    */
 
     /// Log detailed transport layer diagnostics when issues are detected
     private func logTransportDiagnostics(for peer: MCPeerID) {
@@ -1211,6 +1224,7 @@ class NetworkManager: NSObject, ObservableObject {
         }
         LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
+    */
 
     private func sendNetworkMessage(_ message: NetworkMessage) {
         guard !connectedPeers.isEmpty else {
