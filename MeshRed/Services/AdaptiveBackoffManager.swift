@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 import MultipeerConnectivity
 import Combine
+import os
 
 /// Manages intelligent backoff strategies based on context and history
 class AdaptiveBackoffManager: ObservableObject {

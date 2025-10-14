@@ -7,6 +7,7 @@
 
 import SwiftUI
 import MultipeerConnectivity
+import os
 
 struct FamilyGroupView: View {
     @EnvironmentObject var networkManager: NetworkManager
@@ -239,7 +240,7 @@ struct FamilyGroupView: View {
         NSPasteboard.general.setString(code.displayCode, forType: .string)
         #endif
 
-        print("📋 Código copiado: \(code.displayCode)")
+        LoggingService.network.info("📋 Código copiado: \(code.displayCode)")
     }
 
     private func shareText(for group: FamilyGroup) -> String {

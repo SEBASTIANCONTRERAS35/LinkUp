@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 struct PendingMessage {
     var message: NetworkMessage

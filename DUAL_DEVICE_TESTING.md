@@ -181,7 +181,7 @@ class StadiumModeManager {
     private let logger = Logger(subsystem: "com.meshred.stadium", category: "StadiumMode")
 
     func enable() {
-        // Usar logger en vez de print
+        // Usar logger en vez de LoggingService.network.info
         logger.info("🏟️ ENABLING STADIUM MODE")
         logger.info("Estimated time: \\(self.estimatedBackgroundTime) seconds")
 

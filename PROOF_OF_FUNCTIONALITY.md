@@ -90,7 +90,7 @@ func testHighLoadPriorityQueue() {
     XCTAssertEqual(first?.messageType, .emergency)
     XCTAssertEqual(queue.count, 100)  // Max 100, descarta los menos importantes
 
-    print("✅ Priority Queue maneja 1000 mensajes correctamente")
+    LoggingService.network.info("✅ Priority Queue maneja 1000 mensajes correctamente")
 }
 ```
 
@@ -110,7 +110,7 @@ func testDuplicatePrevention() {
         XCTAssertFalse(cache.shouldProcessMessage(messageId))
     }
 
-    print("✅ Cache previene 100% de duplicados")
+    LoggingService.network.info("✅ Cache previene 100% de duplicados")
 }
 ```
 
@@ -137,7 +137,7 @@ func testMultiHopRouting() {
     let nextHops = routing.getNextHops(to: "D")
     XCTAssertEqual(nextHops, ["B"])  // A envía a B para llegar a D
 
-    print("✅ Routing calcula rutas óptimas en mesh complejo")
+    LoggingService.network.info("✅ Routing calcula rutas óptimas en mesh complejo")
 }
 ```
 
@@ -166,7 +166,7 @@ let results = LabTestResults(
     meshStability: 1.0        // 100% estable
 )
 
-print("✅ LABORATORIO: 100% funcional con 10 dispositivos")
+LoggingService.network.info("✅ LABORATORIO: 100% funcional con 10 dispositivos")
 ```
 
 ### 3.2 Prueba en Plaza Pública (50 dispositivos)
@@ -190,7 +190,7 @@ let fieldResults = FieldTestResults(
     userSatisfaction: 0.92     // 92% satisfacción
 )
 
-print("✅ CAMPO: 98.5% entrega con 50 dispositivos reales")
+LoggingService.network.info("✅ CAMPO: 98.5% entrega con 50 dispositivos reales")
 ```
 
 ### 3.3 Simulación de Estadio (1,000 dispositivos virtuales)
@@ -214,7 +214,7 @@ let simResults = SimulationResults(
     theoreticalCapacity: 5000     // msgs/segundo teórico
 )
 
-print("✅ SIMULACIÓN: 85% funcional con 1000 dispositivos")
+LoggingService.network.info("✅ SIMULACIÓN: 85% funcional con 1000 dispositivos")
 ```
 
 ---
@@ -226,7 +226,7 @@ print("✅ SIMULACIÓN: 85% funcional con 1000 dispositivos")
 ```swift
 // DEMO QUE PUEDES EJECUTAR AHORA MISMO
 func demoParaJueces() {
-    print("""
+    LoggingService.network.info("""
     ╔══════════════════════════════════════════╗
     ║     DEMO EN VIVO - 3 iPhones            ║
     ╚══════════════════════════════════════════╝
@@ -474,7 +474,7 @@ class TestConfianza: XCTestCase {
         XCTAssertGreaterThan(MessageType.chat.defaultPriority,
                              MessageType.emergency.defaultPriority)
 
-        print("""
+        LoggingService.network.info("""
         ✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
         TODOS LOS COMPONENTES FUNCIONAN
         LA APP ESTÁ LISTA PARA PRODUCCIÓN

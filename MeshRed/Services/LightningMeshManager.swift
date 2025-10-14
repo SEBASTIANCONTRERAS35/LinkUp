@@ -11,6 +11,7 @@ import MultipeerConnectivity
 import Network
 import CoreBluetooth
 import Combine
+import os
 
 /// Revolutionary connection manager for ultra-fast P2P connections
 /// Designed for FIFA 2026 stadium scenarios with 80,000+ devices
@@ -102,7 +103,7 @@ class LightningMeshManager: NSObject, ObservableObject {
             session.delegate = self
             sessionPool.append(session)
         }
-        print("⚡ Lightning: Pre-allocated \(config.sessionPoolSize) sessions")
+        LoggingService.network.info("⚡ Lightning: Pre-allocated \(self.config.sessionPoolSize, privacy: .public) sessions")
     }
 
     private func setupPrimarySession() {
@@ -120,9 +121,9 @@ class LightningMeshManager: NSObject, ObservableObject {
         self.strategy = strategy
         self.isLightningMode = true
 
-        print("⚡⚡⚡ LIGHTNING MODE ACTIVATED ⚡⚡⚡")
-        print("Strategy: \(strategy)")
-        print("Target: <1 second connections")
+        LoggingService.network.info("⚡⚡⚡ LIGHTNING MODE ACTIVATED ⚡⚡⚡")
+        LoggingService.network.info("Strategy: \(String(describing: strategy), privacy: .public)")
+        LoggingService.network.info("Target: <1 second connections")
 
         switch strategy {
         case .standard:
@@ -167,7 +168,7 @@ class LightningMeshManager: NSObject, ObservableObject {
             advertisers.append(advertiser)
         }
 
-        print("⚡ Started \(advertisers.count) parallel advertisers")
+        LoggingService.network.info("⚡ Started \(self.advertisers.count) parallel advertisers")
     }
 
     private func startParallelBrowsers() {
@@ -182,7 +183,7 @@ class LightningMeshManager: NSObject, ObservableObject {
             browsers.append(browser)
         }
 
-        print("⚡ Started \(browsers.count) parallel browsers")
+        LoggingService.network.info("⚡ Started \(self.browsers.count) parallel browsers")
     }
 
     // MARK: - UDP Broadcast Discovery
@@ -202,9 +203,9 @@ class LightningMeshManager: NSObject, ObservableObject {
             // Start broadcasting our presence
             broadcastPresence()
 
-            print("⚡ UDP broadcast discovery active on port 8888")
+            LoggingService.network.info("⚡ UDP broadcast discovery active on port 8888")
         } catch {
-            print("❌ Failed to start UDP listener: \(error)")
+            LoggingService.network.info("❌ Failed to start UDP listener: \(error)")
         }
     }
 
@@ -250,15 +251,15 @@ class LightningMeshManager: NSObject, ObservableObject {
 
     private func enableFastConnections() {
         // Override all timeouts and delays
-        print("⚡ Overriding all connection delays:")
-        print("  - Connection timeout: \(config.connectionTimeout)s (was 30s)")
-        print("  - No cooldowns or grace periods")
-        print("  - No exponential backoff")
-        print("  - Encryption: \(config.skipEncryption ? "DISABLED" : "ENABLED")")
+        LoggingService.network.info("⚡ Overriding all connection delays:")
+        LoggingService.network.info("  - Connection timeout: \(self.config.connectionTimeout)s (was 30s)")
+        LoggingService.network.info("  - No cooldowns or grace periods")
+        LoggingService.network.info("  - No exponential backoff")
+        LoggingService.network.info("  - Encryption: \(self.config.skipEncryption ? "DISABLED" : "ENABLED", privacy: .public)")
     }
 
     private func enableBidirectionalConnections() {
-        print("⚡ Bidirectional connections enabled - both peers initiate simultaneously")
+        LoggingService.network.info("⚡ Bidirectional connections enabled - both peers initiate simultaneously")
     }
 
     private func instantConnectToPeer(named peerName: String) {
@@ -275,14 +276,14 @@ class LightningMeshManager: NSObject, ObservableObject {
                 withContext: nil,
                 timeout: config.connectionTimeout
             )
-            print("⚡ Instant connection attempt to \(peerName)")
+            LoggingService.network.info("⚡ Instant connection attempt to \(peerName)")
         }
     }
 
     // MARK: - Predictive Pre-Warming
 
     private func startPredictivePreWarming() {
-        print("⚡ Predictive pre-warming enabled - pre-connecting to approaching peers")
+        LoggingService.network.info("⚡ Predictive pre-warming enabled - pre-connecting to approaching peers")
 
         // This would integrate with UWB/Location services to predict
         // which peers are approaching and pre-establish connections
@@ -339,10 +340,10 @@ class LightningMeshManager: NSObject, ObservableObject {
             self?.connectionTimes.append(connectionTime)
         }
 
-        print("⚡ CONNECTION SUCCESS: \(peerName) in \(String(format: "%.3f", connectionTime))s")
+        LoggingService.network.info("⚡ CONNECTION SUCCESS: \(peerName) in \(String(format: "%.3f", connectionTime))s")
 
         if connectionTime < 1.0 {
-            print("🎯 SUB-SECOND CONNECTION ACHIEVED! ⚡")
+            LoggingService.network.info("🎯 SUB-SECOND CONNECTION ACHIEVED! ⚡")
         }
     }
 
@@ -373,7 +374,7 @@ class LightningMeshManager: NSObject, ObservableObject {
         advertisers.removeAll()
         udpConnections.removeAll()
 
-        print("⚡ Lightning mode deactivated")
+        LoggingService.network.info("⚡ Lightning mode deactivated")
     }
 }
 
@@ -443,7 +444,7 @@ extension LightningMeshManager: MCNearbyServiceBrowserDelegate {
     }
 
     func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: Error) {
-        print("❌ Lightning browser error: \(error)")
+        LoggingService.network.info("❌ Lightning browser error: \(error)")
     }
 }
 
@@ -461,10 +462,10 @@ extension LightningMeshManager: MCNearbyServiceAdvertiserDelegate {
         invitationHandler(true, session)
 
         connectionAttempts[peerID.displayName] = Date()
-        print("⚡ Instant accept from \(peerID.displayName)")
+        LoggingService.network.info("⚡ Instant accept from \(peerID.displayName)")
     }
 
     func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: Error) {
-        print("❌ Lightning advertiser error: \(error)")
+        LoggingService.network.info("❌ Lightning advertiser error: \(error)")
     }
 }

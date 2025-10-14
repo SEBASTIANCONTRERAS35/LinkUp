@@ -10,6 +10,7 @@
 import SwiftUI
 import MultipeerConnectivity
 import CoreLocation
+import os
 
 struct SinglePeerRadarView: View {
     let targetName: String
@@ -491,7 +492,7 @@ struct SinglePeerRadarView: View {
     }
 
     private func startRadarSweep() {
-        print("🚀 STARTING SINGLE PEER RADAR SWEEP")
+        LoggingService.network.info("🚀 STARTING SINGLE PEER RADAR SWEEP")
 
         sweepTimer?.invalidate()
 

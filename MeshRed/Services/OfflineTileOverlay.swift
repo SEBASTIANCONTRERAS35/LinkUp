@@ -9,6 +9,7 @@
 
 import Foundation
 import MapKit
+import os
 
 /// Custom tile overlay that works offline using local cache
 class OfflineTileOverlay: MKTileOverlay {
@@ -64,10 +65,10 @@ class OfflineTileOverlay: MKTileOverlay {
         self.minimumZ = 0
         self.maximumZ = 18
 
-        print("🗺️ [OfflineTileOverlay] Initialized")
-        print("   Cache enabled: true")
-        print("   Network fallback: \(allowNetworkFallback)")
-        print("   Auto-cache: \(autoCache)")
+        LoggingService.network.info("🗺️ [OfflineTileOverlay] Initialized")
+        LoggingService.network.info("   Cache enabled: true")
+        LoggingService.network.info("   Network fallback: \(self.allowNetworkFallback)")
+        LoggingService.network.info("   Auto-cache: \(self.autoCache)")
     }
 
     // MARK: - MKTileOverlay Override
@@ -88,7 +89,7 @@ class OfflineTileOverlay: MKTileOverlay {
 
         // Step 2: If network fallback disabled, return error
         guard allowNetworkFallback else {
-            print("⚠️ [OfflineTileOverlay] Tile not in cache and network fallback disabled z=\(z) x=\(x) y=\(y)")
+            LoggingService.network.info("⚠️ [OfflineTileOverlay] Tile not in cache and network fallback disabled z=\(z) x=\(x) y=\(y)")
             let error = NSError(domain: "OfflineTileOverlay", code: 404, userInfo: [NSLocalizedDescriptionKey: "Tile not available offline"])
             downloadStats.networkErrors += 1
             result(nil, error)
@@ -138,7 +139,7 @@ class OfflineTileOverlay: MKTileOverlay {
         // Download
         let task = session.dataTask(with: request) { data, response, error in
             if let error = error {
-                print("❌ [OfflineTileOverlay] Download failed z=\(z) x=\(x) y=\(y): \(error.localizedDescription)")
+                LoggingService.network.info("❌ [OfflineTileOverlay] Download failed z=\(z) x=\(x) y=\(y): \(error.localizedDescription)")
                 completion(nil, error)
                 return
             }
@@ -150,7 +151,7 @@ class OfflineTileOverlay: MKTileOverlay {
             }
 
             guard httpResponse.statusCode == 200 else {
-                print("❌ [OfflineTileOverlay] Download failed z=\(z) x=\(x) y=\(y): HTTP \(httpResponse.statusCode)")
+                LoggingService.network.info("❌ [OfflineTileOverlay] Download failed z=\(z) x=\(x) y=\(y): HTTP \(httpResponse.statusCode)")
                 let error = NSError(domain: "OfflineTileOverlay", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP error \(httpResponse.statusCode)"])
                 completion(nil, error)
                 return
@@ -173,13 +174,13 @@ class OfflineTileOverlay: MKTileOverlay {
     /// Set offline-only mode (no network downloads)
     func setOfflineOnly() {
         allowNetworkFallback = false
-        print("🔒 [OfflineTileOverlay] Offline-only mode enabled")
+        LoggingService.network.info("🔒 [OfflineTileOverlay] Offline-only mode enabled")
     }
 
     /// Set hybrid mode (cache + network fallback)
     func setHybridMode() {
         allowNetworkFallback = true
-        print("🌐 [OfflineTileOverlay] Hybrid mode enabled")
+        LoggingService.network.info("🌐 [OfflineTileOverlay] Hybrid mode enabled")
     }
 
     /// Get current download statistics
@@ -195,14 +196,14 @@ class OfflineTileOverlay: MKTileOverlay {
     /// Print detailed statistics
     func printStats() {
         let stats = downloadStats
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📊 OFFLINE TILE OVERLAY STATISTICS")
-        print("   Total requests: \(stats.totalRequests)")
-        print("   Cache hits: \(stats.cacheHits) (\(String(format: "%.1f", stats.cacheHitRate * 100))%)")
-        print("   Cache misses: \(stats.cacheMisses)")
-        print("   Network downloads: \(stats.networkDownloads)")
-        print("   Network errors: \(stats.networkErrors)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📊 OFFLINE TILE OVERLAY STATISTICS")
+        LoggingService.network.info("   Total requests: \(stats.totalRequests)")
+        LoggingService.network.info("   Cache hits: \(stats.cacheHits) (\(String(format: "%.1f", stats.cacheHitRate * 100))%)")
+        LoggingService.network.info("   Cache misses: \(stats.cacheMisses)")
+        LoggingService.network.info("   Network downloads: \(stats.networkDownloads)")
+        LoggingService.network.info("   Network errors: \(stats.networkErrors)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 }
 

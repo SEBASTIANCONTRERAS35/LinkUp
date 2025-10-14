@@ -12,6 +12,7 @@ import CoreBluetooth
 import Network
 import UIKit
 import Combine
+import os
 
 /// FIFA 2026 Stadium Mode - Ultra-optimized for massive crowds
 class StadiumMode: ObservableObject {
@@ -145,18 +146,18 @@ class StadiumMode: ObservableObject {
         self.currentZone = zone
         self.isActive = true
 
-        print("🏟️🏟️🏟️ STADIUM MODE ACTIVATED 🏟️🏟️🏟️")
-        print("Profile: \(profile)")
-        print("Zone: \(zone)")
-        print("Configuration:")
+        LoggingService.network.info("🏟️🏟️🏟️ STADIUM MODE ACTIVATED 🏟️🏟️🏟️")
+        LoggingService.network.info("Profile: \(String(describing: profile), privacy: .public)")
+        LoggingService.network.info("Zone: \(String(describing: zone), privacy: .public)")
+        LoggingService.network.info("Configuration:")
         let config = profile.config
-        print("  - Max Connections: \(config.maxConnections)")
-        print("  - Discovery Rate: \(config.discoveryRate)s")
-        print("  - Connection Timeout: \(config.connectionTimeout)s")
-        print("  - Lightning Mode: \(config.enableLightning)")
-        print("  - Predictive Mode: \(config.enablePredictive)")
-        print("  - UDP Broadcast: \(config.enableUDP)")
-        print("  - Aggressive Mode: \(config.aggressiveMode)")
+        LoggingService.network.info("  - Max Connections: \(config.maxConnections)")
+        LoggingService.network.info("  - Discovery Rate: \(config.discoveryRate)s")
+        LoggingService.network.info("  - Connection Timeout: \(config.connectionTimeout)s")
+        LoggingService.network.info("  - Lightning Mode: \(config.enableLightning)")
+        LoggingService.network.info("  - Predictive Mode: \(config.enablePredictive)")
+        LoggingService.network.info("  - UDP Broadcast: \(config.enableUDP)")
+        LoggingService.network.info("  - Aggressive Mode: \(config.aggressiveMode)")
 
         // Apply optimizations
         applyStadiumOptimizations()
@@ -167,7 +168,7 @@ class StadiumMode: ObservableObject {
         // Start performance monitoring
         startPerformanceMonitoring()
 
-        print("🏟️ Stadium Mode READY - Optimized for \(getEstimatedCapacity()) people")
+        LoggingService.network.info("🏟️ Stadium Mode READY - Optimized for \(self.getEstimatedCapacity(), privacy: .public) people")
     }
 
     func deactivate() {
@@ -183,7 +184,7 @@ class StadiumMode: ObservableObject {
         priorityQueue.removeAll()
         nearbyDevices.removeAll()
 
-        print("🏟️ Stadium Mode deactivated")
+        LoggingService.network.info("🏟️ Stadium Mode deactivated")
     }
 
     // MARK: - Stadium Optimizations
@@ -228,7 +229,7 @@ class StadiumMode: ObservableObject {
         // Enable in NetworkManager
         networkManager?.enableLightningMode()
 
-        print("⚡ Lightning connections enabled")
+        LoggingService.network.info("⚡ Lightning connections enabled")
     }
 
     private func configureNetworkManager() {
@@ -243,12 +244,12 @@ class StadiumMode: ObservableObject {
         // This would require modifying NetworkManager to swap session managers
         // For now, we'll work with the existing one
 
-        print("🏟️ Network configured for stadium profile")
+        LoggingService.network.info("🏟️ Network configured for stadium profile")
     }
 
     private func setupPrioritySystem() {
         // Priority based on zone and emergency status
-        print("🏟️ Priority system configured for zone: \(currentZone)")
+        LoggingService.network.info("🏟️ Priority system configured for zone: \(String(describing: self.currentZone), privacy: .public)")
     }
 
     private func enablePredictiveConnections() {
@@ -257,21 +258,21 @@ class StadiumMode: ObservableObject {
             self?.checkApproachingDevices()
         }
 
-        print("🏟️ Predictive connections enabled")
+        LoggingService.network.info("🏟️ Predictive connections enabled")
     }
 
     private func startUDPDiscovery() {
         // Implement UDP broadcast for instant discovery
-        print("🏟️ UDP discovery enabled for mega stadium")
+        LoggingService.network.info("🏟️ UDP discovery enabled for mega stadium")
     }
 
     private func enableAggressiveMode() {
-        print("🏟️ AGGRESSIVE MODE ENABLED:")
-        print("  - No validation")
-        print("  - No encryption")
-        print("  - Parallel connections")
-        print("  - Zero delays")
-        print("  - Maximum TX power")
+        LoggingService.network.info("🏟️ AGGRESSIVE MODE ENABLED:")
+        LoggingService.network.info("  - No validation")
+        LoggingService.network.info("  - No encryption")
+        LoggingService.network.info("  - Parallel connections")
+        LoggingService.network.info("  - Zero delays")
+        LoggingService.network.info("  - Maximum TX power")
     }
 
     // MARK: - Crowd Detection
@@ -295,7 +296,7 @@ class StadiumMode: ObservableObject {
     private func adjustForCrowdDensity(_ density: Int) {
         // Dynamically adjust based on crowd
         if density > 100 {
-            print("🏟️ HIGH DENSITY DETECTED (\(density) devices)")
+            LoggingService.network.info("🏟️ HIGH DENSITY DETECTED (\(density) devices)")
             // Switch to more aggressive profile
             if currentProfile != .megaStadium {
                 currentProfile = .megaStadium
@@ -358,7 +359,7 @@ class StadiumMode: ObservableObject {
 
         // Log if performance degrades
         if average > 2.0 {
-            print("⚠️ Stadium Mode: Connection speed degraded to \(String(format: "%.2f", average))s")
+            LoggingService.network.info("⚠️ Stadium Mode: Connection speed degraded to \(String(format: "%.2f", average))s")
             adjustForPerformance()
         }
     }
@@ -366,7 +367,7 @@ class StadiumMode: ObservableObject {
     private func adjustForPerformance() {
         // Auto-adjust settings based on performance
         if connectionSpeed > 5.0 {
-            print("🏟️ Auto-switching to more aggressive profile")
+            LoggingService.network.info("🏟️ Auto-switching to more aggressive profile")
             currentProfile = .megaStadium
             applyStadiumOptimizations()
         }
@@ -386,9 +387,9 @@ class StadiumMode: ObservableObject {
 
         // Report ultra-fast connections
         if time < 0.5 {
-            print("🏆 STADIUM MODE: Ultra-fast connection in \(String(format: "%.3f", time))s!")
+            LoggingService.network.info("🏆 STADIUM MODE: Ultra-fast connection in \(String(format: "%.3f", time))s!")
         } else if time < 1.0 {
-            print("🎯 STADIUM MODE: Sub-second connection in \(String(format: "%.3f", time))s!")
+            LoggingService.network.info("🎯 STADIUM MODE: Sub-second connection in \(String(format: "%.3f", time))s!")
         }
     }
 
@@ -433,7 +434,7 @@ class StadiumMode: ObservableObject {
 
     func switchZone(_ zone: StadiumZone) {
         currentZone = zone
-        print("🏟️ Switched to zone: \(zone.rawValue) (priority: \(zone.priority))")
+        LoggingService.network.info("🏟️ Switched to zone: \(zone.rawValue) (priority: \(zone.priority))")
         setupPrioritySystem()
     }
 

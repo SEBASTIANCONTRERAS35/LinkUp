@@ -9,6 +9,7 @@
 
 import Foundation
 import Combine
+import os
 
 /// Perfil médico de emergencia del usuario
 /// Almacena información vital que debe compartirse en caso de emergencia
@@ -195,10 +196,10 @@ class EmergencyMedicalProfileManager: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
            let decoded = try? JSONDecoder().decode(EmergencyMedicalProfile.self, from: data) {
             self.profile = decoded
-            print("✅ EmergencyMedicalProfile: Loaded from storage")
+            LoggingService.network.info("✅ EmergencyMedicalProfile: Loaded from storage")
         } else {
             self.profile = EmergencyMedicalProfile()
-            print("ℹ️ EmergencyMedicalProfile: No saved profile, using default")
+            LoggingService.network.info("ℹ️ EmergencyMedicalProfile: No saved profile, using default")
         }
     }
 
@@ -208,9 +209,9 @@ class EmergencyMedicalProfileManager: ObservableObject {
 
         if let encoded = try? JSONEncoder().encode(profile) {
             UserDefaults.standard.set(encoded, forKey: userDefaultsKey)
-            print("💾 EmergencyMedicalProfile: Saved successfully")
+            LoggingService.network.info("💾 EmergencyMedicalProfile: Saved successfully")
         } else {
-            print("❌ EmergencyMedicalProfile: Failed to save")
+            LoggingService.network.info("❌ EmergencyMedicalProfile: Failed to save")
         }
     }
 

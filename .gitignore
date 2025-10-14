@@ -28,7 +28,7 @@ DerivedData/
 ## Other
 *.moved-aside
 *.xccheckout
-*.xcscmblueprint
+*.xcscmblueLoggingService.network.info
 *.xcuserstate
 *.xcscheme
 

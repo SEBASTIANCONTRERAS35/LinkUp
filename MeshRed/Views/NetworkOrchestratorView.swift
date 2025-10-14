@@ -1,5 +1,6 @@
 import SwiftUI
 import MultipeerConnectivity
+import os
 
 /// Advanced network orchestrator diagnostics and control panel
 struct NetworkOrchestratorView: View {
@@ -426,9 +427,9 @@ private struct ControlsSection: View {
 
             Button(action: {
                 // Show full network summary in console
-                print(networkManager.getOrchestratorStatus())
+                LoggingService.network.info("\(networkManager.getOrchestratorStatus())")
             }) {
-                Label("Print Full Status", systemImage: "doc.text.magnifyingglass")
+                Label("LoggingService.network.info Full Status", systemImage: "doc.text.magnifyingglass")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()

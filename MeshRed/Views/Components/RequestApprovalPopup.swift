@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import os
 
 struct RequestApprovalPopup: View {
     // MARK: - Properties
@@ -384,10 +385,10 @@ struct RequestApprovalPopup_Previews: PreviewProvider {
     static var previews: some View {
         RequestApprovalPopup(
             request: sampleRequest,
-            onAccept: { print("Accepted") },
-            onReject: { print("Rejected") },
-            onDefer: { print("Deferred") },
-            onClose: { print("Closed") }
+            onAccept: { LoggingService.network.info("Accepted") },
+            onReject: { LoggingService.network.info("Rejected") },
+            onDefer: { LoggingService.network.info("Deferred") },
+            onClose: { LoggingService.network.info("Closed") }
         )
         .previewDevice("iPhone 15")
 

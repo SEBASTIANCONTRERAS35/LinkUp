@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import os
 
 struct StadiumDashboardView: View {
     // MARK: - Environment
@@ -345,7 +346,7 @@ struct StadiumDashboardView: View {
                 backgroundColor: Color(red: 0.9, green: 0.95, blue: 1.0)
             ) {
                 // Action for network
-                print("Tu red tapped")
+                LoggingService.network.info("Tu red tapped")
             }
 
           
@@ -357,7 +358,7 @@ struct StadiumDashboardView: View {
                 iconColor: .blue,
                 backgroundColor: Color(red: 0.9, green: 0.95, blue: 1.0)
             ) {
-                print("Ubicaciones tapped")
+                LoggingService.network.info("Ubicaciones tapped")
             }
 
             // Perimetros

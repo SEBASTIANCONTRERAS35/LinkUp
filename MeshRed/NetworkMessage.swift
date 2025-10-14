@@ -117,6 +117,29 @@ struct PongMessage: Codable {
     let timestamp: Date
 }
 
+// MARK: - GPS Location Message
+
+/// GPS Location message for fallback direction calculation
+struct GPSLocationMessage: Codable {
+    let senderId: String
+    let latitude: Double
+    let longitude: Double
+    let horizontalAccuracy: Double
+    let altitude: Double
+    let verticalAccuracy: Double
+    let timestamp: Date
+
+    init(senderId: String, latitude: Double, longitude: Double, horizontalAccuracy: Double, altitude: Double, verticalAccuracy: Double, timestamp: Date = Date()) {
+        self.senderId = senderId
+        self.latitude = latitude
+        self.longitude = longitude
+        self.horizontalAccuracy = horizontalAccuracy
+        self.altitude = altitude
+        self.verticalAccuracy = verticalAccuracy
+        self.timestamp = timestamp
+    }
+}
+
 // MARK: - Route Discovery Messages
 
 /// Route Request message for discovering paths to destination peers
@@ -186,6 +209,7 @@ enum NetworkPayload: Codable {
     case routeRequest(RouteRequest)
     case routeReply(RouteReply)
     case routeError(RouteError)
+    case gpsLocation(GPSLocationMessage)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -248,6 +272,9 @@ enum NetworkPayload: Codable {
         case "routeError":
             let routeError = try container.decode(RouteError.self, forKey: .payload)
             self = .routeError(routeError)
+        case "gpsLocation":
+            let gpsLocation = try container.decode(GPSLocationMessage.self, forKey: .payload)
+            self = .gpsLocation(gpsLocation)
         default:
             throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown payload type: \(type)")
         }
@@ -308,6 +335,9 @@ enum NetworkPayload: Codable {
         case .routeError(let routeError):
             try container.encode("routeError", forKey: .type)
             try container.encode(routeError, forKey: .payload)
+        case .gpsLocation(let gpsLocation):
+            try container.encode("gpsLocation", forKey: .type)
+            try container.encode(gpsLocation, forKey: .payload)
         }
     }
 }

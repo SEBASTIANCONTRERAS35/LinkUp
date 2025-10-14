@@ -8,6 +8,7 @@
 
 import SwiftUI
 import WatchKit
+import os
 
 struct WatchSOSView: View {
     @StateObject private var emergencyDetector = WatchEmergencyDetector()
@@ -138,7 +139,7 @@ struct WatchSOSView: View {
     }
 
     private func sendSOS() {
-        print("🚨 Sending MANUAL SOS from Watch...")
+        LoggingService.network.info("🚨 Sending MANUAL SOS from Watch...")
 
         // TODO: Enviar SOS via WatchConnectivity al iPhone
         // let alert = SOSAlert(...)
@@ -151,7 +152,7 @@ struct WatchSOSView: View {
     }
 
     private func sendAutoDetectedSOS() {
-        print("🚨 Sending AUTO-DETECTED SOS from Watch...")
+        LoggingService.network.info("🚨 Sending AUTO-DETECTED SOS from Watch...")
 
         // TODO: Enviar SOS con información del sensor
         // let alert = SOSAlert(...)

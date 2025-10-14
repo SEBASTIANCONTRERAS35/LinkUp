@@ -1,6 +1,7 @@
 import Foundation
 import MultipeerConnectivity
 import Combine
+import os
 
 /// Tracks and manages peer reputation scores for trust-based decisions
 class PeerReputationSystem: ObservableObject {
@@ -208,9 +209,10 @@ class PeerReputationSystem: ObservableObject {
             applyDecay()
 
             // Log significant changes
-            if abs(previousScore - trustScore) > 5 {
-                print("📊 Reputation changed significantly for \(peerId): \(previousScore) → \(trustScore)")
-            }
+            // NOTE: Logging disabled here due to mutating function constraints
+            // if abs(previousScore - trustScore) > 5 {
+            //     LoggingService.network.info("📊 Reputation changed significantly")
+            // }
         }
 
         private mutating func applyDecay() {
@@ -357,13 +359,13 @@ class PeerReputationSystem: ObservableObject {
 
     func shouldAcceptConnection(from peer: MCPeerID) -> Bool {
         if isBlacklisted(peer) {
-            print("❌ Rejecting connection from blacklisted peer: \(peer.displayName)")
+            LoggingService.network.info("❌ Rejecting connection from blacklisted peer: \(peer.displayName)")
             return false
         }
 
         let trustScore = getTrustScore(for: peer)
         if trustScore < 20 {
-            print("⚠️ Low trust score for \(peer.displayName): \(trustScore)")
+            LoggingService.network.info("⚠️ Low trust score for \(peer.displayName): \(trustScore)")
             // Could implement additional logic here
         }
 
@@ -382,7 +384,7 @@ class PeerReputationSystem: ObservableObject {
 
             self.saveBlacklist()
 
-            print("🚫 Peer blacklisted: \(peerId)")
+            LoggingService.network.info("🚫 Peer blacklisted: \(peerId)")
 
             NotificationCenter.default.post(
                 name: .peerBlacklisted,
@@ -408,7 +410,7 @@ class PeerReputationSystem: ObservableObject {
             }
 
             self.saveBlacklist()
-            print("✅ Peer removed from blacklist: \(peerId)")
+            LoggingService.network.info("✅ Peer removed from blacklist: \(peerId)")
         }
     }
 
@@ -423,7 +425,7 @@ class PeerReputationSystem: ObservableObject {
                 self.trustedPeers.remove(peerId)
             }
 
-            print("🔄 Reputation reset for: \(peerId)")
+            LoggingService.network.info("🔄 Reputation reset for: \(peerId)")
         }
     }
 
@@ -491,7 +493,7 @@ class PeerReputationSystem: ObservableObject {
                     }
                 }
 
-                print("📊 Loaded \(self.reputations.count) peer reputations")
+                LoggingService.network.info("📊 Loaded \(self.reputations.count) peer reputations")
             }
         }
     }
@@ -505,7 +507,7 @@ class PeerReputationSystem: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 self?.blacklistedPeers = Set(blacklist)
             }
-            print("🚫 Loaded \(blacklist.count) blacklisted peers")
+            LoggingService.network.info("🚫 Loaded \(blacklist.count) blacklisted peers")
         }
     }
 
@@ -521,7 +523,47 @@ class PeerReputationSystem: ObservableObject {
         default: return  // Don't log every event
         }
 
-        print("📊 Reputation: \(peerId) - \(eventDescription) → Score: \(newScore)")
+        LoggingService.network.info("📊 Reputation: \(peerId) - \(eventDescription) → Score: \(newScore)")
+    }
+
+    // MARK: - Lightning Mode Support
+
+    /// Reset all peer reputations to neutral starting value
+    /// Used when Lightning Mode is enabled to provide fresh start without historical penalties
+    func resetAllReputations() {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("🗑️ RESETTING ALL PEER REPUTATIONS")
+            LoggingService.network.info("   Reason: Lightning Mode enabled - fresh start")
+
+            let previousCount = self.reputations.count
+
+            // Reset all reputations to neutral (60.0 starting score)
+            for (peerId, _) in self.reputations {
+                var newReputation = PeerReputation(peerId: peerId)
+                newReputation.trustScore = 60.0  // Neutral starting score
+                newReputation.successfulConnections = 0
+                newReputation.failedConnections = 0
+                newReputation.totalMessages = 0
+                newReputation.droppedMessages = 0
+                newReputation.firstSeen = Date()
+                self.reputations[peerId] = newReputation
+            }
+
+            // Clear blacklist (Lightning Mode shouldn't be blocked by old blacklists)
+            self.blacklistedPeers.removeAll()
+
+            // Persist changes to disk
+            self.saveReputations()
+
+            LoggingService.network.info("   ✓ Reset \(previousCount) peer reputations")
+            LoggingService.network.info("   ✓ All peers now have neutral score (60.0)")
+            LoggingService.network.info("   ✓ Blacklist cleared (\(previousCount) entries)")
+            LoggingService.network.info("   Lightning Mode: Maximum speed, no historical penalties")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        }
     }
 }
 

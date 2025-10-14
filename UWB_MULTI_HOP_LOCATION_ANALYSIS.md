@@ -127,7 +127,7 @@ struct LocationResponseMessage {
    ```swift
    // LocationRequestManager.swift:69-71
    guard pendingRequests[response.requestId] != nil else {
-       print("↪ Ignoring relayed response (not our request)")
+       LoggingService.network.info("↪ Ignoring relayed response (not our request)")
        return  // ❌ B ignora porque no hizo el request
    }
    ```
@@ -408,7 +408,7 @@ private func collectUWBNeighborInfo() -> [UWBNeighborInfo]? {
 
     // Obtener GPS actual
     guard let myGPS = locationService.currentLocation else {
-        print("⚠️ Cannot collect UWB neighbor info: No GPS available")
+        LoggingService.network.info("⚠️ Cannot collect UWB neighbor info: No GPS available")
         return nil
     }
 
@@ -434,7 +434,7 @@ private func collectUWBNeighborInfo() -> [UWBNeighborInfo]? {
 
         neighbors.append(neighbor)
 
-        print("📡 UWB Neighbor: \(peer.displayName) - \(distance)m \(direction?.cardinalDirection ?? "sin dirección")")
+        LoggingService.network.info("📡 UWB Neighbor: \(peer.displayName) - \(distance)m \(direction?.cardinalDirection ?? "sin dirección")")
     }
 
     return neighbors.isEmpty ? nil : neighbors
@@ -466,9 +466,9 @@ private func broadcastTopology() {
         try session.send(data, toPeers: connectedPeers, with: .unreliable)
 
         let uwbCount = uwbNeighbors?.count ?? 0
-        print("📡 Broadcasted topology: \(connectedPeers.count) peers, \(uwbCount) UWB neighbors")
+        LoggingService.network.info("📡 Broadcasted topology: \(connectedPeers.count) peers, \(uwbCount) UWB neighbors")
     } catch {
-        print("❌ Failed to broadcast topology: \(error)")
+        LoggingService.network.info("❌ Failed to broadcast topology: \(error)")
     }
 }
 ```
@@ -492,15 +492,15 @@ private func handleTopologyMessage(_ topology: TopologyMessage, from peerID: MCP
             if neighbor.isFresh(threshold: uwbCacheExpirationTime) {
                 uwbLocationCache[neighbor.peerId] = neighbor
 
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("📍 UWB CACHE UPDATED")
-                print("   From: \(topology.senderId)")
-                print("   Target: \(neighbor.peerId)")
-                print("   Distance: \(String(format: "%.1f", neighbor.distance))m")
-                print("   Direction: \(neighbor.direction?.cardinalDirection ?? "N/A")")
-                print("   GPS: \(neighbor.myGPSLocation?.coordinateString ?? "N/A")")
-                print("   Age: \(Int(Date().timeIntervalSince(neighbor.timestamp)))s")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("📍 UWB CACHE UPDATED")
+                LoggingService.network.info("   From: \(topology.senderId)")
+                LoggingService.network.info("   Target: \(neighbor.peerId)")
+                LoggingService.network.info("   Distance: \(String(format: "%.1f", neighbor.distance))m")
+                LoggingService.network.info("   Direction: \(neighbor.direction?.cardinalDirection ?? "N/A")")
+                LoggingService.network.info("   GPS: \(neighbor.myGPSLocation?.coordinateString ?? "N/A")")
+                LoggingService.network.info("   Age: \(Int(Date().timeIntervalSince(neighbor.timestamp)))s")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
         }
     }
@@ -516,7 +516,7 @@ private func cleanupStaleUWBCache() {
 
     for key in staleKeys {
         uwbLocationCache.removeValue(forKey: key)
-        print("🧹 Removed stale UWB cache: \(key)")
+        LoggingService.network.info("🧹 Removed stale UWB cache: \(key)")
     }
 }
 ```
@@ -530,18 +530,18 @@ func sendLocationRequest(to targetPeerId: String) {
     if let cachedInfo = uwbLocationCache[targetPeerId],
        cachedInfo.isFresh(threshold: uwbCacheExpirationTime) {
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("✅ UWB CACHE HIT!")
-        print("   Target: \(targetPeerId)")
-        print("   Intermediary: From topology")
-        print("   Distance: \(String(format: "%.1f", cachedInfo.distance))m")
-        print("   Age: \(Int(Date().timeIntervalSince(cachedInfo.timestamp)))s")
-        print("   Round Trips: 0 ✅")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("✅ UWB CACHE HIT!")
+        LoggingService.network.info("   Target: \(targetPeerId)")
+        LoggingService.network.info("   Intermediary: From topology")
+        LoggingService.network.info("   Distance: \(String(format: "%.1f", cachedInfo.distance))m")
+        LoggingService.network.info("   Age: \(Int(Date().timeIntervalSince(cachedInfo.timestamp)))s")
+        LoggingService.network.info("   Round Trips: 0 ✅")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Calculate location from cached UWB data
         guard let intermediaryGPS = cachedInfo.myGPSLocation else {
-            print("⚠️ Cache has no GPS data, falling back to request")
+            LoggingService.network.info("⚠️ Cache has no GPS data, falling back to request")
             sendLocationRequestNetwork(to: targetPeerId)
             return
         }
@@ -551,7 +551,7 @@ func sendLocationRequest(to targetPeerId: String) {
             distance: cachedInfo.distance,
             direction: cachedInfo.direction
         ) else {
-            print("⚠️ Failed to calculate location from cache")
+            LoggingService.network.info("⚠️ Failed to calculate location from cache")
             sendLocationRequestNetwork(to: targetPeerId)
             return
         }
@@ -583,7 +583,7 @@ func sendLocationRequest(to targetPeerId: String) {
     }
 
     // CACHE MISS: Fallback to network request
-    print("⚠️ UWB CACHE MISS for \(targetPeerId), sending network request")
+    LoggingService.network.info("⚠️ UWB CACHE MISS for \(targetPeerId), sending network request")
     sendLocationRequestNetwork(to: targetPeerId)
 }
 
@@ -603,9 +603,9 @@ private func sendLocationRequestNetwork(to targetPeerId: String) {
         let encoder = JSONEncoder()
         let data = try encoder.encode(payload)
         try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "locationRequest")
-        print("📍 Sent location request to \(targetPeerId) (fallback)")
+        LoggingService.network.info("📍 Sent location request to \(targetPeerId) (fallback)")
     } catch {
-        print("❌ Failed to send location request: \(error)")
+        LoggingService.network.info("❌ Failed to send location request: \(error)")
     }
 }
 ```
@@ -735,18 +735,18 @@ private func respondAsIntermediaryIfPossible(_ request: LocationRequestMessage) 
         return  // No UWB with target
     }
 
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print("🎯 PROACTIVE INTERMEDIARY RESPONSE")
-    print("   I am: \(localPeerID.displayName)")
-    print("   Requester: \(request.requesterId)")
-    print("   Target: \(request.targetId)")
-    print("   I have UWB with target! Responding...")
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    LoggingService.network.info("🎯 PROACTIVE INTERMEDIARY RESPONSE")
+    LoggingService.network.info("   I am: \(localPeerID.displayName)")
+    LoggingService.network.info("   Requester: \(request.requesterId)")
+    LoggingService.network.info("   Target: \(request.targetId)")
+    LoggingService.network.info("   I have UWB with target! Responding...")
+    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     Task {
         // Get my GPS location
         guard let myGPS = try? await locationService.getCurrentLocation() else {
-            print("⚠️ Cannot respond: No GPS available")
+            LoggingService.network.info("⚠️ Cannot respond: No GPS available")
             return
         }
 
@@ -755,7 +755,7 @@ private func respondAsIntermediaryIfPossible(_ request: LocationRequestMessage) 
             to: targetPeer,
             fromIntermediaryLocation: myGPS
         ) else {
-            print("⚠️ Cannot respond: Failed to create RelativeLocation")
+            LoggingService.network.info("⚠️ Cannot respond: Failed to create RelativeLocation")
             return
         }
 
@@ -775,13 +775,13 @@ private func respondAsIntermediaryIfPossible(_ request: LocationRequestMessage) 
         // Send response (needs routing implementation)
         sendLocationResponse(response)
 
-        print("✅ Sent proactive intermediary response")
-        print("   Target \(request.targetId) is \(relativeWithId.distanceString) \(relativeWithId.directionString ?? "sin dirección") from me")
+        LoggingService.network.info("✅ Sent proactive intermediary response")
+        LoggingService.network.info("   Target \(request.targetId) is \(relativeWithId.distanceString) \(relativeWithId.directionString ?? "sin dirección") from me")
     }
 }
 
 private func relayLocationRequest(_ request: LocationRequestMessage) {
-    print("🔄 Relaying location request for \(request.targetId)")
+    LoggingService.network.info("🔄 Relaying location request for \(request.targetId)")
 
     let payload = NetworkPayload.locationRequest(request)
 
@@ -790,7 +790,7 @@ private func relayLocationRequest(_ request: LocationRequestMessage) {
         let data = try encoder.encode(payload)
         try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "relayLocationRequest")
     } catch {
-        print("❌ Failed to relay location request: \(error)")
+        LoggingService.network.info("❌ Failed to relay location request: \(error)")
     }
 }
 ```
@@ -929,13 +929,13 @@ private func handleLocationResponse(_ response: LocationResponseMessage, from pe
 
     let isForMe = mutableResponse.isForMe(localPeerID.displayName)
 
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print("📍 LOCATION RESPONSE RECEIVED")
-    print("   From: \(mutableResponse.responderId)")
-    print("   To: \(mutableResponse.recipientId)")
-    print("   Route: \(mutableResponse.routePath.joined(separator: " → "))")
-    print("   For me? \(isForMe ? "✅ YES" : "❌ NO (will relay)")")
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    LoggingService.network.info("📍 LOCATION RESPONSE RECEIVED")
+    LoggingService.network.info("   From: \(mutableResponse.responderId)")
+    LoggingService.network.info("   To: \(mutableResponse.recipientId)")
+    LoggingService.network.info("   Route: \(mutableResponse.routePath.joined(separator: " → "))")
+    LoggingService.network.info("   For me? \(isForMe ? "✅ YES" : "❌ NO (will relay)")")
+    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     if isForMe {
         // Process response
@@ -953,12 +953,12 @@ private func handleLocationResponse(_ response: LocationResponseMessage, from pe
 
     // RELAY if not for me (or broadcast)
     if mutableResponse.canHop() && !mutableResponse.hasVisited(localPeerID.displayName) {
-        print("🔄 RELAYING location response toward \(mutableResponse.recipientId)")
+        LoggingService.network.info("🔄 RELAYING location response toward \(mutableResponse.recipientId)")
         relayLocationResponse(mutableResponse, excludingPeer: peerID)
     } else if !mutableResponse.canHop() {
-        print("⏹️ Response reached hop limit: \(mutableResponse.hopCount)/\(mutableResponse.ttl)")
+        LoggingService.network.info("⏹️ Response reached hop limit: \(mutableResponse.hopCount)/\(mutableResponse.ttl)")
     } else if mutableResponse.hasVisited(localPeerID.displayName) {
-        print("⏹️ Already visited this node (loop prevention)")
+        LoggingService.network.info("⏹️ Already visited this node (loop prevention)")
     }
 }
 
@@ -973,14 +973,14 @@ private func relayLocationResponse(_ response: LocationResponseMessage, excludin
         let targetPeers = connectedPeers.filter { $0 != excludingPeer }
 
         guard !targetPeers.isEmpty else {
-            print("⚠️ Cannot relay: no other peers available")
+            LoggingService.network.info("⚠️ Cannot relay: no other peers available")
             return
         }
 
         try safeSend(data, toPeers: targetPeers, with: .reliable, context: "relayLocationResponse")
-        print("✅ Relayed location response to \(targetPeers.count) peer(s)")
+        LoggingService.network.info("✅ Relayed location response to \(targetPeers.count) peer(s)")
     } catch {
-        print("❌ Failed to relay location response: \(error)")
+        LoggingService.network.info("❌ Failed to relay location response: \(error)")
     }
 }
 ```
@@ -1094,7 +1094,7 @@ xcodebuild -scheme MeshRed -destination "platform=iOS Simulator,name=iPhone 17"
 **Test:**
 ```swift
 // Verificar que TopologyMessage incluye UWB data
-print("Topology sent: \(topologyMessage)")
+LoggingService.network.info("Topology sent: \(topologyMessage)")
 // Debe mostrar uwbNeighbors array
 ```
 
@@ -1491,13 +1491,13 @@ TopologyMessage con UWB revela:
 private func handleTopologyMessage(_ topology: TopologyMessage, from peerID: MCPeerID) {
     // Validación 1: Solo aceptar de peers conocidos
     guard connectedPeers.contains(peerID) else {
-        print("⚠️ Rejected topology from unknown peer")
+        LoggingService.network.info("⚠️ Rejected topology from unknown peer")
         return
     }
 
     // Validación 2: Verificar timestamps
     if topology.timestamp.timeIntervalSinceNow < -60 {
-        print("⚠️ Rejected stale topology (>60s old)")
+        LoggingService.network.info("⚠️ Rejected stale topology (>60s old)")
         return
     }
 
@@ -1506,21 +1506,21 @@ private func handleTopologyMessage(_ topology: TopologyMessage, from peerID: MCP
         for neighbor in uwbNeighbors {
             // Distancia razonable
             if neighbor.distance > 100 {
-                print("⚠️ Suspicious UWB distance: \(neighbor.distance)m")
+                LoggingService.network.info("⚠️ Suspicious UWB distance: \(neighbor.distance)m")
                 continue  // Skip este neighbor
             }
 
             // GPS válido
             if let gps = neighbor.myGPSLocation {
                 if gps.accuracy > 50 {
-                    print("⚠️ GPS accuracy too low: \(gps.accuracy)m")
+                    LoggingService.network.info("⚠️ GPS accuracy too low: \(gps.accuracy)m")
                     continue
                 }
             }
 
             // Timestamp fresco
             if neighbor.timestamp.timeIntervalSinceNow < -60 {
-                print("⚠️ Stale UWB data: \(neighbor.peerId)")
+                LoggingService.network.info("⚠️ Stale UWB data: \(neighbor.peerId)")
                 continue
             }
 
@@ -1726,7 +1726,7 @@ func testTopologyBroadcastOverhead() async throws {
     let sizeBytes = data.count
     #expect(sizeBytes < 1000)  // <1 KB
 
-    print("Topology size with 5 UWB neighbors: \(sizeBytes) bytes")
+    LoggingService.network.info("Topology size with 5 UWB neighbors: \(sizeBytes) bytes")
 }
 ```
 

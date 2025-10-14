@@ -15,12 +15,12 @@ El mensaje de timeout solo verificaba `.required` o `.optional`, nunca `.none`, 
 
 **Antes:**
 ```swift
-print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : ".optional")")
+LoggingService.network.info("   Session encryption: \(session.encryptionPreference == .required ? ".required" : ".optional")")
 ```
 
 **Después:**
 ```swift
-print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : session.encryptionPreference == .optional ? ".optional" : ".none")")
+LoggingService.network.info("   Session encryption: \(session.encryptionPreference == .required ? ".required" : session.encryptionPreference == .optional ? ".optional" : ".none")")
 ```
 
 **Impacto:** Logs ahora muestran el valor correcto, facilitando debugging.
@@ -91,8 +91,8 @@ private func handleConnectionFailure(with peerID: MCPeerID) {
 
     // CRITICAL FIX: Recreate session after 2+ failures
     if failCount >= 2 {
-        print("🔄 RECREATING SESSION")
-        print("   Reason: \(failCount) consecutive failures with \(peerKey)")
+        LoggingService.network.info("🔄 RECREATING SESSION")
+        LoggingService.network.info("   Reason: \(failCount) consecutive failures with \(peerKey)")
         recreateSession()
     }
     // ... resto del código ...
@@ -109,7 +109,7 @@ private func recreateSession() {
     )
     self.session.delegate = self
 
-    print("✨ New session created with clean state")
+    LoggingService.network.info("✨ New session created with clean state")
 }
 ```
 
@@ -336,7 +336,7 @@ self.session = MCSession(..., encryptionPreference: .optional)
 1. Verificar encryption preference en AMBOS dispositivos
 2. Ejecutar en ambos:
    ```swift
-   print("Session encryption: \(session.encryptionPreference)")
+   LoggingService.network.info("Session encryption: \(session.encryptionPreference)")
    ```
 3. Si son diferentes → Cambiar a MISMA preference
 

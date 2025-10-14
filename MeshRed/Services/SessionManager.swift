@@ -1,5 +1,6 @@
 import Foundation
 import MultipeerConnectivity
+import os
 
 struct PeerConnectionInfo {
     let peerId: MCPeerID
@@ -49,25 +50,25 @@ struct PeerConnectionInfo {
     }
 
     func nextRetryDelay() -> TimeInterval {
-        // ⚡ CIRCUIT BREAKER: Exponential backoff based on consecutive refused count
+        // ⚡ OPTIMIZED PROGRESSIVE BACKOFF: Less aggressive, more stable
+        // Gives iOS networking stack time to recover between attempts
         // Independent per peer - each peer has its own delay schedule
         let isUltraFast = UserDefaults.standard.bool(forKey: "lightningModeUltraFast")
 
         if isUltraFast && connectionRefusedCount > 0 {
-            // Ultra-fast mode with progressive backoff per peer
+            // Ultra-fast mode with IMPROVED progressive backoff
+            // Less aggressive than before - gives iOS time to recover
             switch connectionRefusedCount {
-            case 1...3:
-                return 0.1   // First 3 attempts: ultra-fast
-            case 4...6:
-                return 0.5   // Next 3: slightly slower
-            case 7...9:
-                return 1.0   // Getting slower
-            case 10...12:
-                return 2.0   // Moderate delay
-            case 13...15:
-                return 5.0   // Significant delay
+            case 1...2:
+                return 2.0   // First 2 attempts: 2 seconds (was 0.1s)
+            case 3...4:
+                return 4.0   // Next 2: 4 seconds (was 0.5s)
+            case 5...6:
+                return 8.0   // Next 2: 8 seconds (was 1.0s)
+            case 7...8:
+                return 16.0  // Next 2: 16 seconds (was 2.0s)
             default:
-                return 10.0  // Maximum backoff before circuit breaker
+                return 30.0  // Cap at 30 seconds (was 10.0s)
             }
         } else {
             // Normal mode backoff
@@ -95,7 +96,8 @@ struct PeerConnectionInfo {
             circuitBreakerActive = false
             circuitBreakerUntil = nil
             connectionRefusedCount = 0 // Reset refused count
-            print("🔄 Circuit breaker reset for \(peerId.displayName)")
+            // LoggingService disabled here due to mutating function constraints
+            // LoggingService.network.info("🔄 Circuit breaker reset")
         }
         return false
     }
@@ -138,7 +140,7 @@ class SessionManager {
 
             self.connectionAttempts = self.connectionAttempts.filter { _, info in
                 if info.lastAttempt < staleThreshold && !info.isBlocked {
-                    print("🧹 Removing stale connection info for: \(info.peerId.displayName)")
+                    LoggingService.network.info("🧹 Removing stale connection info for: \(info.peerId.displayName)")
                     return false
                 }
                 return true
@@ -151,11 +153,11 @@ class SessionManager {
     }
 
     func shouldAttemptConnection(to peer: MCPeerID) -> Bool {
-        return queue.sync {
+        return queue.sync { () -> Bool in
             let peerKey = peer.displayName
 
             if activeConnections.contains(peerKey) {
-                print("🔗 Already connected to \(peerKey)")
+                LoggingService.network.info("🔗 Already connected to \(peerKey)")
                 return false
             }
 
@@ -165,9 +167,9 @@ class SessionManager {
                 // ⚡ CIRCUIT BREAKER: Check if circuit breaker is active for this peer
                 if info.checkCircuitBreaker() {
                     let remaining = info.circuitBreakerUntil?.timeIntervalSinceNow ?? 0
-                    print("⛔ CIRCUIT BREAKER ACTIVE for \(peerKey)")
-                    print("   Refused count: \(info.connectionRefusedCount)")
-                    print("   Waiting \(Int(max(0, remaining)))s before retry")
+                    LoggingService.network.info("⛔ CIRCUIT BREAKER ACTIVE for \(peerKey)")
+                    LoggingService.network.info("   Refused count: \(info.connectionRefusedCount)")
+                    LoggingService.network.info("   Waiting \(Int(max(0, remaining)))s before retry")
                     connectionAttempts[peerKey] = info  // Update stored info
                     return false
                 }
@@ -176,12 +178,12 @@ class SessionManager {
                 connectionAttempts[peerKey] = info
 
                 if info.isBlocked {
-                    print("🚫 Peer blocked until \(info.blockUntil?.description ?? "unknown"): \(peerKey)")
+                    LoggingService.network.info("🚫 Peer blocked until \(info.blockUntil?.description ?? "unknown"): \(peerKey)")
                     return false
                 }
 
                 if info.isConnecting {
-                    print("🔄 Already connecting to \(peerKey)")
+                    LoggingService.network.info("🔄 Already connecting to \(peerKey)")
                     return false
                 }
 
@@ -194,12 +196,12 @@ class SessionManager {
                         if timeSinceSuccess < SessionManager.connectionGracePeriod {
                             let waitTime = SessionManager.connectionGracePeriod - timeSinceSuccess
                             let waitTimeStr = waitTime.isFinite ? "\(Int(max(0, waitTime)))" : "0"
-                            print("⏰ Grace period active for \(peerKey). Wait \(waitTimeStr)s")
+                            LoggingService.network.info("⏰ Grace period active for \(peerKey). Wait \(waitTimeStr)s")
                             return false
                         }
                     }
                 } else if info.lastSuccessfulConnection != nil {
-                    print("⚡ ULTRA-FAST: Bypassing grace period for \(peerKey)")
+                    LoggingService.network.info("⚡ ULTRA-FAST: Bypassing grace period for \(peerKey)")
                 }
 
                 // ⚡ ULTRA-FAST: Skip cooldowns in Lightning Mode Ultra-Fast
@@ -208,9 +210,23 @@ class SessionManager {
                     if let lastDisconnection = info.lastDisconnection {
                         let timeSinceDisconnection = Date().timeIntervalSince(lastDisconnection)
 
-                        // Adaptive cooldown based on stability score (REDUCED for faster reconnection)
+                        // ULTRA-AGGRESSIVE cooldowns for transport failures
                         let requiredCooldown: TimeInterval
-                        if info.connectionStabilityScore >= 3 {
+
+                        // Check if this was a transport failure (very short connection)
+                        let wasTransportFailure: Bool
+                        if let connectionEstablished = info.connectionEstablishedTime {
+                            let connectionDuration = lastDisconnection.timeIntervalSince(connectionEstablished)
+                            wasTransportFailure = connectionDuration < 15.0  // Less than 15 seconds = transport failure
+                        } else {
+                            wasTransportFailure = false
+                        }
+
+                        if wasTransportFailure {
+                            // TRANSPORT FAILURE: Almost no cooldown for immediate retry
+                            LoggingService.network.info("🚀 TRANSPORT FAILURE DETECTED - Minimal cooldown")
+                            requiredCooldown = 0.1  // Near-instant reconnection for WiFi Direct failures
+                        } else if info.connectionStabilityScore >= 3 {
                             // Very stable peer - almost instant reconnect
                             requiredCooldown = 0.2  // Reduced from 0.5
                         } else if info.connectionStabilityScore >= 0 {
@@ -227,12 +243,12 @@ class SessionManager {
                         if timeSinceDisconnection < requiredCooldown {
                             let waitTime = requiredCooldown - timeSinceDisconnection
                             let waitTimeStr = waitTime.isFinite ? "\(Int(max(0, waitTime)))" : "0"
-                            print("🆒 Adaptive cooldown for \(peerKey): \(waitTimeStr)s (stability: \(info.connectionStabilityScore))")
+                            LoggingService.network.info("🆒 Adaptive cooldown for \(peerKey): \(waitTimeStr)s (stability: \(info.connectionStabilityScore))")
                             return false
                         }
                     }
                 } else if info.lastDisconnection != nil {
-                    print("⚡ ULTRA-FAST: Bypassing disconnection cooldown for \(peerKey)")
+                    LoggingService.network.info("⚡ ULTRA-FAST: Bypassing disconnection cooldown for \(peerKey)")
                 }
 
                 // ⚡ ULTRA-FAST: No retry delays in Lightning Mode Ultra-Fast
@@ -243,11 +259,11 @@ class SessionManager {
                     if timeSinceLastAttempt < requiredDelay {
                         let waitTime = requiredDelay - timeSinceLastAttempt
                         let waitTimeStr = waitTime.isFinite ? "\(Int(max(0, waitTime)))" : "0"
-                        print("⏳ Too soon to retry \(peerKey). Wait \(waitTimeStr)s")
+                        LoggingService.network.info("⏳ Too soon to retry \(peerKey). Wait \(waitTimeStr)s")
                         return false
                     }
                 } else {
-                    print("⚡ ULTRA-FAST: No retry delay for \(peerKey) - immediate connection allowed")
+                    LoggingService.network.info("⚡ ULTRA-FAST: No retry delay for \(peerKey) - immediate connection allowed")
                 }
 
                 return info.attemptCount < SessionManager.maxRetryAttempts
@@ -266,14 +282,14 @@ class SessionManager {
             if var info = self.connectionAttempts[peerKey] {
                 // Don't increment if already blocked
                 if info.isBlocked {
-                    print("⚠️ Attempt to record connection for blocked peer: \(peerKey)")
+                    LoggingService.network.info("⚠️ Attempt to record connection for blocked peer: \(peerKey)")
                     return
                 }
 
                 // If this is a new discovery after a disconnection, reset attempt count
                 if let lastDisconnection = info.lastDisconnection,
                    Date().timeIntervalSince(lastDisconnection) > 5.0 {
-                    print("🔄 Resetting attempts for \(peerKey) - rediscovered after disconnection")
+                    LoggingService.network.info("🔄 Resetting attempts for \(peerKey) - rediscovered after disconnection")
                     info.attemptCount = 0
                 }
 
@@ -283,15 +299,15 @@ class SessionManager {
                 if info.attemptCount >= SessionManager.maxRetryAttempts {
                     info.block(for: SessionManager.blockDuration)
                     info.isConnecting = false
-                    print("❌ Max attempts reached for \(peerKey). Blocking for \(Int(SessionManager.blockDuration))s.")
+                    LoggingService.network.info("❌ Max attempts reached for \(peerKey). Blocking for \(Int(SessionManager.blockDuration))s.")
                 } else {
                     // ⚡ ULTRA-FAST: No delays in Lightning Mode Ultra-Fast
                     let isUltraFast = UserDefaults.standard.bool(forKey: "lightningModeUltraFast")
                     let delay = isUltraFast ? 0.0 : info.nextRetryDelay()
                     if isUltraFast {
-                        print("⚡ ULTRA-FAST: Bypassing retry delay for \(peerKey) - immediate retry allowed")
+                        LoggingService.network.info("⚡ ULTRA-FAST: Bypassing retry delay for \(peerKey) - immediate retry allowed")
                     } else {
-                        print("🔄 Connection attempt #\(info.attemptCount) to \(peerKey). Next retry in \(Int(delay))s")
+                        LoggingService.network.info("🔄 Connection attempt #\(info.attemptCount) to \(peerKey). Next retry in \(Int(delay))s")
                     }
                 }
 
@@ -300,7 +316,7 @@ class SessionManager {
                 var newInfo = PeerConnectionInfo(peerId: peer)
                 newInfo.isConnecting = true
                 self.connectionAttempts[peerKey] = newInfo
-                print("📝 Recording first connection attempt to \(peerKey)")
+                LoggingService.network.info("📝 Recording first connection attempt to \(peerKey)")
             }
         }
     }
@@ -316,7 +332,7 @@ class SessionManager {
                 info.isConnecting = false
                 // Don't increment attemptCount for conflict resolution declines
                 self.connectionAttempts[peerKey] = info
-                print("📝 Connection declined for \(peerKey): \(reason) (not counting as failed attempt)")
+                LoggingService.network.info("📝 Connection declined for \(peerKey): \(reason) (not counting as failed attempt)")
             }
         }
     }
@@ -344,7 +360,7 @@ class SessionManager {
                 self.connectionAttempts[peerKey] = newInfo
             }
 
-            print("✅ Successfully connected to \(peerKey)")
+            LoggingService.network.info("✅ Successfully connected to \(peerKey)")
         }
     }
 
@@ -365,7 +381,7 @@ class SessionManager {
                 if let lastSuccess = info.lastSuccessfulConnection,
                    Date().timeIntervalSince(lastSuccess) < 10 {
                     info.connectionStabilityScore = max(-5, info.connectionStabilityScore - 1)
-                    print("📉 Stability score decreased for \(peerKey): \(info.connectionStabilityScore)")
+                    LoggingService.network.info("📉 Stability score decreased for \(peerKey): \(info.connectionStabilityScore)")
                 }
 
                 // FIX: Clear lastSuccessfulConnection to disable grace period
@@ -381,7 +397,7 @@ class SessionManager {
                 self.connectionAttempts[peerKey] = newInfo
             }
 
-            print("🔌 Disconnected from \(peerKey)")
+            LoggingService.network.info("🔌 Disconnected from \(peerKey)")
         }
     }
 
@@ -393,7 +409,32 @@ class SessionManager {
             self.connectionAttempts.removeValue(forKey: peerKey)
             self.activeConnections.remove(peerKey)
 
-            print("♻️ Reset connection info for \(peerKey)")
+            LoggingService.network.info("♻️ Reset connection info for \(peerKey)")
+        }
+    }
+
+    /// Clear ALL state for a specific peer - used when recreating session due to Socket Error 61
+    /// This is MORE aggressive than resetPeer - it clears connection refused counts, unblocks, and resets everything
+    func clearPeerState(for peer: MCPeerID) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+
+            let peerKey = peer.displayName
+
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("🧹 CLEARING ALL STATE FOR \(peerKey)")
+            LoggingService.network.info("   Reason: Session recreation due to Socket Error 61")
+
+            // Remove from all tracking structures
+            self.connectionAttempts.removeValue(forKey: peerKey)
+            self.activeConnections.remove(peerKey)
+
+            LoggingService.network.info("   ✓ Connection attempts: Cleared")
+            LoggingService.network.info("   ✓ Active connections: Removed")
+            LoggingService.network.info("   ✓ Blocks: Removed")
+            LoggingService.network.info("   ✓ Counters: Reset")
+            LoggingService.network.info("   State: Fresh start for this peer")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         }
     }
 
@@ -412,7 +453,7 @@ class SessionManager {
         queue.async(flags: .barrier) { [weak self] in
             self?.connectionAttempts.removeAll()
             self?.activeConnections.removeAll()
-            print("🗑️ Cleared all session data")
+            LoggingService.network.info("🗑️ Cleared all session data")
         }
     }
 
@@ -429,9 +470,9 @@ class SessionManager {
                 info.isConnecting = false
                 info.lastAttempt = Date.distantPast  // Allow immediate retry
                 self.connectionAttempts[peerKey] = info
-                print("🔓 Cleared cooldown for \(peerKey) - ready for immediate reconnection")
+                LoggingService.network.info("🔓 Cleared cooldown for \(peerKey) - ready for immediate reconnection")
             } else {
-                print("ℹ️ No cooldown to clear for \(peerKey)")
+                LoggingService.network.info("ℹ️ No cooldown to clear for \(peerKey)")
             }
         }
     }
@@ -462,43 +503,63 @@ class SessionManager {
                 // ⚡ CIRCUIT BREAKER: Check if we need to activate circuit breaker
                 if info.connectionRefusedCount >= 15 {
                     info.activateCircuitBreaker()
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    print("⛔ CIRCUIT BREAKER ACTIVATED for \(peerKey)")
-                    print("   Too many failures: \(info.connectionRefusedCount)")
-                    print("   Action: Pausing attempts for 30 seconds")
-                    print("   This peer appears unreachable")
-                    print("   Other peers are NOT affected")
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                } else if info.connectionRefusedCount >= 1 {
-                    // Enable bidirectional mode after first failure
-                    info.shouldAttemptBidirectional = true
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("⛔ CIRCUIT BREAKER ACTIVATED for \(peerKey)")
+                    LoggingService.network.info("   Too many failures: \(info.connectionRefusedCount)")
+                    LoggingService.network.info("   Action: Pausing attempts for 30 seconds")
+                    LoggingService.network.info("   This peer appears unreachable")
+                    LoggingService.network.info("   Other peers are NOT affected")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                } else {
+                    // Check if we should enable bidirectional mode
+                    // Normal mode: 3 failures required
+                    // Ultra-Fast mode: 2 failures required (OPTIMIZED from 1)
+                    // Allows conflict resolution to work first before going bidirectional
+                    let isUltraFast = UserDefaults.standard.bool(forKey: "lightningModeUltraFast")
+                    let bidirectionalThreshold = isUltraFast ? 2 : 3
 
-                    // Get the appropriate delay for this peer
-                    let delay = info.nextRetryDelay()
+                    if info.connectionRefusedCount >= bidirectionalThreshold && !info.shouldAttemptBidirectional {
+                        // Enable bidirectional mode
+                        info.shouldAttemptBidirectional = true
 
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    print("⚡ BIDIRECTIONAL MODE - Progressive Backoff")
-                    print("   Peer: \(peerKey)")
-                    print("   Connection refused count: \(info.connectionRefusedCount)")
-                    print("   Next retry delay: \(delay)s (per-peer backoff)")
-                    print("   Action: Both peers will attempt connection")
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        // Get the appropriate delay for this peer
+                        let delay = info.nextRetryDelay()
+
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("⚡ BIDIRECTIONAL MODE - Progressive Backoff")
+                        LoggingService.network.info("   Peer: \(peerKey)")
+                        LoggingService.network.info("   Connection refused count: \(info.connectionRefusedCount)")
+                        LoggingService.network.info("   Threshold: \(bidirectionalThreshold) (\(isUltraFast ? "Ultra-Fast" : "Normal") mode)")
+                        LoggingService.network.info("   Next retry delay: \(delay)s (per-peer backoff)")
+                        LoggingService.network.info("   Action: Both peers will attempt connection")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    }
                 }
 
                 self.connectionAttempts[peerKey] = info
-                print("📝 Connection refused for \(peerKey) (count: \(info.connectionRefusedCount))")
+                LoggingService.network.info("📝 Connection refused for \(peerKey) (count: \(info.connectionRefusedCount))")
             } else {
                 var newInfo = PeerConnectionInfo(peerId: peer)
                 newInfo.connectionRefusedCount = 1
                 newInfo.isConnecting = false
-                // ⚡ ULTRA-FAST: Enable bidirectional immediately on first failure
-                newInfo.shouldAttemptBidirectional = true
+
+                // Check if we should enable bidirectional mode
+                // Normal mode: 3 failures required, so don't enable on first failure
+                // Ultra-Fast mode: 1 failure required, enable immediately
+                let isUltraFast = UserDefaults.standard.bool(forKey: "lightningModeUltraFast")
+                if isUltraFast {
+                    newInfo.shouldAttemptBidirectional = true
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("⚡ ULTRA-FAST BIDIRECTIONAL MODE ENABLED")
+                    LoggingService.network.info("   Peer: \(peerKey)")
+                    LoggingService.network.info("   First connection refused - activating bidirectional immediately (Ultra-Fast mode)")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                } else {
+                    LoggingService.network.info("📝 First connection refused for \(peerKey)")
+                    LoggingService.network.info("   Bidirectional mode will activate after 3 failures (Normal mode)")
+                }
+
                 self.connectionAttempts[peerKey] = newInfo
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("⚡ ULTRA-FAST BIDIRECTIONAL MODE ENABLED")
-                print("   Peer: \(peerKey)")
-                print("   First connection refused - activating bidirectional immediately")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
         }
     }
@@ -534,7 +595,7 @@ class SessionManager {
                 info.connectionRefusedCount = 0
                 info.shouldAttemptBidirectional = false
                 self.connectionAttempts[peerKey] = info
-                print("✅ Reset connection refused count for \(peerKey)")
+                LoggingService.network.info("✅ Reset connection refused count for \(peerKey)")
             }
         }
     }

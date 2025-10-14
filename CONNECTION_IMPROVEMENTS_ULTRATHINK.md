@@ -161,8 +161,8 @@ private var certificateExchangeStarted: Set<String> = []
 DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
     if connectingPeers.contains(peerName) &&
        !certificateExchangeStarted.contains(peerName) {
-        print("⚠️ EARLY WARNING: Certificate exchange not started")
-        print("   This will likely timeout in ~8 more seconds")
+        LoggingService.network.info("⚠️ EARLY WARNING: Certificate exchange not started")
+        LoggingService.network.info("   This will likely timeout in ~8 more seconds")
     }
 }
 ```
@@ -191,8 +191,8 @@ if failCount >= 2 {
     if connectingPeers.isEmpty {
         recreateSession()  // Safe
     } else {
-        print("⏸️ DEFERRED: Handshakes in progress")
-        print("   Connecting to: \(Array(connectingPeers))")
+        LoggingService.network.info("⏸️ DEFERRED: Handshakes in progress")
+        LoggingService.network.info("   Connecting to: \(Array(connectingPeers))")
     }
 }
 ```

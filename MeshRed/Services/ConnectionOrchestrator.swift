@@ -2,6 +2,7 @@ import Foundation
 import MultipeerConnectivity
 import UIKit
 import Combine
+import os
 
 /// Central coordinator for intelligent connection management
 /// Integrates all connection subsystems for optimal decision making
@@ -138,6 +139,24 @@ class ConnectionOrchestrator: ObservableObject {
     }
 
     private func evaluateConnectionRequest(from peer: MCPeerID, context: [String: Any]?) -> ConnectionDecision {
+        // STEP 0: LIGHTNING MODE BYPASS - Skip all validations for ultra-fast connections
+        let isUltraFast = UserDefaults.standard.bool(forKey: "lightningModeUltraFast")
+        if isUltraFast {
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("⚡ ORCHESTRATOR: LIGHTNING MODE BYPASS")
+            LoggingService.network.info("   Peer: \(peer.displayName)")
+            LoggingService.network.info("   Skipping: Reputation, Battery, Network Load checks")
+            LoggingService.network.info("   Reason: Ultra-Fast mode prioritizes speed over safety")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            // Still check blacklist for critical security
+            if reputationSystem.isBlacklisted(peer) {
+                return .reject(reason: "Peer is blacklisted (security)")
+            }
+
+            return .accept
+        }
+
         // Step 1: Check blacklist
         if reputationSystem.isBlacklisted(peer) {
             return .reject(reason: "Peer is blacklisted")
@@ -165,7 +184,7 @@ class ConnectionOrchestrator: ObservableObject {
         // Step 4: Check connection pool availability
         // DEFENSIVE CHECK: Ensure slots are initialized
         if connectionPool.slots.isEmpty {
-            print("⚠️ WARNING: Connection pool has no slots! This is a critical initialization bug.")
+            LoggingService.network.info("⚠️ WARNING: Connection pool has no slots! This is a critical initialization bug.")
             return .reject(reason: "Connection pool not initialized")
         }
 
@@ -173,7 +192,7 @@ class ConnectionOrchestrator: ObservableObject {
         if !connectionPool.canAcceptPeer(peer, withPriority: priority) {
             // Log detailed state for debugging
             let status = connectionPool.getStatus()
-            print("🔍 Pool Status - Occupied: \(status.occupied)/\(connectionPool.totalCapacity), Reserved: \(status.reserved), Available: \(status.available)")
+            LoggingService.network.info("🔍 Pool Status - Occupied: \(status.occupied, privacy: .public)/\(self.connectionPool.totalCapacity, privacy: .public), Reserved: \(status.reserved, privacy: .public), Available: \(status.available, privacy: .public)")
 
             // Try to defer if high reputation
             if reputation > minReputationForAutoAccept {
@@ -260,7 +279,7 @@ class ConnectionOrchestrator: ObservableObject {
 
         // Request slot from pool
         guard let slot = connectionPool.requestSlot(for: peer, priority: priority) else {
-            print("❌ Orchestrator: Failed to allocate slot for \(peer.displayName)")
+            LoggingService.network.info("❌ Orchestrator: Failed to allocate slot for \(peer.displayName)")
             return false
         }
 
@@ -270,13 +289,13 @@ class ConnectionOrchestrator: ObservableObject {
         // Record successful allocation
         recordConnectionAttempt(for: peer, success: true)
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("✅ ORCHESTRATED CONNECTION")
-        print("   Peer: \(peer.displayName)")
-        print("   Priority: \(priority.displayName)")
-        print("   Slot: \(slot.id)")
-        print("   Leader: \(networkState.isLeader ? "Yes" : "No")")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("✅ ORCHESTRATED CONNECTION")
+        LoggingService.network.info("   Peer: \(peer.displayName)")
+        LoggingService.network.info("   Priority: \(priority.displayName)")
+        LoggingService.network.info("   Slot: \(slot.id)")
+        LoggingService.network.info("   Leader: \(self.networkState.isLeader ? "Yes" : "No", privacy: .public)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         return true
     }
@@ -345,7 +364,7 @@ class ConnectionOrchestrator: ObservableObject {
 
             // Alert if imminent disconnection predicted
             if case .imminent(let time) = prediction {
-                print("⚠️ Predicted disconnection for \(peer.displayName) in \(Int(time))s")
+                LoggingService.network.info("⚠️ Predicted disconnection for \(peer.displayName) in \(Int(time))s")
                 NotificationCenter.default.post(
                     name: .disconnectionPredicted,
                     object: nil,
@@ -442,13 +461,13 @@ class ConnectionOrchestrator: ObservableObject {
     private func logDecision(_ decision: ConnectionDecision, for peer: MCPeerID) {
         let description = describeDecision(decision, for: peer)
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🎯 ORCHESTRATOR DECISION [\(timestamp)]")
-        print("   Peer: \(peer.displayName)")
-        print("   Decision: \(description)")
-        print("   Network Load: \(String(format: "%.1f%%", networkState.networkLoad * 100))")
-        print("   Battery: \(String(format: "%.0f%%", networkState.batteryLevel * 100))")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🎯 ORCHESTRATOR DECISION [\(timestamp)]")
+        LoggingService.network.info("   Peer: \(peer.displayName)")
+        LoggingService.network.info("   Decision: \(description)")
+        LoggingService.network.info("   Network Load: \(String(format: "%.1f%%", self.networkState.networkLoad * 100), privacy: .public)")
+        LoggingService.network.info("   Battery: \(String(format: "%.0f%%", self.networkState.batteryLevel * 100), privacy: .public)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     private func describeDecision(_ decision: ConnectionDecision, for peer: MCPeerID) -> String {
@@ -456,6 +475,24 @@ class ConnectionOrchestrator: ObservableObject {
         case .accept:
             return "✅ Accept"
         case .reject(let reason):
+            // Check if Lightning Mode should have bypassed this
+            let isUltraFast = UserDefaults.standard.bool(forKey: "lightningModeUltraFast")
+            if isUltraFast {
+                return "❌ Reject: \(reason) [⚠️ BUG: Lightning Mode should have bypassed this!]"
+            }
+
+            // Add helpful suggestions for reputation-based rejections in normal mode
+            if reason.contains("Reputation") {
+                return """
+                ❌ Reject: \(reason)
+                   💡 Solutions:
+                   1. Enable Lightning Mode to bypass reputation checks
+                   2. Reset network settings to clear reputation history
+                   3. Wait for peer reputation to improve over time
+                   4. Check peer's connection history for issues
+                """
+            }
+
             return "❌ Reject: \(reason)"
         case .postpone(let until):
             let seconds = until.timeIntervalSinceNow
@@ -505,7 +542,7 @@ class ConnectionOrchestrator: ObservableObject {
         queue.async { [weak self] in
             guard let self = self else { return }
 
-            print("🔧 Starting connection optimization...")
+            LoggingService.network.info("🔧 Starting connection optimization...")
 
             // Analyze current connections
             let slots = self.connectionPool.getSlotInfo()
@@ -520,12 +557,12 @@ class ConnectionOrchestrator: ObservableObject {
                 // Consider dropping low-value connections
                 if reputation < 30 {
                     if case .imminent = prediction {
-                        print("🔧 Suggesting disconnect from \(peerName) (low value + unstable)")
+                        LoggingService.network.info("🔧 Suggesting disconnect from \(peerName) (low value + unstable)")
                     }
                 }
             }
 
-            print("✅ Optimization complete")
+            LoggingService.network.info("✅ Optimization complete")
         }
     }
 }

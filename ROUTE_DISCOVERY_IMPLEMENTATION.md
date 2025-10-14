@@ -163,7 +163,7 @@ case .notConnected:
 
     // NEW: Remove from route cache
     self.routeCache.removeRoutesVia(nextHop: peerID.displayName)
-    print("🗑️ [RouteCache] Cleaned routes via disconnected peer")
+    LoggingService.network.info("🗑️ [RouteCache] Cleaned routes via disconnected peer")
 ```
 
 `session(_:didReceiveData:fromPeer:)`:
@@ -378,12 +378,12 @@ func testHybridRoutingStrategyPriority()
 ```swift
 // Check route cache status
 let stats = routeCache.getStats()
-print("Routes: \(stats.totalRoutes), Avg Hops: \(stats.avgHops)")
+LoggingService.network.info("Routes: \(stats.totalRoutes), Avg Hops: \(stats.avgHops)")
 
 // List all routes
 let routes = routeCache.getAllRoutes()
 for route in routes {
-    print("\(route.destination) via \(route.nextHop) (\(route.hopCount) hops)")
+    LoggingService.network.info("\(route.destination) via \(route.nextHop) (\(route.hopCount) hops)")
 }
 ```
 

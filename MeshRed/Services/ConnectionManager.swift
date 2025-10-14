@@ -9,6 +9,7 @@
 import Foundation
 import MultipeerConnectivity
 import Combine
+import os
 
 class ConnectionManager: ObservableObject {
     // MARK: - Published Properties
@@ -49,8 +50,8 @@ class ConnectionManager: ObservableObject {
 
         persistData()
 
-        print("🚫 ConnectionManager: Manually disconnected and blocked: \(peerKey)")
-        print("   Total blocked peers: \(blockedPeers.count)")
+        LoggingService.network.info("🚫 ConnectionManager: Manually disconnected and blocked: \(peerKey)")
+        LoggingService.network.info("   Total blocked peers: \(self.blockedPeers.count, privacy: .public)")
     }
 
     /// Manually connect to a peer (unblocks and marks as preferred)
@@ -63,8 +64,8 @@ class ConnectionManager: ObservableObject {
 
         persistData()
 
-        print("✅ ConnectionManager: Unblocked and connecting to: \(peerKey)")
-        print("   Total preferred peers: \(preferredPeers.count)")
+        LoggingService.network.info("✅ ConnectionManager: Unblocked and connecting to: \(peerKey)")
+        LoggingService.network.info("   Total preferred peers: \(self.preferredPeers.count, privacy: .public)")
     }
 
     /// Unblock a peer without marking as preferred
@@ -74,7 +75,7 @@ class ConnectionManager: ObservableObject {
 
         persistData()
 
-        print("🔓 ConnectionManager: Unblocked: \(peerID)")
+        LoggingService.network.info("🔓 ConnectionManager: Unblocked: \(peerID)")
     }
 
     /// Unblock all peers
@@ -84,7 +85,7 @@ class ConnectionManager: ObservableObject {
 
         persistData()
 
-        print("🔓 ConnectionManager: Unblocked all peers")
+        LoggingService.network.info("🔓 ConnectionManager: Unblocked all peers")
     }
 
     /// Check if can connect to more peers based on limit
@@ -119,12 +120,12 @@ class ConnectionManager: ObservableObject {
     private func loadPersistedData() {
         if let blocked = UserDefaults.standard.array(forKey: blockedPeersKey) as? [String] {
             blockedPeers = Set(blocked)
-            print("📂 ConnectionManager: Loaded \(blocked.count) blocked peers")
+            LoggingService.network.info("📂 ConnectionManager: Loaded \(blocked.count) blocked peers")
         }
 
         if let preferred = UserDefaults.standard.array(forKey: preferredPeersKey) as? [String] {
             preferredPeers = Set(preferred)
-            print("📂 ConnectionManager: Loaded \(preferred.count) preferred peers")
+            LoggingService.network.info("📂 ConnectionManager: Loaded \(preferred.count) preferred peers")
         }
     }
 
@@ -138,7 +139,7 @@ class ConnectionManager: ObservableObject {
         let timeSinceLastBlock = currentTime - lastBlockTime
 
         if timeSinceLastBlock > autoUnblockInterval {
-            print("🧹 ConnectionManager: Auto-cleaning blocks older than 24h")
+            LoggingService.network.info("🧹 ConnectionManager: Auto-cleaning blocks older than 24h")
             blockedPeers.removeAll()
             persistData()
         }
@@ -166,9 +167,9 @@ class ConnectionManager: ObservableObject {
         #if DEBUG
         let blockedCount = blockedPeers.count
         if blockedCount > 0 {
-            print("🧹 [DEV] Clearing \(blockedCount) blocked peers for development:")
+            LoggingService.network.info("🧹 [DEV] Clearing \(blockedCount) blocked peers for development:")
             for peer in blockedPeers {
-                print("   - \(peer)")
+                LoggingService.network.info("   - \(peer)")
             }
             unblockAllPeers()
         }

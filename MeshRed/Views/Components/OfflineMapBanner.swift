@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import os
 
 struct OfflineMapBanner: View {
     let onDownload: () -> Void
@@ -52,7 +53,7 @@ struct OfflineMapBanner: View {
 #Preview {
     VStack(spacing: 20) {
         OfflineMapBanner(onDownload: {
-            print("Download tapped")
+            LoggingService.network.info("Download tapped")
         })
 
         OfflineMapBanner(onDownload: {})

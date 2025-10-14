@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import CoreLocation
+import os
 
 /// Coordinates all background survival techniques for extended MultipeerConnectivity
 /// Combines: Live Activities + Location Updates + Keep-Alive Pings
@@ -37,7 +38,7 @@ class StadiumModeManager: ObservableObject {
     // MARK: - Initialization
 
     private init() {
-        print("🏟️ StadiumModeManager: Initialized")
+        LoggingService.network.info("🏟️ StadiumModeManager: Initialized")
     }
 
     // MARK: - Setup
@@ -48,7 +49,7 @@ class StadiumModeManager: ObservableObject {
         self.locationService = locationService
         self.keepAliveManager.setNetworkManager(networkManager)
 
-        print("🏟️ StadiumModeManager: Dependencies configured")
+        LoggingService.network.info("🏟️ StadiumModeManager: Dependencies configured")
     }
 
     // MARK: - Public Methods
@@ -56,37 +57,37 @@ class StadiumModeManager: ObservableObject {
     /// Enable Stadium Mode (Extended Background Survival)
     func enable() {
         guard !isActive else {
-            print("⚠️ Stadium Mode already active")
+            LoggingService.network.info("⚠️ Stadium Mode already active")
             return
         }
 
         guard let networkManager = networkManager,
               let locationService = locationService else {
-            print("❌ Stadium Mode: Dependencies not set")
+            LoggingService.network.info("❌ Stadium Mode: Dependencies not set")
             return
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🏟️ ENABLING STADIUM MODE")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🏟️ ENABLING STADIUM MODE")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Layer 1: Start Live Activity (UI visibility)
         if #available(iOS 16.1, *) {
             if !networkManager.hasActiveLiveActivity {
                 networkManager.startLiveActivity()
-                print("✅ Layer 1: Live Activity started")
+                LoggingService.network.info("✅ Layer 1: Live Activity started")
             } else {
-                print("✅ Layer 1: Live Activity already running")
+                LoggingService.network.info("✅ Layer 1: Live Activity already running")
             }
         }
 
         // Layer 2: Enable continuous location updates (background time extension)
         enableContinuousLocationUpdates()
-        print("✅ Layer 2: Continuous location updates enabled")
+        LoggingService.network.info("✅ Layer 2: Continuous location updates enabled")
 
         // Layer 3: Start keep-alive pings (network stability)
         keepAliveManager.start()
-        print("✅ Layer 3: Keep-alive pings started")
+        LoggingService.network.info("✅ Layer 3: Keep-alive pings started")
 
         // Update state
         isActive = true
@@ -97,13 +98,13 @@ class StadiumModeManager: ObservableObject {
         // Start uptime counter
         startUptimeTimer()
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🏟️ STADIUM MODE ACTIVE (AUTOMOTIVE NAVIGATION)")
-        print("   Estimated Background Time: 1-2 HOURS")
-        print("   Battery Impact: High (~20%/hour)")
-        print("   Layers: Live Activity + GPS Navigation + Keep-Alive")
-        print("   ⚠️  Blue bar will be visible (iOS transparency)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🏟️ STADIUM MODE ACTIVE (AUTOMOTIVE NAVIGATION)")
+        LoggingService.network.info("   Estimated Background Time: 1-2 HOURS")
+        LoggingService.network.info("   Battery Impact: High (~20%/hour)")
+        LoggingService.network.info("   Layers: Live Activity + GPS Navigation + Keep-Alive")
+        LoggingService.network.info("   ⚠️  Blue bar will be visible (iOS transparency)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Send notification to user
         sendStadiumModeNotification(enabled: true)
@@ -112,25 +113,25 @@ class StadiumModeManager: ObservableObject {
     /// Disable Stadium Mode
     func disable() {
         guard isActive else {
-            print("⚠️ Stadium Mode already inactive")
+            LoggingService.network.info("⚠️ Stadium Mode already inactive")
             return
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🏟️ DISABLING STADIUM MODE")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🏟️ DISABLING STADIUM MODE")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Layer 3: Stop keep-alive pings
         keepAliveManager.stop()
-        print("✅ Layer 3: Keep-alive pings stopped")
+        LoggingService.network.info("✅ Layer 3: Keep-alive pings stopped")
 
         // Layer 2: Disable continuous location updates
         disableContinuousLocationUpdates()
-        print("✅ Layer 2: Continuous location updates disabled")
+        LoggingService.network.info("✅ Layer 2: Continuous location updates disabled")
 
         // Layer 1: Keep Live Activity running (user can dismiss manually)
         // We don't stop Live Activity to maintain visibility
-        print("✅ Layer 1: Live Activity kept running (user can dismiss)")
+        LoggingService.network.info("✅ Layer 1: Live Activity kept running (user can dismiss)")
 
         // Update state
         isActive = false
@@ -142,11 +143,11 @@ class StadiumModeManager: ObservableObject {
         uptimeTimer = nil
 
         if let duration = getUptime() {
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("🏟️ STADIUM MODE DISABLED")
-            print("   Total Duration: \(formatDuration(duration))")
-            print("   Keep-Alive Pings: \(keepAliveManager.pingCount)")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("🏟️ STADIUM MODE DISABLED")
+            LoggingService.network.info("   Total Duration: \(self.formatDuration(duration), privacy: .public)")
+            LoggingService.network.info("   Keep-Alive Pings: \(self.keepAliveManager.pingCount, privacy: .public)")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         }
 
         startTime = nil
@@ -172,7 +173,7 @@ class StadiumModeManager: ObservableObject {
         // Use LocationService's Stadium Mode methods
         locationService.enableStadiumMode()
 
-        print("📍 Location: Stadium Mode enabled via LocationService")
+        LoggingService.network.info("📍 Location: Stadium Mode enabled via LocationService")
     }
 
     private func disableContinuousLocationUpdates() {
@@ -181,7 +182,7 @@ class StadiumModeManager: ObservableObject {
         // Use LocationService's Stadium Mode methods
         locationService.disableStadiumMode()
 
-        print("📍 Location: Stadium Mode disabled via LocationService")
+        LoggingService.network.info("📍 Location: Stadium Mode disabled via LocationService")
     }
 
     // MARK: - Statistics & Monitoring
@@ -242,7 +243,7 @@ class StadiumModeManager: ObservableObject {
         // Could send local notification to inform user
         // For now, just log
         let status = enabled ? "ACTIVADO" : "DESACTIVADO"
-        print("📢 Notificación: Modo Estadio \(status)")
+        LoggingService.network.info("📢 Notificación: Modo Estadio \(status)")
     }
 
     // MARK: - Battery Impact Enum

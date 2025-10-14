@@ -8,6 +8,7 @@
 
 import Foundation
 import MultipeerConnectivity
+import os
 
 // MARK: - Mock Data Manager
 class MockDataManager {
@@ -130,7 +131,7 @@ class MockDataManager {
         let unreadCount = 0  // Siempre 0 para grupos simulados
 
         #if DEBUG
-        print("📊 [MockDataManager] Converting group '\(groupData.name)' - No messages")
+        LoggingService.network.info("📊 [MockDataManager] Converting group '\(groupData.name)' - No messages")
         #endif
 
         return MockFamilyGroup(

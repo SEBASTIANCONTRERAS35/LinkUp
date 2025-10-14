@@ -8,6 +8,7 @@
 
 import SwiftUI
 import MultipeerConnectivity
+import os
 
 struct MainDashboardContainer: View {
     @EnvironmentObject var networkManager: NetworkManager
@@ -103,7 +104,7 @@ struct StadiumDashboardViewContent: View {
                             iconColor: Mundial2026Colors.verde,
                             backgroundColor: Mundial2026Colors.verde.opacity(0.15)
                         ) {
-                            print("Tu red tapped")
+                            LoggingService.network.info("Tu red tapped")
                         }
 
                         FeatureCard(
@@ -120,7 +121,7 @@ struct StadiumDashboardViewContent: View {
                             iconColor: Mundial2026Colors.azul,
                             backgroundColor: Mundial2026Colors.azul.opacity(0.15)
                         ) {
-                            print("Ubicaciones tapped")
+                            LoggingService.network.info("Ubicaciones tapped")
                         }
 
                         FeatureCard(
@@ -129,7 +130,7 @@ struct StadiumDashboardViewContent: View {
                             iconColor: Mundial2026Colors.rojo,
                             backgroundColor: Mundial2026Colors.rojo.opacity(0.15)
                         ) {
-                            print("Perimetros tapped")
+                            LoggingService.network.info("Perimetros tapped")
                         }
                     }
 

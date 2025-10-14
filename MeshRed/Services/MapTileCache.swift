@@ -9,6 +9,7 @@
 
 import Foundation
 import UIKit
+import os
 
 /// Manages local storage and retrieval of map tiles for offline use
 class MapTileCache {
@@ -60,10 +61,10 @@ class MapTileCache {
         createCacheDirectoryIfNeeded()
         calculateCacheStats()
 
-        print("🗺️ [MapTileCache] Initialized")
-        print("   Base directory: \(baseDirectory.path)")
-        print("   Cache size: \(String(format: "%.2f", stats.sizeMB)) MB")
-        print("   Total tiles: \(stats.totalTiles)")
+        LoggingService.network.info("🗺️ [MapTileCache] Initialized")
+        LoggingService.network.info("   Base directory: \(self.baseDirectory.path, privacy: .public)")
+        LoggingService.network.info("   Cache size: \(String(format: "%.2f", self.stats.sizeMB), privacy: .public) MB")
+        LoggingService.network.info("   Total tiles: \(self.stats.totalTiles, privacy: .public)")
     }
 
     // MARK: - Public Methods
@@ -97,10 +98,10 @@ class MapTileCache {
                     self.cleanupOldTiles()
                 }
 
-                print("💾 [MapTileCache] Saved tile z=\(z) x=\(x) y=\(y) (\(data.count) bytes)")
+                LoggingService.network.info("💾 [MapTileCache] Saved tile z=\(z) x=\(x) y=\(y) (\(data.count) bytes)")
 
             } catch {
-                print("❌ [MapTileCache] Failed to save tile: \(error)")
+                LoggingService.network.info("❌ [MapTileCache] Failed to save tile: \(error)")
             }
         }
     }
@@ -125,7 +126,7 @@ class MapTileCache {
                 stats.hitCount += 1
                 return data
             } catch {
-                print("❌ [MapTileCache] Failed to load tile: \(error)")
+                LoggingService.network.info("❌ [MapTileCache] Failed to load tile: \(error)")
                 stats.missCount += 1
                 return nil
             }
@@ -158,10 +159,10 @@ class MapTileCache {
                 self.stats.totalTiles -= 1
                 self.stats.totalSizeBytes -= fileSize
 
-                print("🗑️ [MapTileCache] Deleted tile z=\(z) x=\(x) y=\(y)")
+                LoggingService.network.info("🗑️ [MapTileCache] Deleted tile z=\(z) x=\(x) y=\(y)")
 
             } catch {
-                print("❌ [MapTileCache] Failed to delete tile: \(error)")
+                LoggingService.network.info("❌ [MapTileCache] Failed to delete tile: \(error)")
             }
         }
     }
@@ -183,10 +184,10 @@ class MapTileCache {
                 self.stats = CacheStats()
                 self.stats.lastCleanup = Date()
 
-                print("🗑️ [MapTileCache] Cache cleared completely")
+                LoggingService.network.info("🗑️ [MapTileCache] Cache cleared completely")
 
             } catch {
-                print("❌ [MapTileCache] Failed to clear cache: \(error)")
+                LoggingService.network.info("❌ [MapTileCache] Failed to clear cache: \(error)")
             }
         }
     }
@@ -206,10 +207,10 @@ class MapTileCache {
                 // Recalculate stats
                 self.calculateCacheStats()
 
-                print("🗑️ [MapTileCache] Cleared zoom level \(z)")
+                LoggingService.network.info("🗑️ [MapTileCache] Cleared zoom level \(z)")
 
             } catch {
-                print("❌ [MapTileCache] Failed to clear zoom level: \(error)")
+                LoggingService.network.info("❌ [MapTileCache] Failed to clear zoom level: \(error)")
             }
         }
     }
@@ -243,9 +244,9 @@ class MapTileCache {
         if !fileManager.fileExists(atPath: baseDirectory.path) {
             do {
                 try fileManager.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
-                print("📁 [MapTileCache] Created cache directory")
+                LoggingService.network.info("📁 [MapTileCache] Created cache directory")
             } catch {
-                print("❌ [MapTileCache] Failed to create cache directory: \(error)")
+                LoggingService.network.info("❌ [MapTileCache] Failed to create cache directory: \(error)")
             }
         }
     }
@@ -256,7 +257,7 @@ class MapTileCache {
         var totalSize: Int64 = 0
 
         guard let enumerator = fileManager.enumerator(at: baseDirectory, includingPropertiesForKeys: [.fileSizeKey]) else {
-            print("⚠️ [MapTileCache] Failed to create enumerator")
+            LoggingService.network.info("⚠️ [MapTileCache] Failed to create enumerator")
             return
         }
 
@@ -276,7 +277,7 @@ class MapTileCache {
 
     /// Cleanup old tiles when cache exceeds maximum size
     private func cleanupOldTiles() {
-        print("🧹 [MapTileCache] Starting cleanup (cache: \(String(format: "%.2f", stats.sizeMB)) MB)")
+        LoggingService.network.info("🧹 [MapTileCache] Starting cleanup (cache: \(String(format: "%.2f", self.stats.sizeMB), privacy: .public) MB)")
 
         // Get all tile files with modification dates
         var tilesWithDates: [(url: URL, date: Date, size: Int64)] = []
@@ -313,7 +314,7 @@ class MapTileCache {
                 currentSize -= tile.size
                 removedCount += 1
             } catch {
-                print("❌ [MapTileCache] Failed to remove tile during cleanup: \(error)")
+                LoggingService.network.info("❌ [MapTileCache] Failed to remove tile during cleanup: \(error)")
             }
         }
 
@@ -322,8 +323,8 @@ class MapTileCache {
         stats.totalSizeBytes = currentSize
         stats.lastCleanup = Date()
 
-        print("🧹 [MapTileCache] Cleanup complete")
-        print("   Removed: \(removedCount) tiles")
-        print("   New size: \(String(format: "%.2f", stats.sizeMB)) MB")
+        LoggingService.network.info("🧹 [MapTileCache] Cleanup complete")
+        LoggingService.network.info("   Removed: \(removedCount) tiles")
+        LoggingService.network.info("   New size: \(String(format: "%.2f", self.stats.sizeMB), privacy: .public) MB)")
     }
 }

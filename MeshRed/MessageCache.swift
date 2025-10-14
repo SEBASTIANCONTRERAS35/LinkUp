@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 class MessageCache {
     private var cache: [UUID: Date] = [:]
@@ -22,7 +23,7 @@ class MessageCache {
                 if isExpired {
                     return false
                 }
-                print("🔁 Mensaje duplicado detectado: \(messageId)")
+                LoggingService.network.info("🔁 Mensaje duplicado detectado: \(messageId)")
                 return true
             }
             return false
@@ -39,7 +40,7 @@ class MessageCache {
                 self.pruneOldestEntries()
             }
 
-            print("✅ Mensaje marcado como visto: \(messageId) - Cache: \(self.cache.count)/\(self.maxCacheSize)")
+            LoggingService.network.info("✅ Mensaje marcado como visto: \(messageId) - Cache: \(self.cache.count)/\(self.maxCacheSize)")
         }
     }
 
@@ -80,7 +81,7 @@ class MessageCache {
             cache.removeValue(forKey: key)
         }
 
-        print("🧹 Cache podado: Removidos \(keysToRemove.count) mensajes antiguos")
+        LoggingService.network.info("🧹 Cache podado: Removidos \(keysToRemove.count) mensajes antiguos")
     }
 
     private func pruneOldestEntriesInternal() {
@@ -114,7 +115,7 @@ class MessageCache {
             }
 
             if expiredCount > 0 {
-                print("🧹 Limpieza automática: Removidos \(expiredCount) mensajes expirados - Cache actual: \(self.cache.count)")
+                LoggingService.network.info("🧹 Limpieza automática: Removidos \(expiredCount) mensajes expirados - Cache actual: \(self.cache.count)")
             }
         }
     }
@@ -130,7 +131,7 @@ class MessageCache {
     func clear() {
         queue.async(flags: .barrier) { [weak self] in
             self?.cache.removeAll()
-            print("🗑️ Cache de mensajes limpiado completamente")
+            LoggingService.network.info("🗑️ Cache de mensajes limpiado completamente")
         }
     }
 

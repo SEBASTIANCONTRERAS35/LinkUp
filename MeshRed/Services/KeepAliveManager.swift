@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import MultipeerConnectivity
+import os
 
 /// Manages keep-alive pings to prevent MultipeerConnectivity timeout
 /// Sends small "heartbeat" messages every 15 seconds to maintain connection stability
@@ -28,7 +29,7 @@ class KeepAliveManager: ObservableObject {
     // MARK: - Initialization
 
     init() {
-        print("🫀 KeepAliveManager: Initialized")
+        LoggingService.network.info("🫀 KeepAliveManager: Initialized")
     }
 
     deinit {
@@ -45,12 +46,12 @@ class KeepAliveManager: ObservableObject {
     /// Start sending keep-alive pings
     func start() {
         guard !isActive else {
-            print("⚠️ KeepAliveManager: Already active")
+            LoggingService.network.info("⚠️ KeepAliveManager: Already active")
             return
         }
 
         guard networkManager != nil else {
-            print("❌ KeepAliveManager: NetworkManager not set")
+            LoggingService.network.info("❌ KeepAliveManager: NetworkManager not set")
             return
         }
 
@@ -67,11 +68,11 @@ class KeepAliveManager: ObservableObject {
             RunLoop.current.add(timer, forMode: .common)
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🫀 KEEP-ALIVE STARTED")
-        print("   Interval: \(pingInterval)s")
-        print("   Mode: Background-safe")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🫀 KEEP-ALIVE STARTED")
+        LoggingService.network.info("   Interval: \(self.pingInterval)s")
+        LoggingService.network.info("   Mode: Background-safe")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     /// Stop sending keep-alive pings
@@ -82,14 +83,14 @@ class KeepAliveManager: ObservableObject {
         timer = nil
         isActive = false
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🫀 KEEP-ALIVE STOPPED")
-        print("   Total Pings Sent: \(pingCount)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🫀 KEEP-ALIVE STOPPED")
+        LoggingService.network.info("   Total Pings Sent: \(self.pingCount)")
         if let lastPing = lastPingTime {
             let duration = Date().timeIntervalSince(lastPing)
-            print("   Last Ping: \(String(format: "%.1f", duration))s ago")
+            LoggingService.network.info("   Last Ping: \(String(format: "%.1f", duration))s ago")
         }
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     /// Send a single keep-alive ping immediately (for testing)
@@ -101,13 +102,13 @@ class KeepAliveManager: ObservableObject {
 
     private func sendKeepAlivePing() {
         guard let networkManager = networkManager else {
-            print("❌ KeepAliveManager: NetworkManager lost")
+            LoggingService.network.info("❌ KeepAliveManager: NetworkManager lost")
             stop()
             return
         }
 
         guard !networkManager.connectedPeers.isEmpty else {
-            print("⏭️ KeepAliveManager: No peers to ping, skipping")
+            LoggingService.network.info("⏭️ KeepAliveManager: No peers to ping, skipping")
             return
         }
 
@@ -133,11 +134,11 @@ class KeepAliveManager: ObservableObject {
                     }
                 }
             } catch {
-                print("❌ KeepAliveManager: Failed to encode ping - \(error.localizedDescription)")
+                LoggingService.network.info("❌ KeepAliveManager: Failed to encode ping - \(error.localizedDescription)")
             }
         }
 
-        print("🫀 Keep-Alive ping #\(pingCount + 1) → \(networkManager.connectedPeers.count) peers")
+        LoggingService.network.info("🫀 Keep-Alive ping #\(self.pingCount + 1) → \(networkManager.connectedPeers.count) peers")
     }
 
     // MARK: - Statistics
@@ -194,13 +195,13 @@ extension NetworkManager {
 
             // Update peer's last seen time
             // This helps PeerHealthMonitor know the peer is still alive
-            print("🫀 Received keep-alive from \(peerID) - peers: \(ping.peerCount)")
+            LoggingService.network.info("🫀 Received keep-alive from \(peerID) - peers: \(ping.peerCount)")
 
             // Optionally send ACK (not necessary for keep-alive)
             // Could update peer health metrics here
 
         } catch {
-            print("⚠️ Failed to decode keep-alive ping: \(error)")
+            LoggingService.network.info("⚠️ Failed to decode keep-alive ping: \(error)")
         }
     }
 }

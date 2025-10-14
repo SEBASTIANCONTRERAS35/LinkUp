@@ -8,6 +8,7 @@
 
 import SwiftUI
 import CoreLocation
+import os
 
 struct StadiumModeSettingsView: View {
     @Environment(\.dismiss) var dismiss
@@ -449,13 +450,13 @@ struct StadiumModeSettingsView: View {
             }
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🧪 TEST MESSAGE SENT FROM UI")
-        print("   Total test messages: \(testMessagesSent)")
-        print("   Sender: \(randomSender)")
-        print("   Content: \(randomMessage)")
-        print("   ✅ Check Dynamic Island for message counter!")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🧪 TEST MESSAGE SENT FROM UI")
+        LoggingService.network.info("   Total test messages: \(testMessagesSent)")
+        LoggingService.network.info("   Sender: \(randomSender)")
+        LoggingService.network.info("   Content: \(randomMessage)")
+        LoggingService.network.info("   ✅ Check Dynamic Island for message counter!")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 }
 

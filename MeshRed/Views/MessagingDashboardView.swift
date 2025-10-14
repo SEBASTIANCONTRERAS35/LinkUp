@@ -8,6 +8,7 @@
 import SwiftUI
 import MultipeerConnectivity
 import Combine
+import os
 
 struct MessagingDashboardView: View {
     @EnvironmentObject var networkManager: NetworkManager
@@ -859,7 +860,7 @@ struct ChatConversationView: View {
 
     private func openUWBNavigation() {
         guard let peerID = chat.peerID else {
-            print("❌ No peer ID available for navigation")
+            LoggingService.network.info("❌ No peer ID available for navigation")
             return
         }
 
@@ -867,38 +868,38 @@ struct ChatConversationView: View {
         if let uwbManager = networkManager.uwbSessionManager {
             // Check if LinkFinder is supported
             guard uwbManager.isLinkFinderSupported else {
-                print("⚠️ LinkFinder not supported on this device")
+                LoggingService.network.info("⚠️ LinkFinder not supported on this device")
                 showUWBNavigation = true  // Will show fallback view
                 return
             }
 
             // Ensure LinkFinder session is active with this peer
             if !uwbManager.hasActiveSession(with: peerID) {
-                print("📡 Starting LinkFinder session for navigation with \(peerID.displayName)")
+                LoggingService.network.info("📡 Starting LinkFinder session for navigation with \(peerID.displayName)")
                 // LinkFinder session will be started automatically by NetworkManager
                 // when peer is connected
             }
 
             showUWBNavigation = true
         } else {
-            print("⚠️ LinkFinder Manager not initialized")
+            LoggingService.network.info("⚠️ LinkFinder Manager not initialized")
             showUWBNavigation = true  // Will show fallback view
         }
     }
 
     private func markMessagesAsRead() {
-        print("🔍 [MarkAsRead] Called - chat.type: \(chat.type), chat.id: \(chat.id)")
+        LoggingService.network.info("🔍 [MarkAsRead] Called - chat.type: \(String(describing: chat.type)), chat.id: \(chat.id)")
 
         switch chat.type {
         case .familyGroup:
             // Usar directamente chat.id que ya es el conversationId completo
-            print("📋 [MarkAsRead] Family Group conversation: \(chat.id)")
+            LoggingService.network.info("📋 [MarkAsRead] Family Group conversation: \(chat.id)")
 
             // Marcar toda la conversación del grupo como leída en MessageStore
             networkManager.messageStore.markConversationAsRead(conversationId: chat.id)
 
             let unreadCount = networkManager.messageStore.getUnreadCount(for: chat.id)
-            print("✅ [MarkAsRead] Marked group messages as read. Remaining unread: \(unreadCount)")
+            LoggingService.network.info("✅ [MarkAsRead] Marked group messages as read. Remaining unread: \(unreadCount)")
 
             // Para compatibilidad con el sistema antiguo, también actualizar MessageReadStateManager si hay activeGroupData
             if let groupData = mockGroupsManager.activeGroupData {
@@ -922,25 +923,25 @@ struct ChatConversationView: View {
 
         case .individual:
             // Usar directamente chat.id que ya es el conversationId completo
-            print("📋 [MarkAsRead] Individual conversation: \(chat.id)")
+            LoggingService.network.info("📋 [MarkAsRead] Individual conversation: \(chat.id)")
 
             // Marcar toda la conversación como leída en MessageStore
             networkManager.messageStore.markConversationAsRead(conversationId: chat.id)
 
             let unreadCount = networkManager.messageStore.getUnreadCount(for: chat.id)
-            print("✅ [MarkAsRead] Marked individual messages as read. Remaining unread: \(unreadCount)")
+            LoggingService.network.info("✅ [MarkAsRead] Marked individual messages as read. Remaining unread: \(unreadCount)")
 
         case .broadcast:
             // Mark broadcast messages as read
-            print("📋 [MarkAsRead] Broadcast conversation")
+            LoggingService.network.info("📋 [MarkAsRead] Broadcast conversation")
             let publicConvId = ConversationIdentifier.public.rawValue
             let unreadCount = networkManager.messageStore.getUnreadCount(for: publicConvId)
 
-            print("   Public conv (\(publicConvId)): \(unreadCount) unread")
+            LoggingService.network.info("   Public conv (\(publicConvId)): \(unreadCount) unread")
 
             networkManager.messageStore.markConversationAsRead(conversationId: publicConvId)
 
-            print("✅ [MarkAsRead] Marked broadcast messages as read")
+            LoggingService.network.info("✅ [MarkAsRead] Marked broadcast messages as read")
         }
     }
 }

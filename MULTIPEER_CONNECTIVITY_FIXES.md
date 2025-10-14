@@ -58,7 +58,7 @@ private func safeSend(
 
     // Log si filtramos peers
     if validPeers.count < peers.count {
-        print("⚠️ safeSend: Filtered out disconnected peers")
+        LoggingService.network.info("⚠️ safeSend: Filtered out disconnected peers")
     }
 
     // Enviar solo a peers validados
@@ -120,29 +120,29 @@ private struct ConnectionMetrics {
 
 ```swift
 private func logTransportDiagnostics(for peer: MCPeerID) {
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print("📊 TRANSPORT LAYER DIAGNOSTICS")
-    print("   Peer: \(peer.displayName)")
-    print("   Connection duration: \(duration)s")
-    print("   Disconnect count: \(count)")
-    print("   ")
-    print("🔍 PROBABLE CAUSES:")
+    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    LoggingService.network.info("📊 TRANSPORT LAYER DIAGNOSTICS")
+    LoggingService.network.info("   Peer: \(peer.displayName)")
+    LoggingService.network.info("   Connection duration: \(duration)s")
+    LoggingService.network.info("   Disconnect count: \(count)")
+    LoggingService.network.info("   ")
+    LoggingService.network.info("🔍 PROBABLE CAUSES:")
 
     if disconnectTime < 15s {
-        print("   ❌ VERY SHORT CONNECTION (<15s)")
-        print("      → WiFi Direct transport likely failing")
-        print("      → TCP socket timing out after handshake")
+        LoggingService.network.info("   ❌ VERY SHORT CONNECTION (<15s)")
+        LoggingService.network.info("      → WiFi Direct transport likely failing")
+        LoggingService.network.info("      → TCP socket timing out after handshake")
     }
 
     if lastSocketTimeout != nil {
-        print("   ❌ SOCKET TIMEOUT DETECTED")
-        print("      → WiFi Direct → Bluetooth fallback not working")
+        LoggingService.network.info("   ❌ SOCKET TIMEOUT DETECTED")
+        LoggingService.network.info("      → WiFi Direct → Bluetooth fallback not working")
     }
 
-    print("💡 RECOMMENDED ACTIONS:")
-    print("   1. Try disabling WiFi to force Bluetooth-only mode")
-    print("   2. Move devices closer together (< 10m)")
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    LoggingService.network.info("💡 RECOMMENDED ACTIONS:")
+    LoggingService.network.info("   1. Try disabling WiFi to force Bluetooth-only mode")
+    LoggingService.network.info("   2. Move devices closer together (< 10m)")
+    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 }
 ```
 

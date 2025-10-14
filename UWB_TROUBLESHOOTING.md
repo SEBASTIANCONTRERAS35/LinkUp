@@ -91,7 +91,7 @@ Para ver el estado detallado de LinkFinder:
 
 ```swift
 // En ContentView, cuando se detecta sesión sin ranging:
-print(uwbManager.getUWBStatus(for: peer))
+LoggingService.network.info(uwbManager.getUWBStatus(for: peer))
 // Output:
 // LinkFinder Status for iphone-de-bichotee.local:
 //   • Session: ✅

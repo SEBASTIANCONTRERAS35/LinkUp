@@ -1,6 +1,7 @@
 import Foundation
 import MultipeerConnectivity
 import Combine
+import os
 
 /// Manages connection slots with intelligent prioritization
 class ConnectionPoolManager: ObservableObject {
@@ -116,12 +117,12 @@ class ConnectionPoolManager: ObservableObject {
         startMonitoring()
 
         // Log initial state for debugging
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🎰 CONNECTION POOL INITIALIZED")
-        print("   Max Connections: \(maxConnections)")
-        print("   Slots Created: \(slots.count)")
-        print("   Configuration: \(slotConfiguration)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🎰 CONNECTION POOL INITIALIZED")
+        LoggingService.network.info("   Max Connections: \(maxConnections)")
+        LoggingService.network.info("   Slots Created: \(self.slots.count, privacy: .public)")
+        LoggingService.network.info("   Configuration: \(String(describing: self.slotConfiguration), privacy: .public)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     private func buildInitialSlots() {
@@ -195,7 +196,7 @@ class ConnectionPoolManager: ObservableObject {
 
             let totalConfigured = config.values.reduce(0, +)
             guard totalConfigured <= self.maxConnections else {
-                print("❌ Invalid configuration: total slots exceed max connections")
+                LoggingService.network.info("❌ Invalid configuration: total slots exceed max connections")
                 return
             }
 
@@ -262,7 +263,7 @@ class ConnectionPoolManager: ObservableObject {
         return queue.sync(flags: .barrier) {
             // Check if peer already has a slot
             if let existingSlotIndex = slots.firstIndex(where: { $0.peer?.displayName == peer.displayName }) {
-                print("✅ Peer \(peer.displayName) already has slot")
+                LoggingService.network.info("✅ Peer \(peer.displayName) already has slot")
                 return slots[existingSlotIndex]
             }
 
@@ -273,12 +274,12 @@ class ConnectionPoolManager: ObservableObject {
                 updateCounts()
 
                 let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("🎰 SLOT ALLOCATED [\(timestamp)]")
-                print("   Peer: \(peer.displayName)")
-                print("   Priority: \(priority.color) \(priority.displayName)")
-                print("   Slot: \(slotIndex + 1)/\(totalCapacity)")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("🎰 SLOT ALLOCATED [\(timestamp)]")
+                LoggingService.network.info("   Peer: \(peer.displayName)")
+                LoggingService.network.info("   Priority: \(priority.color) \(priority.displayName)")
+                LoggingService.network.info("   Slot: \(slotIndex + 1, privacy: .public)/\(self.totalCapacity, privacy: .public)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 return slots[slotIndex]
             }
@@ -303,17 +304,17 @@ class ConnectionPoolManager: ObservableObject {
                 updateCounts()
 
                 let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("⚡ SLOT ALLOCATED (WITH EVICTION) [\(timestamp)]")
-                print("   New Peer: \(peer.displayName)")
-                print("   Evicted: \(evictedPeer?.displayName ?? "none")")
-                print("   Priority: \(priority.color) \(priority.displayName)")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("⚡ SLOT ALLOCATED (WITH EVICTION) [\(timestamp)]")
+                LoggingService.network.info("   New Peer: \(peer.displayName)")
+                LoggingService.network.info("   Evicted: \(evictedPeer?.displayName ?? "none")")
+                LoggingService.network.info("   Priority: \(priority.color) \(priority.displayName)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 return slots[evictableSlotIndex]
             }
 
-            print("❌ No available slot for \(peer.displayName) with priority \(priority.displayName)")
+            LoggingService.network.info("❌ No available slot for \(peer.displayName) with priority \(priority.displayName)")
             return nil
         }
     }
@@ -328,7 +329,7 @@ class ConnectionPoolManager: ObservableObject {
                 self.updateCounts()
 
                 let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-                print("🎰 Slot released for \(peer.displayName) [\(timestamp)]")
+                LoggingService.network.info("🎰 Slot released for \(peer.displayName) [\(timestamp)]")
             }
         }
     }
@@ -344,7 +345,7 @@ class ConnectionPoolManager: ObservableObject {
                 }
 
                 updateCounts()
-                print("📌 Slot reserved for \(peerId) for \(duration)s")
+                LoggingService.network.info("📌 Slot reserved for \(peerId) for \(duration)s")
                 return true
             }
             return false
@@ -358,7 +359,7 @@ class ConnectionPoolManager: ObservableObject {
             if let slotIndex = self.slots.firstIndex(where: { $0.reservedFor == peerId }) {
                 self.slots[slotIndex].reservedFor = nil
                 self.updateCounts()
-                print("📌 Reservation cleared for \(peerId)")
+                LoggingService.network.info("📌 Reservation cleared for \(peerId)")
             }
         }
     }
@@ -440,7 +441,7 @@ class ConnectionPoolManager: ObservableObject {
                 let idleTime = now.timeIntervalSince(lastActivity)
 
                 if idleTime > slot.timeout {
-                    print("⏰ Idle timeout for \(slot.peer?.displayName ?? "unknown")")
+                    LoggingService.network.info("⏰ Idle timeout for \(slot.peer?.displayName ?? "unknown")")
 
                     // Notify about idle timeout
                     if let peer = slot.peer {
@@ -525,7 +526,7 @@ class ConnectionPoolManager: ObservableObject {
                         self.slots[betterSlotIndex] = newSlot
                         self.slots[currentSlotIndex].release()
 
-                        print("📊 Moved \(peer.displayName) to \(newPriority.displayName) priority slot")
+                        LoggingService.network.info("📊 Moved \(peer.displayName) to \(newPriority.displayName) priority slot")
                     }
                 }
             }

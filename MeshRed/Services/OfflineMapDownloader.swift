@@ -10,6 +10,7 @@
 import Foundation
 import MapKit
 import Combine
+import os
 
 /// Downloads map tiles for offline use in a specific region
 class OfflineMapDownloader: ObservableObject {
@@ -57,16 +58,16 @@ class OfflineMapDownloader: ObservableObject {
     ///   - radiusKm: Radius in kilometers (default 20)
     func downloadRegion(center: CLLocationCoordinate2D, radiusKm: Double = 20.0) {
         guard !isDownloading else {
-            print("⚠️ [OfflineMapDownloader] Download already in progress")
+            LoggingService.network.info("⚠️ [OfflineMapDownloader] Download already in progress")
             return
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🌍 [OfflineMapDownloader] Starting download")
-        print("   Center: \(center.latitude), \(center.longitude)")
-        print("   Radius: \(radiusKm) km")
-        print("   Zoom levels: \(zoomLevels)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🌍 [OfflineMapDownloader] Starting download")
+        LoggingService.network.info("   Center: \(center.latitude), \(center.longitude)")
+        LoggingService.network.info("   Radius: \(radiusKm) km")
+        LoggingService.network.info("   Zoom levels: \(self.zoomLevels)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         DispatchQueue.main.async {
             self.isDownloading = true
@@ -96,9 +97,9 @@ class OfflineMapDownloader: ObservableObject {
             self.estimatedTotalBytes = Int64(tilesToDownload.count) * self.averageTileSize
         }
 
-        print("📊 [OfflineMapDownloader] Tiles to download: \(tilesToDownload.count)")
-        print("   Already cached: \(allTiles.count - tilesToDownload.count)")
-        print("   Estimated size: \(String(format: "%.2f", Double(self.estimatedTotalBytes) / 1_048_576.0)) MB")
+        LoggingService.network.info("📊 [OfflineMapDownloader] Tiles to download: \(tilesToDownload.count)")
+        LoggingService.network.info("   Already cached: \(allTiles.count - tilesToDownload.count)")
+        LoggingService.network.info("   Estimated size: \(String(format: "%.2f", Double(self.estimatedTotalBytes) / 1_048_576.0)) MB")
 
         // Download tiles sequentially with rate limiting
         downloadTilesSequentially(tiles: tilesToDownload)
@@ -108,7 +109,7 @@ class OfflineMapDownloader: ObservableObject {
     func cancelDownload() {
         guard isDownloading else { return }
 
-        print("🛑 [OfflineMapDownloader] Cancelling download")
+        LoggingService.network.info("🛑 [OfflineMapDownloader] Cancelling download")
 
         // Cancel all tasks
         downloadTasks.forEach { $0.cancel() }
@@ -145,9 +146,9 @@ class OfflineMapDownloader: ObservableObject {
                     self.isDownloading = false
                     self.progress = 1.0
                 }
-                print("✅ [OfflineMapDownloader] Download complete!")
-                print("   Total tiles: \(tiles.count)")
-                print("   Downloaded: \(String(format: "%.2f", Double(self.downloadedBytes) / 1_048_576.0)) MB")
+                LoggingService.network.info("✅ [OfflineMapDownloader] Download complete!")
+                LoggingService.network.info("   Total tiles: \(tiles.count)")
+                LoggingService.network.info("   Downloaded: \(String(format: "%.2f", Double(self.downloadedBytes) / 1_048_576.0)) MB")
                 return
             }
 
@@ -193,7 +194,7 @@ class OfflineMapDownloader: ObservableObject {
             guard let self = self else { return }
 
             if let error = error {
-                print("❌ [OfflineMapDownloader] Failed z=\(z) x=\(x) y=\(y): \(error.localizedDescription)")
+                LoggingService.network.info("❌ [OfflineMapDownloader] Failed z=\(z) x=\(x) y=\(y): \(error.localizedDescription)")
                 completion(false, 0)
                 return
             }

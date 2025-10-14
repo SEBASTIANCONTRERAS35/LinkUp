@@ -1,208 +1,161 @@
 //
 //  NetworkConfigurationWarningBanner.swift
-//  MeshRed
+//  MeshRed - StadiumConnect Pro
 //
-//  Created by Emilio Contreras on 10/10/25.
+//  Created for CSC 2025 - UNAM
+//  Warning banner for problematic network configurations
 //
 
 import SwiftUI
 
 struct NetworkConfigurationWarningBanner: View {
-    @ObservedObject var networkManager: NetworkManager
-    @State private var showingSettings = false
+    let status: NetworkStatus
+    let onFix: () -> Void
 
     var body: some View {
-        if networkManager.hasNetworkConfigurationIssue {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.title2)
-                        .foregroundColor(.orange)
+        if status.isProblematic {
+            HStack(spacing: 12) {
+                // Icon
+                Image(systemName: iconName)
+                    .font(.title2)
+                    .foregroundColor(iconColor)
+                    .accessibilityLabel("Advertencia de configuración de red")
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Configuración de Red Problemática")
-                            .font(.headline)
-                            .foregroundColor(.primary)
+                // Text
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(titleText)
+                        .font(.caption.bold())
+                        .foregroundColor(.primary)
+                        .accessibilityAddTraits(.isHeader)
 
-                        Text(networkManager.networkConfigurationMessage)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    Text(status.suggestion)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Divider()
+                Spacer()
 
-                HStack(spacing: 16) {
-                    Button(action: openSettings) {
-                        Label("Abrir Ajustes", systemImage: "gear")
-                            .font(.subheadline)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Color.orange)
-                            .cornerRadius(8)
-                    }
-
-                    Button(action: { showingSettings.toggle() }) {
-                        Label("Más Info", systemImage: "info.circle")
-                            .font(.subheadline)
-                            .foregroundColor(.orange)
-                    }
-                }
-            }
-            .padding()
-            .background(Color.orange.opacity(0.15))
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.orange.opacity(0.5), lineWidth: 1)
-            )
-            .padding(.horizontal)
-            .padding(.top, 8)
-            .sheet(isPresented: $showingSettings) {
-                NetworkConfigurationHelpView()
-            }
-        }
-    }
-
-    private func openSettings() {
-        if let url = URL(string: UIApplication.openSettingsURLString) {
-            UIApplication.shared.open(url)
-        }
-    }
-}
-
-struct NetworkConfigurationHelpView: View {
-    @Environment(\.dismiss) var dismiss
-
-    var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    // Problem Section
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("¿Qué está mal?", systemImage: "questionmark.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(.orange)
-
-                        Text("Tu dispositivo tiene WiFi habilitado pero no está conectado a ninguna red.")
-                            .font(.body)
-                            .foregroundColor(.secondary)
-
-                        Text("Esto causa que MultipeerConnectivity intente usar WiFi Direct/TCP, que fallará con timeouts (Error Code 60).")
-                            .font(.body)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding()
-                    .background(Color.orange.opacity(0.1))
-                    .cornerRadius(12)
-
-                    // Solutions Section
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Soluciones", systemImage: "checkmark.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(.green)
-
-                        // Solution 1
-                        HStack(alignment: .top, spacing: 12) {
-                            Text("1")
-                                .font(.title3)
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                                .frame(width: 32, height: 32)
-                                .background(Color.green)
-                                .clipShape(Circle())
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Conecta a una red WiFi")
-                                    .font(.headline)
-                                Text("Settings → WiFi → Selecciona una red")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-
-                        // Solution 2
-                        HStack(alignment: .top, spacing: 12) {
-                            Text("2")
-                                .font(.title3)
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                                .frame(width: 32, height: 32)
-                                .background(Color.blue)
-                                .clipShape(Circle())
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Desactiva WiFi completamente")
-                                    .font(.headline)
-                                Text("Settings → WiFi → OFF (usará Bluetooth puro)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(.top, 8)
-                    }
-                    .padding()
-                    .background(Color.green.opacity(0.1))
-                    .cornerRadius(12)
-
-                    // Technical Details Section
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Detalles Técnicos", systemImage: "wrench.and.screwdriver.fill")
-                            .font(.title2)
-                            .foregroundColor(.gray)
-
-                        Text("MultipeerConnectivity usa dos modos de transporte:")
-                            .font(.body)
-                            .fontWeight(.semibold)
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "wifi")
-                                Text("WiFi Direct/Infrastructure")
-                                    .font(.caption)
-                            }
-                            Text("Requiere WiFi conectado a una red o WiFi Direct activo")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .padding(.leading, 24)
-
-                            Divider()
-
-                            HStack(spacing: 8) {
-                                Image(systemName: "antenna.radiowaves.left.and.right")
-                                Text("Bluetooth")
-                                    .font(.caption)
-                            }
-                            Text("Funciona sin WiFi, pero requiere que WiFi esté desactivado para ser usado")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .padding(.leading, 24)
-                        }
-                        .padding()
-                        .background(Color.gray.opacity(0.1))
+                // Fix button
+                Button(action: onFix) {
+                    Text("Arreglar")
+                        .font(.caption.bold())
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(actionButtonColor)
+                        .foregroundColor(.white)
                         .cornerRadius(8)
-                    }
-                    .padding()
-                    .background(Color.gray.opacity(0.05))
-                    .cornerRadius(12)
                 }
-                .padding()
+                .accessibilityLabel("Abrir ajustes para arreglar configuración de red")
+                .accessibilityHint("Abre la app de Ajustes en la sección WiFi")
             }
-            .navigationTitle("Ayuda de Configuración")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Cerrar") {
-                        dismiss()
-                    }
-                }
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(backgroundColor)
+            .cornerRadius(12)
+            .shadow(color: shadowColor, radius: 4, x: 0, y: 2)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    // MARK: - Computed Properties
+
+    private var iconName: String {
+        switch status.severity {
+        case .critical:
+            return "wifi.exclamationmark"
+        case .warning:
+            return "exclamationmark.triangle.fill"
+        case .ok:
+            return "checkmark.circle.fill"
+        }
+    }
+
+    private var iconColor: Color {
+        switch status.severity {
+        case .critical:
+            return .red
+        case .warning:
+            return .orange
+        case .ok:
+            return .green
+        }
+    }
+
+    private var titleText: String {
+        switch status.severity {
+        case .critical:
+            return "⚠️ Configuración de Red Problemática"
+        case .warning:
+            return "⚠️ Advertencia de Red"
+        case .ok:
+            return "✅ Configuración Correcta"
+        }
+    }
+
+    private var backgroundColor: Color {
+        switch status.severity {
+        case .critical:
+            return Color.red.opacity(0.15)
+        case .warning:
+            return Color.orange.opacity(0.15)
+        case .ok:
+            return Color.green.opacity(0.15)
+        }
+    }
+
+    private var actionButtonColor: Color {
+        switch status.severity {
+        case .critical:
+            return .red
+        case .warning:
+            return .orange
+        case .ok:
+            return .green
+        }
+    }
+
+    private var shadowColor: Color {
+        switch status.severity {
+        case .critical:
+            return Color.red.opacity(0.2)
+        case .warning:
+            return Color.orange.opacity(0.2)
+        case .ok:
+            return Color.green.opacity(0.2)
         }
     }
 }
 
-#Preview {
-    NetworkConfigurationWarningBanner(networkManager: NetworkManager())
+// MARK: - Preview
+
+struct NetworkConfigurationWarningBanner_Previews: PreviewProvider {
+    static var previews: some View {
+        VStack(spacing: 20) {
+            NetworkConfigurationWarningBanner(
+                status: .wifiEnabledButNotConnected,
+                onFix: {
+                    print("Fix tapped")
+                }
+            )
+
+            NetworkConfigurationWarningBanner(
+                status: .noNetworkAtAll,
+                onFix: {
+                    print("Fix tapped")
+                }
+            )
+
+            NetworkConfigurationWarningBanner(
+                status: .wifiConnected,
+                onFix: {
+                    print("Fix tapped")
+                }
+            )
+        }
+        .padding()
+        .background(Color(.systemGroupedBackground))
+    }
 }

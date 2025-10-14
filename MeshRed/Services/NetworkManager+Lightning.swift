@@ -8,6 +8,7 @@
 
 import Foundation
 import MultipeerConnectivity
+import os
 
 extension NetworkManager {
 
@@ -32,15 +33,15 @@ extension NetworkManager {
     /// ULTRA-FAST VERSION - Aggressive optimizations for <3 second connections
     func enableLightningMode(ultraFast: Bool = true) {
         if ultraFast {
-            print("⚡⚡⚡ ENABLING LIGHTNING MODE ULTRA-FAST ⚡⚡⚡")
-            print("Mode: ULTRA-AGGRESSIVE for FIFA 2026 stadiums")
-            print("Target: <3 second connections with bidirectional always active")
+            LoggingService.network.info("⚡⚡⚡ ENABLING LIGHTNING MODE ULTRA-FAST ⚡⚡⚡")
+            LoggingService.network.info("Mode: ULTRA-AGGRESSIVE for FIFA 2026 stadiums")
+            LoggingService.network.info("Target: <3 second connections with bidirectional always active")
             // ⚡ Store Ultra-Fast flag for SessionManager to bypass cooldowns
             UserDefaults.standard.set(true, forKey: "lightningModeUltraFast")
         } else {
-            print("⚡⚡⚡ ENABLING LIGHTNING MODE (SIMPLIFIED) ⚡⚡⚡")
-            print("Optimizations: Zero cooldowns, faster timeouts, no validation")
-            print("Target: Fast connections without breaking connectivity")
+            LoggingService.network.info("⚡⚡⚡ ENABLING LIGHTNING MODE (SIMPLIFIED) ⚡⚡⚡")
+            LoggingService.network.info("Optimizations: Zero cooldowns, faster timeouts, no validation")
+            LoggingService.network.info("Target: Fast connections without breaking connectivity")
             UserDefaults.standard.set(false, forKey: "lightningModeUltraFast")
         }
 
@@ -49,11 +50,19 @@ extension NetworkManager {
 
         // 1. Clear all SessionManager cooldowns and blocks
         sessionManager.clearAll()
-        print("  ✓ Cleared all connection cooldowns")
+        LoggingService.network.info("  ✓ Cleared all connection cooldowns")
 
         // 2. Release all mutex locks to prevent blocking
         connectionMutex.releaseAllLocks()
-        print("  ✓ Released all connection locks")
+        LoggingService.network.info("  ✓ Released all connection locks")
+
+        // 2.5. Reset all peer reputations to neutral (Lightning Mode fresh start)
+        if isOrchestratorEnabled {
+            orchestrator.reputationSystem.resetAllReputations()
+            LoggingService.network.info("  ✓ Reset all peer reputations to neutral (60.0)")
+        } else {
+            LoggingService.network.info("  ℹ️ Orchestrator disabled - reputation reset skipped")
+        }
 
         // 3. Create session with optional encryption (faster than required)
         // Keep .optional instead of .none to maintain compatibility
@@ -64,24 +73,24 @@ extension NetworkManager {
             encryptionPreference: .optional  // Balanced: fast but compatible
         )
         session.delegate = self
-        print("  ✓ Session recreated with fast encryption mode")
+        LoggingService.network.info("  ✓ Session recreated with fast encryption mode")
 
         // 4. Restart discovery services normally (no multiple advertisers)
         restartServicesIfNeeded()
-        print("  ✓ Discovery services restarted")
+        LoggingService.network.info("  ✓ Discovery services restarted")
 
         if ultraFast {
-            print("⚡ ULTRA-FAST Lightning Mode ACTIVE")
-            print("⚡ Bidirectional connections ALWAYS enabled")
-            print("⚡ Target: <3 second connections for stadiums")
+            LoggingService.network.info("⚡ ULTRA-FAST Lightning Mode ACTIVE")
+            LoggingService.network.info("⚡ Bidirectional connections ALWAYS enabled")
+            LoggingService.network.info("⚡ Target: <3 second connections for stadiums")
         } else {
-            print("⚡ Lightning Mode ACTIVE - Connections optimized for speed")
-            print("⚡ No cooldowns, no blocks, fast timeouts")
+            LoggingService.network.info("⚡ Lightning Mode ACTIVE - Connections optimized for speed")
+            LoggingService.network.info("⚡ No cooldowns, no blocks, fast timeouts")
         }
     }
 
     func disableLightningMode() {
-        print("⚡ Disabling Lightning Mode - Returning to standard security")
+        LoggingService.network.info("⚡ Disabling Lightning Mode - Returning to standard security")
 
         isLightningModeEnabled = false
         isUltraFastModeEnabled = false
@@ -92,7 +101,7 @@ extension NetworkManager {
         // Restart normal discovery
         restartServicesIfNeeded()
 
-        print("✅ Standard mode restored")
+        LoggingService.network.info("✅ Standard mode restored")
     }
 
     /*
@@ -115,16 +124,16 @@ extension NetworkManager {
             return
         }
 
-        print("⚡ INSTANT ACCEPT from \(peer.displayName)")
+        LoggingService.network.info("⚡ INSTANT ACCEPT from \(peer.displayName)")
         handler(true, session)
 
         // Record connection time
         if let startTime = connectionAttemptTimestamps[peer.displayName] {
             let connectionTime = Date().timeIntervalSince(startTime)
-            print("⚡ Connection established in \(String(format: "%.3f", connectionTime))s")
+            LoggingService.network.info("⚡ Connection established in \(String(format: "%.3f", connectionTime))s")
 
             if connectionTime < 1.0 {
-                print("🎯 SUB-SECOND CONNECTION ACHIEVED!")
+                LoggingService.network.info("🎯 SUB-SECOND CONNECTION ACHIEVED!")
             }
         }
     }
@@ -141,18 +150,18 @@ extension NetworkManager {
         let connectionTime = Date().timeIntervalSince(startTime)
         connectionAttemptTimestamps.removeValue(forKey: peer.displayName)
 
-        print("⚡⚡⚡ LIGHTNING CONNECTION SUCCESS ⚡⚡⚡")
-        print("Peer: \(peer.displayName)")
-        print("Time: \(String(format: "%.3f", connectionTime))s")
+        LoggingService.network.info("⚡⚡⚡ LIGHTNING CONNECTION SUCCESS ⚡⚡⚡")
+        LoggingService.network.info("Peer: \(peer.displayName)")
+        LoggingService.network.info("Time: \(String(format: "%.3f", connectionTime))s")
 
         if connectionTime < 1.0 {
-            print("🎯 TARGET ACHIEVED: SUB-SECOND CONNECTION!")
+            LoggingService.network.info("🎯 TARGET ACHIEVED: SUB-SECOND CONNECTION!")
         } else if connectionTime < 2.0 {
-            print("⚡ Fast connection: Under 2 seconds")
+            LoggingService.network.info("⚡ Fast connection: Under 2 seconds")
         } else if connectionTime < 5.0 {
-            print("✅ Good connection: Under 5 seconds")
+            LoggingService.network.info("✅ Good connection: Under 5 seconds")
         } else {
-            print("⚠️ Slow connection: \(String(format: "%.1f", connectionTime))s")
+            LoggingService.network.info("⚠️ Slow connection: \(String(format: "%.1f", connectionTime))s")
         }
 
         // Update stats
@@ -174,10 +183,10 @@ extension NetworkManager {
         let subSecondCount = lightningConnectionTimes.filter { $0 < 1.0 }.count
         let successRate = Double(subSecondCount) / Double(lightningConnectionTimes.count) * 100
 
-        print("📊 LIGHTNING STATS:")
-        print("  Average: \(String(format: "%.3f", average))s")
-        print("  Sub-second: \(subSecondCount)/\(lightningConnectionTimes.count) (\(String(format: "%.1f", successRate))%)")
-        print("  Best: \(String(format: "%.3f", lightningConnectionTimes.min() ?? 0))s")
+        LoggingService.network.info("📊 LIGHTNING STATS:")
+        LoggingService.network.info("  Average: \(String(format: "%.3f", average))s")
+        LoggingService.network.info("  Sub-second: \(subSecondCount)/\(self.lightningConnectionTimes.count) (\(String(format: "%.1f", successRate))%)")
+        LoggingService.network.info("  Best: \(String(format: "%.3f", self.lightningConnectionTimes.min() ?? 0))s")
     }
 
     func getLightningModeStatus() -> String {

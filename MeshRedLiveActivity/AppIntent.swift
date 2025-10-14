@@ -53,7 +53,6 @@ struct StopActivityIntent: LiveActivityIntent {
         print("🛑 STOP BUTTON PRESSED IN DYNAMIC ISLAND")
         print("   ⏰ Time: \(timestampString)")
         print("   📱 Process: WIDGET EXTENSION")
-        print("   🔍 Thread: \(Thread.current)")
         print("   📤 Attempting to send stop request via App Group...")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 

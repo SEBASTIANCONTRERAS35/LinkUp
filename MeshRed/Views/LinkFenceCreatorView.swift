@@ -8,6 +8,7 @@
 
 import SwiftUI
 import MapKit
+import os
 
 struct LinkFenceCreatorView: View {
     @Environment(\.dismiss) var dismiss
@@ -172,7 +173,7 @@ struct LinkFenceCreatorView: View {
 
     private func centerOnUser() {
         guard let location = locationService.currentLocation else {
-            print("⚠️ GeofenceCreator: No location available, using default (Estadio Azteca)")
+            LoggingService.network.info("⚠️ GeofenceCreator: No location available, using default (Estadio Azteca)")
             return
         }
 
@@ -186,7 +187,7 @@ struct LinkFenceCreatorView: View {
             )
         }
 
-        print("📍 GeofenceCreator: Centered map on user location: \(location.latitude), \(location.longitude)")
+        LoggingService.network.info("📍 GeofenceCreator: Centered map on user location: \(location.latitude), \(location.longitude)")
     }
 
     private func saveGeofence() {
@@ -203,17 +204,17 @@ struct LinkFenceCreatorView: View {
     }
 
     private func debugMapState() {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🗺️ GEOFENCE CREATOR VIEW APPEARED")
-        print("   Region Center: \(region.center.latitude), \(region.center.longitude)")
-        print("   Region Span: \(region.span.latitudeDelta), \(region.span.longitudeDelta)")
-        print("   Location Available: \(locationService.isLocationAvailable)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🗺️ GEOFENCE CREATOR VIEW APPEARED")
+        LoggingService.network.info("   Region Center: \(region.center.latitude), \(region.center.longitude)")
+        LoggingService.network.info("   Region Span: \(region.span.latitudeDelta), \(region.span.longitudeDelta)")
+        LoggingService.network.info("   Location Available: \(locationService.isLocationAvailable)")
         if let loc = locationService.currentLocation {
-            print("   Current Location: \(loc.latitude), \(loc.longitude)")
+            LoggingService.network.info("   Current Location: \(loc.latitude), \(loc.longitude)")
         } else {
-            print("   Current Location: nil")
+            LoggingService.network.info("   Current Location: nil")
         }
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     private func checkOfflineMapAvailability() {
@@ -275,7 +276,7 @@ struct GeofenceMapEditor: UIViewRepresentable {
         longPress.delegate = context.coordinator
         mapView.addGestureRecognizer(longPress)
 
-        print("🗺️ GeofenceMapEditor: Created with tap and long press gestures")
+        LoggingService.network.info("🗺️ GeofenceMapEditor: Created with tap and long press gestures")
 
         return mapView
     }
@@ -297,7 +298,7 @@ struct GeofenceMapEditor: UIViewRepresentable {
             let circle = MKCircle(center: coordinate, radius: radius)
             mapView.addOverlay(circle)
 
-            print("📍 GeofenceMapEditor: Updated annotation at \(coordinate.latitude), \(coordinate.longitude) with radius \(Int(radius))m")
+            LoggingService.network.info("📍 GeofenceMapEditor: Updated annotation at \(coordinate.latitude), \(coordinate.longitude) with radius \(Int(radius))m")
         }
     }
 
@@ -334,7 +335,7 @@ struct GeofenceMapEditor: UIViewRepresentable {
             // Haptic feedback
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
-            print("📍 GeofenceMapEditor: TAP at \(coordinate.latitude), \(coordinate.longitude)")
+            LoggingService.network.info("📍 GeofenceMapEditor: TAP at \(coordinate.latitude), \(coordinate.longitude)")
         }
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
@@ -351,7 +352,7 @@ struct GeofenceMapEditor: UIViewRepresentable {
             // Stronger haptic feedback for long press
             UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
 
-            print("📍 GeofenceMapEditor: LONG PRESS at \(coordinate.latitude), \(coordinate.longitude)")
+            LoggingService.network.info("📍 GeofenceMapEditor: LONG PRESS at \(coordinate.latitude), \(coordinate.longitude)")
         }
 
         // MARK: - MKMapViewDelegate

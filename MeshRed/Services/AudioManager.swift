@@ -9,6 +9,7 @@
 import AVFoundation
 import Combine
 import SwiftUI
+import os
 
 /// Priority levels for audio announcements
 enum AudioPriority: Int, Comparable {
@@ -71,8 +72,9 @@ class AudioManager: NSObject, ObservableObject {
         // Configure audio session
         configureAudioSession()
 
-        // Observe settings changes
+        // Observe settings changes (DEBOUNCED to prevent spam during rapid UserDefaults validations)
         settings.objectWillChange
+            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.updateConfiguration()
             }
@@ -87,13 +89,13 @@ class AudioManager: NSObject, ObservableObject {
             try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
             try audioSession.setActive(true)
         } catch {
-            print("⚠️ AudioManager: Failed to configure audio session: \(error)")
+            LoggingService.network.info("⚠️ AudioManager: Failed to configure audio session: \(error)")
         }
     }
 
     private func updateConfiguration() {
         // Settings changed - current utterance will use new values for next announcement
-        print("🔊 AudioManager: Settings updated")
+        LoggingService.network.info("🔊 AudioManager: Settings updated")
     }
 
     // MARK: - Text-to-Speech
@@ -105,13 +107,13 @@ class AudioManager: NSObject, ObservableObject {
     func speak(_ text: String, priority: AudioPriority = .normal) {
         // Check if VoiceOver hints are enabled
         guard settings.enableVoiceOverHints else {
-            print("🔇 AudioManager: VoiceOver hints disabled, skipping announcement")
+            LoggingService.network.info("🔇 AudioManager: VoiceOver hints disabled, skipping announcement")
             return
         }
 
         // Check if we should announce based on detail level
         if !shouldAnnounce(priority: priority) {
-            print("🔇 AudioManager: Announcement filtered by detail level")
+            LoggingService.network.info("🔇 AudioManager: Announcement filtered by detail level")
             return
         }
 
@@ -128,7 +130,7 @@ class AudioManager: NSObject, ObservableObject {
         // Interrupt if higher priority
         if synthesizer.isSpeaking {
             if priority < currentPriority { // Lower value = higher priority
-                print("🔊 AudioManager: Interrupting for higher priority message")
+                LoggingService.network.info("🔊 AudioManager: Interrupting for higher priority message")
                 synthesizer.stopSpeaking(at: .immediate)
             } else if priority == .critical {
                 synthesizer.stopSpeaking(at: .word) // Finish current word for critical
@@ -158,7 +160,7 @@ class AudioManager: NSObject, ObservableObject {
         // Speak
         synthesizer.speak(utterance)
 
-        print("🔊 AudioManager: Speaking (\(priority)): \"\(text)\"")
+        LoggingService.network.info("🔊 AudioManager: Speaking (\(String(describing: priority))): \"\(text)\"")
 
         // Also post to UIAccessibility for VoiceOver users
         #if os(iOS)
@@ -191,7 +193,7 @@ class AudioManager: NSObject, ObservableObject {
         // Sort by priority
         messageQueue.sort { $0.priority < $1.priority }
 
-        print("📋 AudioManager: Message queued (\(messageQueue.count) in queue)")
+        LoggingService.network.info("📋 AudioManager: Message queued (\(self.messageQueue.count) in queue)")
     }
 
     private func processQueue() {
@@ -215,20 +217,20 @@ class AudioManager: NSObject, ObservableObject {
         let volume = customVolume ?? settings.soundEffectsVolume
 
         guard volume > 0 else {
-            print("🔇 AudioManager: Sound effects volume is 0, skipping")
+            LoggingService.network.info("🔇 AudioManager: Sound effects volume is 0, skipping")
             return
         }
 
         // Check if specific sound types are enabled
         if !isSoundEnabled(type) {
-            print("🔇 AudioManager: Sound type \(type) disabled in settings")
+            LoggingService.network.info("🔇 AudioManager: Sound type \(String(describing: type), privacy: .public) disabled in settings")
             return
         }
 
         // Use system sounds for now (no custom audio files yet)
         playSystemSound(for: type)
 
-        print("🔊 AudioManager: Playing sound: \(type)")
+        LoggingService.network.info("🔊 AudioManager: Playing sound: \(String(describing: type), privacy: .public)")
     }
 
     private func isSoundEnabled(_ type: SoundType) -> Bool {
@@ -393,11 +395,11 @@ class AudioManager: NSObject, ObservableObject {
 extension AudioManager: AVSpeechSynthesizerDelegate {
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
-        print("🔊 AudioManager: Speech started")
+        LoggingService.network.info("🔊 AudioManager: Speech started")
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        print("🔊 AudioManager: Speech finished")
+        LoggingService.network.info("🔊 AudioManager: Speech finished")
 
         // Process queue after finishing
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -406,15 +408,15 @@ extension AudioManager: AVSpeechSynthesizerDelegate {
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didPause utterance: AVSpeechUtterance) {
-        print("⏸️ AudioManager: Speech paused")
+        LoggingService.network.info("⏸️ AudioManager: Speech paused")
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didContinue utterance: AVSpeechUtterance) {
-        print("▶️ AudioManager: Speech continued")
+        LoggingService.network.info("▶️ AudioManager: Speech continued")
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        print("⏹️ AudioManager: Speech cancelled")
+        LoggingService.network.info("⏹️ AudioManager: Speech cancelled")
 
         // Process queue after cancellation
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in

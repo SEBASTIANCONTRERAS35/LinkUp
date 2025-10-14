@@ -7,6 +7,7 @@
 
 import Foundation
 import simd
+import os
 
 /// Represents a location measured relative to an intermediary peer using LinkFinder
 /// Example: "C is 15.3m northeast of B"
@@ -88,22 +89,16 @@ struct DirectionVector: Codable, Equatable {
     /// Uses horizontal plane projection (x, z) ignoring vertical component (y)
     /// In Apple's coordinate system: +x = right, -z = forward (north)
     var bearing: Double {
+        // FIXED: Removed logging to prevent infinite loop
+        // This property is accessed 60+ times/second during SwiftUI rendering
+        // Logging here caused: 1260+ logs/sec → stack overflow → crash
+
         // For horizontal navigation, use x (east-west) and z (north-south)
         // Note: -z is forward/north in Apple's coordinate system
         let radians = atan2(Double(x), Double(-z))
         let degrees = radians * 180.0 / .pi
         // atan2 gives us angle from north, normalize to 0-360°
         let normalizedBearing = degrees >= 0 ? degrees : degrees + 360.0
-
-        // 🔍 DEBUG: Log bearing calculation
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🧭 BEARING CALCULATION")
-        print("   Direction Vector: x=\(x), y=\(y), z=\(z)")
-        print("   atan2(x=\(x), -z=\(-z)) = \(radians) rad")
-        print("   Degrees: \(degrees)°")
-        print("   Normalized: \(normalizedBearing)°")
-        print("   Cardinal: \(cardinalDirection)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         return normalizedBearing
     }

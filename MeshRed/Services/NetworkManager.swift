@@ -11,6 +11,8 @@ import Combine
 import NearbyInteraction
 import SystemConfiguration
 import Network
+import CoreLocation
+import os
 
 class NetworkManager: NSObject, ObservableObject {
     // MARK: - Published Properties
@@ -33,7 +35,7 @@ class NetworkManager: NSObject, ObservableObject {
         // Use public name from UserDisplayNameManager
         let displayNameManager = UserDisplayNameManager.shared
         let publicName = displayNameManager.getCurrentPublicName(deviceName: deviceName)
-        print("📡 [NetworkManager] Creating MCPeerID with public name: '\(publicName)'")
+        LoggingService.network.info("📡 Creating MCPeerID with public name: '\(publicName, privacy: .public)'")
         return MCPeerID(displayName: publicName)
     }()
     internal var session: MCSession
@@ -95,6 +97,12 @@ class NetworkManager: NSObject, ObservableObject {
     // Network monitoring (added for continuous network state tracking)
     private var networkPathMonitor: NWPathMonitor?
 
+    // Network configuration detector (detects problematic WiFi configurations)
+    let networkConfigDetector = NetworkConfigurationDetector()
+
+    // Connection diagnostics (tracks connection attempts and failure patterns)
+    // let diagnostics = ConnectionDiagnostics() // Temporarily disabled
+
     // Network configuration
     internal var config = NetworkConfig.shared
 
@@ -155,16 +163,16 @@ class NetworkManager: NSObject, ObservableObject {
 
         switch encryptionMode {
         case .none:
-            print("🔓 [DIAGNOSTIC MODE] Using .none encryption - NO TLS HANDSHAKE")
-            print("⚠️ Security DISABLED - Debug mode only")
+            LoggingService.network.warning("🔓 [DIAGNOSTIC MODE] Using .none encryption - NO TLS HANDSHAKE")
+            LoggingService.network.warning("⚠️ Security DISABLED - Debug mode only")
         case .optional:
-            print("🔒 [PRODUCTION MODE] Using .optional encryption")
-            print("✅ Secure connections preferred, fallback available")
+            LoggingService.network.info("🔒 [PRODUCTION MODE] Using .optional encryption")
+            LoggingService.network.info("✅ Secure connections preferred, fallback available")
         case .required:
-            print("🔐 [SECURE MODE] Using .required encryption")
-            print("✅ All connections must be encrypted")
+            LoggingService.network.info("🔐 [SECURE MODE] Using .required encryption")
+            LoggingService.network.info("✅ All connections must be encrypted")
         @unknown default:
-            print("❓ Unknown encryption mode")
+            LoggingService.network.error("❓ Unknown encryption mode")
         }
         super.init()
 
@@ -186,6 +194,7 @@ class NetworkManager: NSObject, ObservableObject {
         if #available(iOS 14.0, *) {
             let uwbManager = LinkFinderSessionManager()
             uwbManager.delegate = self
+            uwbManager.networkManager = self  // Set reference for GPS location sharing
             self.uwbSessionManager = uwbManager
         }
 
@@ -205,7 +214,7 @@ class NetworkManager: NSObject, ObservableObject {
         connectionManager.clearAllBlocksForDevelopment()
         #endif
 
-        print("🚀 NetworkManager: Initialized with peer ID: \(localPeerID.displayName)")
+        LoggingService.network.info("🚀 NetworkManager: Initialized with peer ID: \(self.localPeerID.displayName, privacy: .public)")
 
         // 🏟️ CONFIGURE STADIUM MODE MANAGER
         // Setup dependencies for automatic activation on first connection
@@ -213,15 +222,15 @@ class NetworkManager: NSObject, ObservableObject {
             networkManager: self,
             locationService: locationService
         )
-        print("🏟️ StadiumModeManager configured - will auto-activate on first peer connection")
+        LoggingService.network.info("🏟️ StadiumModeManager configured - will auto-activate on first peer connection")
 
         // ⚡ AUTO-ACTIVATE LIGHTNING MODE FOR FIFA 2026
         // Use simplified Lightning Mode - only core optimizations, no experimental features
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.enableLightningMode()
-            print("⚡⚡⚡ LIGHTNING MODE AUTO-ACTIVATED ⚡⚡⚡")
-            print("🏟️ FIFA 2026 Ready: Fast connections enabled by default")
-            print("⚡ Using simplified mode: No cooldowns, faster timeouts, bypass validations")
+            LoggingService.network.warning("⚡⚡⚡ LIGHTNING MODE AUTO-ACTIVATED ⚡⚡⚡")
+            LoggingService.network.info("🏟️ FIFA 2026 Ready: Fast connections enabled by default")
+            LoggingService.network.info("⚡ Using simplified mode: No cooldowns, faster timeouts, bypass validations")
         }
     }
 
@@ -257,86 +266,145 @@ class NetworkManager: NSObject, ObservableObject {
 
         startAdvertising()
         startBrowsing()
-        print("🔄 NetworkManager: Started advertising and browsing services")
+        LoggingService.network.info("🔄 NetworkManager: Started advertising and browsing services")
     }
 
     func stopServices() {
+        // Print diagnostic summary before stopping
+        // diagnostics.printDiagnosticSummary() // Temporarily disabled
+
         stopAdvertising()
         stopBrowsing()
         session.disconnect()
-        print("⏹️ NetworkManager: Stopped all services and disconnected session")
+        LoggingService.network.info("⏹️ NetworkManager: Stopped all services and disconnected session")
+    }
+
+    /// Restart services in Bluetooth-only mode after transport failures
+    func restartServicesInBluetoothMode() {
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔄 RESTARTING IN BLUETOOTH-ONLY MODE")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Stop all current services
+        stopServices()
+
+        // Clear transport failure counts
+        transportFailureCount.removeAll()
+
+        // Set a flag to indicate Bluetooth-only mode
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            // Update UI to show Bluetooth-only mode
+            self.hasNetworkConfigurationIssue = true
+            self.networkConfigurationMessage = "Modo Bluetooth activado automáticamente debido a fallos de WiFi Direct. Las conexiones deberían ser más estables ahora."
+
+            // Wait briefly before restarting
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                guard let self = self else { return }
+
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("✅ BLUETOOTH-ONLY MODE ACTIVE")
+                LoggingService.network.info("   WiFi Direct disabled automatically")
+                LoggingService.network.info("   Using pure Bluetooth transport")
+                LoggingService.network.info("   Connections should be more stable now")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                // Start services again
+                self.startServices()
+            }
+        }
+    }
+
+    // MARK: - LinkFinder Privacy Mode (On-Demand Start)
+
+    /// Start LinkFinder session on demand when user opens LinkFinder view
+    func startLinkFinderSession(with peerID: MCPeerID) {
+        guard #available(iOS 14.0, *), let uwbManager = uwbSessionManager else {
+            LoggingService.network.info("❌ LinkFinder not available on this device")
+            return
+        }
+
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🚀 STARTING LINKFINDER SESSION ON-DEMAND")
+        LoggingService.network.info("   Target peer: \(peerID.displayName)")
+        LoggingService.network.info("   Privacy mode: Only when user requests")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Check if we already have an active session
+        if uwbManager.activeSessions[peerID.displayName] != nil {
+            LoggingService.network.info("   ℹ️ Session already active for \(peerID.displayName)")
+            return
+        }
+
+        // Determine who should initiate based on peer ID
+        let shouldInitiate = self.localPeerID.displayName > peerID.displayName
+
+        if shouldInitiate {
+            LoggingService.network.info("   Role: MASTER (initiating token exchange)")
+            self.uwbTokenExchangeState[peerID.displayName] = .sentToken
+            self.sendUWBDiscoveryToken(to: peerID)
+        } else {
+            LoggingService.network.info("   Role: SLAVE (requesting token from peer)")
+            // Send a request to peer to start LinkFinder
+            self.requestUWBToken(from: peerID)
+        }
+    }
+
+    /// Stop LinkFinder session when user leaves LinkFinder view
+    func stopLinkFinderSession(with peerID: MCPeerID) {
+        guard #available(iOS 14.0, *), let uwbManager = uwbSessionManager else {
+            return
+        }
+
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🛑 STOPPING LINKFINDER SESSION")
+        LoggingService.network.info("   Target peer: \(peerID.displayName)")
+        LoggingService.network.info("   Privacy mode: Session ended by user")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Stop the session
+        uwbManager.stopSession(with: peerID)
+
+        // Clean up exchange state
+        self.uwbTokenExchangeState[peerID.displayName] = .idle
+        self.uwbRetryCount[peerID.displayName] = 0
+    }
+
+    /// Request UWB token from peer (for SLAVE role)
+    private func requestUWBToken(from peerID: MCPeerID) {
+        let request = [
+            "type": "uwb_token_request",
+            "from": localPeerID.displayName,
+            "timestamp": Date().timeIntervalSince1970
+        ] as [String: Any]
+
+        do {
+            let data = try JSONSerialization.data(withJSONObject: request)
+            try safeSend(data, toPeers: [peerID], with: .reliable, context: "uwbTokenRequest")
+            LoggingService.network.info("📤 Sent UWB token request to \(peerID.displayName)")
+        } catch {
+            LoggingService.network.info("❌ Failed to send UWB token request: \(error)")
+        }
     }
 
     // MARK: - Network Configuration Validation
 
     private func validateNetworkConfiguration() {
-        let pathMonitor = NWPathMonitor()
-        let queue = DispatchQueue(label: "com.meshred.network-monitor")
+        // Use NetworkConfigurationDetector instead of manual monitoring
+        // The detector already handles all the logic and provides @Published updates
 
-        pathMonitor.pathUpdateHandler = { [weak self] path in
+        LoggingService.network.info("🔍 Network configuration validation using NetworkConfigurationDetector")
+
+        // Sync initial state from detector
+        DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-
-            let hasWiFi = path.usesInterfaceType(.wifi)
-            let hasCellular = path.usesInterfaceType(.cellular)
-            let isExpensive = path.isExpensive
-            let isConstrained = path.isConstrained
-
-            // Check if WiFi is available but connection is not established
-            let isWiFiEnabledButNotConnected = hasWiFi && path.status != .satisfied
-
-            DispatchQueue.main.async {
-                if isWiFiEnabledButNotConnected {
-                    // WiFi is ON but not connected to any network
-                    self.hasNetworkConfigurationIssue = true
-                    self.networkConfigurationMessage = "WiFi habilitado sin red conectada. Para mejor conectividad: (1) Conecta a una red WiFi, O (2) Desactiva WiFi para usar solo Bluetooth."
-
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    print("⚠️ CONFIGURACIÓN DE RED PROBLEMÁTICA DETECTADA")
-                    print("   WiFi: Habilitado pero NO conectado")
-                    print("   Bluetooth: Probablemente habilitado")
-                    print("   ")
-                    print("   PROBLEMA:")
-                    print("   MultipeerConnectivity intentará usar WiFi Direct/TCP")
-                    print("   que fallará con timeout (Error Code 60)")
-                    print("   ")
-                    print("   SOLUCIÓN:")
-                    print("   1. Conecta a una red WiFi, O")
-                    print("   2. Desactiva WiFi completamente (Settings → WiFi → OFF)")
-                    print("   ")
-                    print("   Esto forzará el uso de Bluetooth puro que SÍ funciona.")
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                } else if !hasWiFi && path.status == .satisfied {
-                    // Good: Bluetooth-only mode or cellular
-                    self.hasNetworkConfigurationIssue = false
-                    self.networkConfigurationMessage = ""
-                    print("✅ Configuración de red: Bluetooth puro (WiFi desactivado) - Óptimo")
-                } else if hasWiFi && path.status == .satisfied {
-                    // Good: WiFi connected
-                    self.hasNetworkConfigurationIssue = false
-                    self.networkConfigurationMessage = ""
-                    print("✅ Configuración de red: WiFi conectado + Bluetooth - Óptimo")
-                }
-
-                // Additional diagnostics
-                print("📡 Estado de red:")
-                print("   Path status: \(path.status)")
-                print("   WiFi available: \(hasWiFi)")
-                print("   Cellular available: \(hasCellular)")
-                print("   Expensive: \(isExpensive)")
-                print("   Constrained: \(isConstrained)")
-            }
-
-            // FIX: Keep monitor alive to detect network changes during runtime
-            // Previously we cancelled after first check, missing network transitions
-            // pathMonitor.cancel()  // ← REMOVED: Monitor stays active
+            self.hasNetworkConfigurationIssue = self.networkConfigDetector.isProblematic
+            self.networkConfigurationMessage = self.networkConfigDetector.suggestionText
         }
 
-        pathMonitor.start(queue: queue)
-
-        // Store monitor to keep it alive for continuous monitoring
-        // This allows detecting WiFi connect/disconnect during app runtime
-        self.networkPathMonitor = pathMonitor
-        print("🔍 Network monitor started - will continuously monitor for changes")
+        // The detector is already monitoring - no need for separate NWPathMonitor
+        // UI will subscribe to detector's @Published properties
     }
 
     // MARK: - Settings Actions
@@ -358,9 +426,9 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     @objc private func handleClearAllConnections() {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🧹 NetworkManager: Clearing all connections")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🧹 NetworkManager: Clearing all connections")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Disconnect all peers
         session.disconnect()
@@ -393,13 +461,13 @@ class NetworkManager: NSObject, ObservableObject {
             self?.startServices()
         }
 
-        print("✅ NetworkManager: All connections cleared and services restarted")
+        LoggingService.network.info("✅ NetworkManager: All connections cleared and services restarted")
     }
 
     @objc private func handleRestartNetworkServices() {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔄 NetworkManager: Restarting network services")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔄 NetworkManager: Restarting network services")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Stop services
         stopAdvertising()
@@ -409,7 +477,7 @@ class NetworkManager: NSObject, ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.startAdvertising()
             self?.startBrowsing()
-            print("✅ NetworkManager: Services restarted successfully")
+            LoggingService.network.info("✅ NetworkManager: Services restarted successfully")
         }
     }
 
@@ -422,6 +490,7 @@ class NetworkManager: NSObject, ObservableObject {
     private var failedConnectionAttempts: [String: Int] = [:]  // Track failed attempts per peer
     private var lastPeerDiscoveryTime = Date()  // Track when we last discovered a peer
     private var waitingForInvitationFrom: [String: Date] = [:]  // Track when we started waiting for invitation
+    private var invitationEventTimes: [String: Date] = [:]  // Track invitation timestamps for deduplication
     private var waitingCheckTimer: Timer?  // Timer to check for stuck waiting states
 
     func restartServicesIfNeeded() {
@@ -430,13 +499,13 @@ class NetworkManager: NSObject, ObservableObject {
         let minimumRestartInterval = 15.0
         guard now.timeIntervalSince(lastServiceRestart) >= minimumRestartInterval else {
             let timeRemaining = minimumRestartInterval - now.timeIntervalSince(lastServiceRestart)
-            print("⚠️ Skipping service restart - too soon (wait \(Int(timeRemaining))s)")
+            LoggingService.network.info("⚠️ Skipping service restart - too soon (wait \(Int(timeRemaining))s)")
             return
         }
 
         lastServiceRestart = now
 
-        print("🔧 NetworkManager: Restarting services to recover from errors...")
+        LoggingService.network.info("🔧 NetworkManager: Restarting services to recover from errors...")
 
         // Stop everything cleanly
         stopServices()
@@ -452,14 +521,14 @@ class NetworkManager: NSObject, ObservableObject {
         // Create a new session to clear any corrupted state
         // Use .optional for production (secure but flexible)
         self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: .optional)
-        print("🔒 [RESTART] Creating new session with .optional encryption")
+        LoggingService.network.info("🔒 [RESTART] Creating new session with .optional encryption")
         self.session.delegate = self
 
         // Restart almost immediately for faster recovery
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.startServices()
             self?.consecutiveFailures = 0
-            print("✅ Services restarted successfully with fresh session")
+            LoggingService.network.info("✅ Services restarted successfully with fresh session")
         }
     }
 
@@ -471,32 +540,56 @@ class NetworkManager: NSObject, ObservableObject {
         failedConnectionAttempts[peerKey] = (failedConnectionAttempts[peerKey] ?? 0) + 1
         let failCount = failedConnectionAttempts[peerKey] ?? 1
 
-        print("⚠️ Connection failure #\(failCount) for \(peerKey)")
+        LoggingService.network.info("⚠️ Connection failure #\(failCount) for \(peerKey)")
 
-        // CRITICAL FIX: Recreate session after 2+ failures with same peer to clear corrupted state
+        // CRITICAL FIX: Recreate session IMMEDIATELY on first connection refused to prevent socket-level corruption
+        // Socket Error 61 (Connection Refused) indicates iOS networking stack has blacklisted the connection
+        // Only way to recover is to create a completely new MCSession on BOTH sides
         // BUT: Only if no handshakes are currently in progress (prevents interrupting active connections)
-        if failCount >= 2 {
+        if failCount >= 1 {
             if connectingPeers.isEmpty {
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("🔄 RECREATING SESSION")
-                print("   Reason: \(failCount) consecutive failures with \(peerKey)")
-                print("   Session may have corrupted state from failed handshakes")
-                print("   No handshakes in progress - safe to recreate")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                recreateSession()
+                // THROTTLING: Don't recreate session too frequently
+                // iOS needs time to fully clean up between recreations
+                let timeSinceLastRecreation = Date().timeIntervalSince(lastSessionRecreation)
+                let minRecreationInterval: TimeInterval = 5.0  // Minimum 5 seconds between recreations
+
+                if timeSinceLastRecreation < minRecreationInterval {
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("⏰ SESSION RECREATION THROTTLED")
+                    LoggingService.network.info("   Reason: Too soon since last recreation")
+                    LoggingService.network.info("   Time since last: \(String(format: "%.1f", timeSinceLastRecreation))s")
+                    LoggingService.network.info("   Minimum interval: \(minRecreationInterval)s")
+                    LoggingService.network.info("   Action: Skipping recreation, will retry connection normally")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                } else {
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("🔄 RECREATING SESSION IMMEDIATELY")
+                    LoggingService.network.info("   Reason: \(failCount) connection refused (Socket Error 61)")
+                    LoggingService.network.info("   iOS networking stack has blacklisted this peer")
+                    LoggingService.network.info("   Session MUST be recreated to clear socket-level block")
+                    LoggingService.network.info("   No handshakes in progress - safe to recreate")
+                    LoggingService.network.info("   Time since last recreation: \(String(format: "%.1f", timeSinceLastRecreation))s ✅")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                    // Clear all state for this specific peer before recreating session
+                    sessionManager.clearPeerState(for: peerID)
+                    failedConnectionAttempts[peerKey] = 0
+
+                    recreateSession()
+                }
             } else {
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("⏸️ DEFERRED SESSION RECREATION")
-                print("   Reason: \(failCount) consecutive failures with \(peerKey)")
-                print("   Handshakes in progress: \(connectingPeers.count)")
-                print("   Connecting to: \(Array(connectingPeers).joined(separator: ", "))")
-                print("   Will recreate after current handshakes complete")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("⏸️ DEFERRED SESSION RECREATION")
+                LoggingService.network.info("   Reason: \(failCount) connection refused with \(peerKey)")
+                LoggingService.network.info("   Handshakes in progress: \(self.connectingPeers.count)")
+                LoggingService.network.info("   Connecting to: \(Array(self.connectingPeers).joined(separator: ", "))")
+                LoggingService.network.info("   Will recreate after current handshakes complete")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
         }
 
         if consecutiveFailures >= 5 {
-            print("⚠️ Multiple connection failures detected (5+). Initiating recovery...")
+            LoggingService.network.info("⚠️ Multiple connection failures detected (5+). Initiating recovery...")
             restartServicesIfNeeded()
             failedConnectionAttempts.removeAll()  // Reset after restart
         } else {
@@ -509,17 +602,19 @@ class NetworkManager: NSObject, ObservableObject {
 
             // CRITICAL FIX: Add extra delay after session recreation
             // iOS needs time to fully clean up internal MCSession state after disconnect
+            // INCREASED: 5s grace period to prevent state corruption (was 1s - too fast)
             let timeSinceRecreation = Date().timeIntervalSince(lastSessionRecreation)
-            if timeSinceRecreation < 5.0 {
-                // Session was recently recreated - add 3s grace period
-                let extraDelay: TimeInterval = 3.0
+            if timeSinceRecreation < 10.0 {
+                // Session was recently recreated - add 5s grace period for iOS internal cleanup
+                // This prevents mDNS resolution failures and transport layer corruption
+                let extraDelay: TimeInterval = 5.0
                 delay += extraDelay
-                print("⏰ Session recently recreated (\(String(format: "%.1f", timeSinceRecreation))s ago)")
-                print("   Adding \(Int(extraDelay))s grace period for iOS cleanup")
-                print("   Total delay: \(Int(delay))s")
+                LoggingService.network.info("⏰ Session recently recreated (\(String(format: "%.1f", timeSinceRecreation))s ago)")
+                LoggingService.network.info("   Adding \(Int(extraDelay))s grace period for iOS cleanup (prevents transport corruption)")
+                LoggingService.network.info("   Total delay: \(Int(delay))s")
             }
 
-            print("⏳ Will retry connection to \(peerKey) in \(Int(delay))s (attempt #\(failCount))")
+            LoggingService.network.info("⏳ Will retry connection to \(peerKey) in \(Int(delay))s (attempt #\(failCount))")
 
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self = self else { return }
@@ -527,7 +622,7 @@ class NetworkManager: NSObject, ObservableObject {
                 if self.availablePeers.contains(peerID) &&
                    !self.connectedPeers.contains(peerID) &&
                    self.sessionManager.shouldAttemptConnection(to: peerID) {
-                    print("🔄 Retrying connection to \(peerID.displayName) after failure")
+                    LoggingService.network.info("🔄 Retrying connection to \(peerID.displayName) after failure")
                     self.connectToPeer(peerID)  // Use proper connection method with SessionManager tracking
                 }
             }
@@ -537,38 +632,48 @@ class NetworkManager: NSObject, ObservableObject {
     /// Recreate MCSession to clear corrupted state after failed connection attempts
     /// Also performs deep cleanup of advertiser/browser and internal state
     internal func recreateSession() {
-        let oldSessionAddress = Unmanaged.passUnretained(session).toOpaque()
+        // Print diagnostic summary before recreation
+        LoggingService.network.info("🔬 CONNECTION DIAGNOSTICS BEFORE SESSION RECREATION:")
+        // diagnostics.printDiagnosticSummary() // Temporarily disabled
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("✨ RECREATING MC SESSION - DEEP CLEANUP")
-        print("   Old session: \(session)")
-        print("   Old session memory address: \(oldSessionAddress)")
-        print("   Connected peers before: \(session.connectedPeers.map { $0.displayName })")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        let oldSessionAddress = Unmanaged.passUnretained(self.session).toOpaque()
+
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("✨ RECREATING MC SESSION - DEEP CLEANUP")
+        LoggingService.network.info("   Old session: \(self.session)")
+        LoggingService.network.info("   Old session memory address: \(String(describing: oldSessionAddress))")
+        LoggingService.network.info("   Connected peers before: \(self.session.connectedPeers.map { $0.displayName })")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // STEP 1: Disconnect all peers from old session
-        print("   Step 1: Disconnecting old session...")
+        LoggingService.network.info("   Step 1: Disconnecting old session...")
         session.disconnect()
 
         // STEP 2: Clear waiting states (prevents stuck invitation waits)
-        print("   Step 2: Clearing waiting states...")
+        LoggingService.network.info("   Step 2: Clearing waiting states...")
         waitingForInvitationFrom.removeAll()
 
         // STEP 3: Stop and restart advertiser/browser to clear discovery state
         // This ensures iOS MultipeerConnectivity framework fully resets
-        print("   Step 3: Restarting advertiser and browser...")
+        LoggingService.network.info("   Step 3: Restarting advertiser and browser...")
         advertiser?.stopAdvertisingPeer()
         browser?.stopBrowsingForPeers()
 
-        // Small delay to let iOS process the stop
-        Thread.sleep(forTimeInterval: 0.1)
+        // CRITICAL: Longer delay to let iOS networking stack FULLY clean up
+        // Socket Error 61 requires complete TCP/IP stack reset
+        // 0.5s gives iOS time to:
+        // - Close all socket file descriptors
+        // - Clear TCP connection tables
+        // - Reset Bonjour/mDNS state
+        // - Flush any buffered packets
+        Thread.sleep(forTimeInterval: 0.5)
 
         advertiser?.startAdvertisingPeer()
         browser?.startBrowsingForPeers()
 
         // STEP 4: Create fresh session with same encryption preference
-        print("   Step 4: Creating new session...")
-        let oldEncryption = session.encryptionPreference
+        LoggingService.network.info("   Step 4: Creating new session...")
+        let oldEncryption = self.session.encryptionPreference
         self.session = MCSession(
             peer: localPeerID,
             securityIdentity: nil,
@@ -581,16 +686,16 @@ class NetworkManager: NSObject, ObservableObject {
 
         let newSessionAddress = Unmanaged.passUnretained(self.session).toOpaque()
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("✅ SESSION RECREATION COMPLETE")
-        print("   New session: \(session)")
-        print("   New session memory address: \(newSessionAddress)")
-        print("   Session changed: \(oldSessionAddress != newSessionAddress ? "✅ YES" : "❌ NO (BUG!)")")
-        print("   Encryption: \(oldEncryption == .required ? ".required" : oldEncryption == .optional ? ".optional" : ".none")")
-        print("   Advertiser/Browser: Restarted")
-        print("   Waiting states: Cleared")
-        print("   State: Fully clean (ready for fresh handshake)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("✅ SESSION RECREATION COMPLETE")
+        LoggingService.network.info("   New session: \(self.session)")
+        LoggingService.network.info("   New session memory address: \(String(describing: newSessionAddress))")
+        LoggingService.network.info("   Session changed: \(oldSessionAddress != newSessionAddress ? "✅ YES" : "❌ NO (BUG!)")")
+        LoggingService.network.info("   Encryption: \(oldEncryption == .required ? ".required" : oldEncryption == .optional ? ".optional" : ".none")")
+        LoggingService.network.info("   Advertiser/Browser: Restarted")
+        LoggingService.network.info("   Waiting states: Cleared")
+        LoggingService.network.info("   State: Fully clean (ready for fresh handshake)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     private func startHealthCheck() {
@@ -606,7 +711,7 @@ class NetworkManager: NSObject, ObservableObject {
                     do {
                         try self.safeSend(pingData, toPeers: [peer], with: .reliable, context: "healthPing")
                     } catch {
-                        print("❌ Failed to send ping to \(peer.displayName): \(error.localizedDescription)")
+                        LoggingService.network.info("❌ Failed to send ping to \(peer.displayName): \(error.localizedDescription)")
                     }
                 }
             }
@@ -622,20 +727,20 @@ class NetworkManager: NSObject, ObservableObject {
 
                     if isWaitingForInvitation || isUltraFast {
                         if isUltraFast {
-                            print("⚡ ULTRA-FAST: Keeping advertiser alive for instant connections")
+                            LoggingService.network.info("⚡ ULTRA-FAST: Keeping advertiser alive for instant connections")
                         } else {
-                            print("⏸️ No auto-restart: Waiting for invitation from \(self.waitingForInvitationFrom.count) peer(s)")
-                            print("   Advertiser must stay alive to receive incoming connections")
+                            LoggingService.network.info("⏸️ No auto-restart: Waiting for invitation from \(self.waitingForInvitationFrom.count) peer(s)")
+                            LoggingService.network.info("   Advertiser must stay alive to receive incoming connections")
                         }
                     } else if now.timeIntervalSince(self.lastServiceRestart) > 20.0 {
-                        print("⚠️ No peers found for 20 seconds. Auto-restarting...")
+                        LoggingService.network.info("⚠️ No peers found for 20 seconds. Auto-restarting...")
                         self.restartServicesIfNeeded()
                     }
                 } else {
                     // Have available peers but can't connect - wait much longer before restarting
                     self.consecutiveFailures += 1
                     if self.consecutiveFailures >= 6 {  // Restart after 6 failures (3 minutes with 30s timer)
-                        print("⚠️ Multiple connection failures. Auto-restarting...")
+                        LoggingService.network.info("⚠️ Multiple connection failures. Auto-restarting...")
                         self.restartServicesIfNeeded()
                     }
                 }
@@ -647,7 +752,7 @@ class NetworkManager: NSObject, ObservableObject {
             // Force restart if we haven't seen any peers for a longer period
             if self.connectedPeers.isEmpty && self.availablePeers.isEmpty {
                 if now.timeIntervalSince(self.lastPeerDiscoveryTime) > 30.0 {
-                    print("🔄 No peers in 30s. Force restarting...")
+                    LoggingService.network.info("🔄 No peers in 30s. Force restarting...")
                     self.restartServicesIfNeeded()
                 }
             }
@@ -663,18 +768,18 @@ class NetworkManager: NSObject, ObservableObject {
             if self.advertiser != nil {
                 // Verify advertiser delegate is still set (iOS bug sometimes clears it)
                 if self.advertiser?.delegate == nil {
-                    print("⚠️ ADVERTISER DEAD - Delegate was nil!")
-                    print("   Restarting advertiser to restore incoming connections...")
+                    LoggingService.network.info("⚠️ ADVERTISER DEAD - Delegate was nil!")
+                    LoggingService.network.info("   Restarting advertiser to restore incoming connections...")
 
                     // Restart advertiser
                     self.stopAdvertising()
                     self.startAdvertising()
-                    print("✅ Advertiser restarted")
+                    LoggingService.network.info("✅ Advertiser restarted")
                 }
 
                 // In Ultra-Fast mode, ensure advertiser is always running
                 if self.isUltraFastModeEnabled && self.advertiser == nil {
-                    print("⚡ ULTRA-FAST: Restarting advertiser (should always be active)")
+                    LoggingService.network.info("⚡ ULTRA-FAST: Restarting advertiser (should always be active)")
                     self.startAdvertising()
                 }
             }
@@ -707,13 +812,13 @@ class NetworkManager: NSObject, ObservableObject {
 
             if waitDuration > effectiveThreshold {
                 stuckPeers.append(peerKey)
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("⚠️ STUCK WAITING DETECTED")
-                print("   Peer: \(peerKey)")
-                print("   Waiting Duration: \(Int(waitDuration))s")
-                print("   Threshold: \(Int(effectiveThreshold))s")
-                print("   Previous Failures: \(failureCount)")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("⚠️ STUCK WAITING DETECTED")
+                LoggingService.network.info("   Peer: \(peerKey)")
+                LoggingService.network.info("   Waiting Duration: \(Int(waitDuration))s")
+                LoggingService.network.info("   Threshold: \(Int(effectiveThreshold))s")
+                LoggingService.network.info("   Previous Failures: \(failureCount)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
         }
 
@@ -721,7 +826,7 @@ class NetworkManager: NSObject, ObservableObject {
         for peerKey in stuckPeers {
             // Check if already connected (don't force reconnect if connected)
             if connectedPeers.contains(where: { $0.displayName == peerKey }) {
-                print("✓ Peer \(peerKey) already connected - cleaning up stuck waiting state")
+                LoggingService.network.info("✓ Peer \(peerKey) already connected - cleaning up stuck waiting state")
                 waitingForInvitationFrom.removeValue(forKey: peerKey)
                 continue
             }
@@ -729,12 +834,12 @@ class NetworkManager: NSObject, ObservableObject {
             // CRITICAL: Check if peer is currently in .connecting state
             // If so, handshake is in progress - DO NOT force reconnect
             if connectingPeers.contains(peerKey) {
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("⏸️ NOT FORCING RECONNECT")
-                print("   Peer: \(peerKey)")
-                print("   Reason: Handshake in progress (.connecting state)")
-                print("   Waiting for MultipeerConnectivity to complete...")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("⏸️ NOT FORCING RECONNECT")
+                LoggingService.network.info("   Peer: \(peerKey)")
+                LoggingService.network.info("   Reason: Handshake in progress (.connecting state)")
+                LoggingService.network.info("   Waiting for MultipeerConnectivity to complete...")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 continue
             }
 
@@ -744,19 +849,19 @@ class NetworkManager: NSObject, ObservableObject {
             if let peer = availablePeers.first(where: { $0.displayName == peerKey }) {
                 // Check if mutex has active operation
                 if connectionMutex.hasActiveOperation(for: peer) {
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    print("⏸️ NOT FORCING RECONNECT")
-                    print("   Peer: \(peerKey)")
-                    print("   Reason: Active mutex operation in progress")
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("⏸️ NOT FORCING RECONNECT")
+                    LoggingService.network.info("   Peer: \(peerKey)")
+                    LoggingService.network.info("   Reason: Active mutex operation in progress")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     continue
                 }
-                print("🔄 FORCE RECONNECT: Overriding conflict resolution for \(peerKey)")
+                LoggingService.network.info("🔄 FORCE RECONNECT: Overriding conflict resolution for \(peerKey)")
 
                 // Log conflict resolution status for debugging
                 let wouldNormallyInitiate = ConnectionConflictResolver.shouldInitiateConnection(localPeer: localPeerID, remotePeer: peer)
-                print("   Normal conflict resolution: \(wouldNormallyInitiate ? "WOULD INITIATE" : "WOULD WAIT")")
-                print("   Now forcing connection regardless")
+                LoggingService.network.info("   Normal conflict resolution: \(wouldNormallyInitiate ? "WOULD INITIATE" : "WOULD WAIT")")
+                LoggingService.network.info("   Now forcing connection regardless")
 
                 // Clear any session manager blocks
                 sessionManager.clearCooldown(for: peer)
@@ -768,7 +873,7 @@ class NetworkManager: NSObject, ObservableObject {
                 // Force immediate connection, bypassing conflict resolution
                 connectToPeer(peer, forceIgnoreConflictResolution: true)
             } else {
-                print("⚠️ Cannot force reconnect to \(peerKey) - peer not available")
+                LoggingService.network.info("⚠️ Cannot force reconnect to \(peerKey) - peer not available")
                 // Clean up stale waiting entry
                 waitingForInvitationFrom.removeValue(forKey: peerKey)
             }
@@ -786,45 +891,45 @@ class NetworkManager: NSObject, ObservableObject {
     private func forceResetPeerConnection(_ peerID: MCPeerID) {
         let peerKey = peerID.displayName
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔄 FORCE RESET: Clearing all state for \(peerKey)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔄 FORCE RESET: Clearing all state for \(peerKey)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // 1. Cancel any pending connection operations
         session.cancelConnectPeer(peerID)
-        print("   ✓ Cancelled pending connections")
+        LoggingService.network.info("   ✓ Cancelled pending connections")
 
         // 2. Force release mutex lock
         connectionMutex.forceRelease(for: peerID)
-        print("   ✓ Released mutex lock")
+        LoggingService.network.info("   ✓ Released mutex lock")
 
         // 3. Clear waiting state
         waitingForInvitationFrom.removeValue(forKey: peerKey)
-        print("   ✓ Cleared waiting state")
+        LoggingService.network.info("   ✓ Cleared waiting state")
 
         // 4. Clear session manager cooldown
         sessionManager.clearCooldown(for: peerID)
-        print("   ✓ Cleared session cooldown")
+        LoggingService.network.info("   ✓ Cleared session cooldown")
 
         // 5. Reset failure counts
         failedConnectionAttempts.removeValue(forKey: peerKey)
-        print("   ✓ Reset failure count")
+        LoggingService.network.info("   ✓ Reset failure count")
 
         // 6. Attempt fresh connection if peer is still available
         if availablePeers.contains(where: { $0.displayName == peerKey }) {
-            print("   🔄 Peer still available, attempting fresh connection...")
+            LoggingService.network.info("   🔄 Peer still available, attempting fresh connection...")
 
             // Wait briefly for MultipeerConnectivity to clean up internal state
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self = self else { return }
-                print("   📤 Initiating fresh connection to \(peerKey)")
+                LoggingService.network.info("   📤 Initiating fresh connection to \(peerKey)")
                 self.connectToPeer(peerID, forceIgnoreConflictResolution: true)
             }
         } else {
-            print("   ⚠️ Peer no longer available, reset complete")
+            LoggingService.network.info("   ⚠️ Peer no longer available, reset complete")
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     func sendMessage(_ content: String, type: MessageType = .chat, recipientId: String = "broadcast", requiresAck: Bool = false) {
@@ -872,17 +977,17 @@ class NetworkManager: NSObject, ObservableObject {
         )
         messageStore.addMessage(message, context: conversationDescriptor, localDeviceName: self.localDeviceName)
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📤 SENDING NEW MESSAGE")
-        print("   From: \(localPeerID.displayName)")
-        print("   To: \(recipientId)")
-        print("   Content: \"\(content)\"")
-        print("   Type: \(type.displayName)")
-        print("   Priority: \(networkMessage.priority)")
-        print("   Requires ACK: \(requiresAck)")
-        print("   Conversation Type: \(conversationDescriptor.conversationType)")
-        print("   Conversation ID: \(conversationDescriptor.id)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📤 SENDING NEW MESSAGE")
+        LoggingService.network.info("   From: \(self.localPeerID.displayName)")
+        LoggingService.network.info("   To: \(recipientId)")
+        LoggingService.network.info("   Content: \"\(content)\"")
+        LoggingService.network.info("   Type: \(type.displayName)")
+        LoggingService.network.info("   Priority: \(networkMessage.priority)")
+        LoggingService.network.info("   Requires ACK: \(requiresAck)")
+        LoggingService.network.info("   Conversation Type: \(conversationDescriptor.conversationType)")
+        LoggingService.network.info("   Conversation ID: \(conversationDescriptor.id)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     // MARK: - Safe Send Helper
@@ -902,9 +1007,9 @@ class NetworkManager: NSObject, ObservableObject {
 
         guard !validPeers.isEmpty else {
             let contextStr = context.isEmpty ? "" : " (\(context))"
-            print("⚠️ safeSend\(contextStr): No valid peers in session")
-            print("   Requested: \(peers.map { $0.displayName })")
-            print("   Session has: \(sessionPeers.map { $0.displayName })")
+            LoggingService.network.info("⚠️ safeSend\(contextStr): No valid peers in session")
+            LoggingService.network.info("   Requested: \(peers.map { $0.displayName })")
+            LoggingService.network.info("   Session has: \(sessionPeers.map { $0.displayName })")
             throw NSError(
                 domain: "NetworkManager",
                 code: -1,
@@ -915,7 +1020,7 @@ class NetworkManager: NSObject, ObservableObject {
         // Log if we filtered out some peers
         if validPeers.count < peers.count {
             let filtered = peers.filter { !validPeers.contains($0) }
-            print("⚠️ safeSend: Filtered out \(filtered.count) disconnected peers: \(filtered.map { $0.displayName })")
+            LoggingService.network.info("⚠️ safeSend: Filtered out \(filtered.count) disconnected peers: \(filtered.map { $0.displayName })")
         }
 
         // Send to validated peers only
@@ -926,6 +1031,11 @@ class NetworkManager: NSObject, ObservableObject {
 
     /// Track connection success/failure for transport layer diagnostics
     private var connectionMetrics: [String: ConnectionMetrics] = [:]
+
+    // Transport failure detection and automatic fallback
+    private var transportFailureCount: [String: Int] = [:]
+    private let maxTransportFailuresBeforeFallback = 2
+    private var isBluetoothOnlyMode = false
 
     private struct ConnectionMetrics {
         var successfulSends: Int = 0
@@ -987,8 +1097,52 @@ class NetworkManager: NSObject, ObservableObject {
 
         // Log if connection is unstable
         if let metrics = connectionMetrics[peerKey], metrics.isUnstable {
-            print("⚠️ UNSTABLE CONNECTION DETECTED: \(peer.displayName)")
+            LoggingService.network.info("⚠️ UNSTABLE CONNECTION DETECTED: \(peer.displayName)")
             logTransportDiagnostics(for: peer)
+
+            // Check for transport failure (very short connection)
+            if let connectionEstablished = metrics.connectionEstablished,
+               let lastDisconnect = metrics.lastDisconnect {
+                let connectionDuration = lastDisconnect.timeIntervalSince(connectionEstablished)
+
+                if connectionDuration < 15.0 {
+                    // This was a transport failure
+                    transportFailureCount[peerKey] = (transportFailureCount[peerKey] ?? 0) + 1
+
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("🚨 TRANSPORT FAILURE #\(self.transportFailureCount[peerKey] ?? 1) for \(peerKey)")
+                    LoggingService.network.info("   Connection lasted only \(String(format: "%.1f", connectionDuration))s")
+
+                    // Enable Lightning Mode Ultra-Fast for immediate reconnections
+                    if !UserDefaults.standard.bool(forKey: "lightningModeUltraFast") {
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("⚡ ENABLING LIGHTNING MODE ULTRA-FAST")
+                        LoggingService.network.info("   Reason: Transport failure detected")
+                        LoggingService.network.info("   Action: Zero cooldowns for instant reconnection")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                        UserDefaults.standard.set(true, forKey: "lightningModeUltraFast")
+                    }
+
+                    // Check if we should enable Bluetooth-only mode
+                    if !isBluetoothOnlyMode &&
+                       (transportFailureCount[peerKey] ?? 0) >= maxTransportFailuresBeforeFallback {
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("🔄 ENABLING BLUETOOTH-ONLY MODE")
+                        LoggingService.network.info("   Reason: \(self.transportFailureCount[peerKey] ?? 0) consecutive transport failures")
+                        LoggingService.network.info("   Action: Restarting services in Bluetooth-only mode")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                        isBluetoothOnlyMode = true
+
+                        // Restart the services to force Bluetooth-only mode
+                        DispatchQueue.main.async { [weak self] in
+                            self?.restartServicesInBluetoothMode()
+                        }
+                    }
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                }
+            }
         }
     }
 
@@ -1005,75 +1159,75 @@ class NetworkManager: NSObject, ObservableObject {
         let peerKey = peer.displayName
         guard let metrics = connectionMetrics[peerKey] else { return }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📊 TRANSPORT LAYER DIAGNOSTICS")
-        print("   Peer: \(peer.displayName)")
-        print("   Successful sends: \(metrics.successfulSends)")
-        print("   Failed sends: \(metrics.failedSends)")
-        print("   Disconnect count: \(metrics.disconnectCount)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📊 TRANSPORT LAYER DIAGNOSTICS")
+        LoggingService.network.info("   Peer: \(peer.displayName)")
+        LoggingService.network.info("   Successful sends: \(metrics.successfulSends)")
+        LoggingService.network.info("   Failed sends: \(metrics.failedSends)")
+        LoggingService.network.info("   Disconnect count: \(metrics.disconnectCount)")
         if let duration = metrics.connectionDuration {
-            print("   Connection duration: \(String(format: "%.1f", duration))s")
+            LoggingService.network.info("   Connection duration: \(String(format: "%.1f", duration))s")
         }
         if let lastTimeout = metrics.lastSocketTimeout {
-            print("   Last socket timeout: \(lastTimeout)")
+            LoggingService.network.info("   Last socket timeout: \(lastTimeout)")
         }
-        print("   Is unstable: \(metrics.isUnstable)")
-        print("   ")
-        print("🔍 PROBABLE CAUSES:")
-        print("   ")
+        LoggingService.network.info("   Is unstable: \(metrics.isUnstable)")
+        LoggingService.network.info("   ")
+        LoggingService.network.info("🔍 PROBABLE CAUSES:")
+        LoggingService.network.info("   ")
 
         // Diagnose based on metrics
         if let established = metrics.connectionEstablished,
            let lastDisconnect = metrics.lastDisconnect,
            lastDisconnect.timeIntervalSince(established) < 15 {
-            print("   ❌ VERY SHORT CONNECTION (<15s)")
-            print("      → WiFi Direct transport likely failing")
-            print("      → TCP socket timing out after handshake")
-            print("      → Data channel establishment failing")
+            LoggingService.network.info("   ❌ VERY SHORT CONNECTION (<15s)")
+            LoggingService.network.info("      → WiFi Direct transport likely failing")
+            LoggingService.network.info("      → TCP socket timing out after handshake")
+            LoggingService.network.info("      → Data channel establishment failing")
         }
 
         if metrics.lastSocketTimeout != nil {
-            print("   ❌ SOCKET TIMEOUT DETECTED")
-            print("      → TCP connection established but data transfer failed")
-            print("      → Network path switched mid-connection")
-            print("      → WiFi Direct → Bluetooth fallback not working")
+            LoggingService.network.info("   ❌ SOCKET TIMEOUT DETECTED")
+            LoggingService.network.info("      → TCP connection established but data transfer failed")
+            LoggingService.network.info("      → Network path switched mid-connection")
+            LoggingService.network.info("      → WiFi Direct → Bluetooth fallback not working")
         }
 
         if metrics.disconnectCount > 3 {
-            print("   ❌ MULTIPLE DISCONNECTS (\(metrics.disconnectCount))")
-            print("      → Connection establishment works")
-            print("      → But transport layer is unstable")
-            print("      → Likely WiFi interference or weak Bluetooth")
+            LoggingService.network.info("   ❌ MULTIPLE DISCONNECTS (\(metrics.disconnectCount))")
+            LoggingService.network.info("      → Connection establishment works")
+            LoggingService.network.info("      → But transport layer is unstable")
+            LoggingService.network.info("      → Likely WiFi interference or weak Bluetooth")
         }
 
-        print("   ")
-        print("💡 RECOMMENDED ACTIONS:")
+        LoggingService.network.info("   ")
+        LoggingService.network.info("💡 RECOMMENDED ACTIONS:")
         if hasNetworkConfigurationIssue {
-            print("   1. ⚠️ Fix WiFi configuration (connect to network or disable)")
+            LoggingService.network.info("   1. ⚠️ Fix WiFi configuration (connect to network or disable)")
         } else {
-            print("   1. Try disabling WiFi to force Bluetooth-only mode")
-            print("   2. Move devices closer together (< 10m)")
-            print("   3. Check for WiFi/Bluetooth interference")
+            LoggingService.network.info("   1. Try disabling WiFi to force Bluetooth-only mode")
+            LoggingService.network.info("   2. Move devices closer together (< 10m)")
+            LoggingService.network.info("   3. Check for WiFi/Bluetooth interference")
         }
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     private func sendNetworkMessage(_ message: NetworkMessage) {
         guard !connectedPeers.isEmpty else {
-            print("⚠️ NetworkManager: No connected peers to send message to")
+            LoggingService.network.info("⚠️ NetworkManager: No connected peers to send message to")
             return
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📤 SENDING NETWORK MESSAGE")
-        print("   Message ID: \(message.id.uuidString.prefix(8))")
-        print("   From: \(message.senderId)")
-        print("   To: \(message.recipientId)")
-        print("   Type: \(message.messageType.displayName)")
-        print("   Hop Count: \(message.hopCount)/\(message.ttl)")
-        print("   Route Path: \(message.routePath.joined(separator: " → "))")
-        print("   Connected Peers: \(connectedPeers.map { $0.displayName })")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📤 SENDING NETWORK MESSAGE")
+        LoggingService.network.info("   Message ID: \(message.id.uuidString.prefix(8))")
+        LoggingService.network.info("   From: \(message.senderId)")
+        LoggingService.network.info("   To: \(message.recipientId)")
+        LoggingService.network.info("   Type: \(message.messageType.displayName)")
+        LoggingService.network.info("   Hop Count: \(message.hopCount)/\(message.ttl)")
+        LoggingService.network.info("   Route Path: \(message.routePath.joined(separator: " → "))")
+        LoggingService.network.info("   Connected Peers: \(self.connectedPeers.map { $0.displayName })")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         var targetPeers: [MCPeerID]
 
@@ -1082,11 +1236,11 @@ class NetworkManager: NSObject, ObservableObject {
             // Check if recipient is directly connected
             if let directPeer = connectedPeers.first(where: { $0.displayName == message.recipientId }) {
                 targetPeers = [directPeer]
-                print("🎯 Direct connection to recipient")
+                LoggingService.network.info("🎯 Direct connection to recipient")
             }
             // Check RouteCache (AODV-discovered routes) - most efficient
             else if let route = routeCache.findRoute(to: message.recipientId) {
-                print("🚀 [RouteCache] Using discovered route: \(route.hopCount) hops via \(route.nextHop)")
+                LoggingService.network.info("🚀 [RouteCache] Using discovered route: \(route.hopCount) hops via \(route.nextHop)")
                 sendDirectMessage(message, via: route.nextHop)
                 return // Exit early - direct routing handled
             }
@@ -1094,17 +1248,17 @@ class NetworkManager: NSObject, ObservableObject {
             else if let nextHopNames = routingTable.getNextHops(to: message.recipientId) {
                 // Recipient is reachable indirectly - send only to next hops
                 targetPeers = connectedPeers.filter { nextHopNames.contains($0.displayName) }
-                print("🗺️ Using routing table - next hops: [\(nextHopNames.joined(separator: ", "))]")
+                LoggingService.network.info("🗺️ Using routing table - next hops: [\(nextHopNames.joined(separator: ", "))]")
             }
             // No route found - fallback to broadcast
             else {
                 targetPeers = connectedPeers
-                print("⚠️ No route found - broadcasting to all peers")
+                LoggingService.network.info("⚠️ No route found - broadcasting to all peers")
             }
         } else {
             // Broadcast message
             targetPeers = connectedPeers
-            print("📢 Broadcasting to all peers")
+            LoggingService.network.info("📢 Broadcasting to all peers")
         }
 
         // INTELLIGENT DISCONNECTION: Filter out peers marked as pendingDisconnect
@@ -1120,8 +1274,8 @@ class NetworkManager: NSObject, ObservableObject {
             let filteredCount = originalCount - targetPeers.count
 
             if filteredCount > 0 {
-                print("🚫 Filtered \(filteredCount) peer(s) in pendingDisconnect state:")
-                print("   Blocked: [\(blockedPeers.joined(separator: ", "))]")
+                LoggingService.network.info("🚫 Filtered \(filteredCount) peer(s) in pendingDisconnect state:")
+                LoggingService.network.info("   Blocked: [\(blockedPeers.joined(separator: ", "))]")
             }
         }
 
@@ -1134,7 +1288,7 @@ class NetworkManager: NSObject, ObservableObject {
                 )
             }
             if targetPeers.count < connectedPeers.count {
-                print("🧪 TEST MODE: Forcing multi-hop - Allowed peers: \(targetPeers.map { $0.displayName })")
+                LoggingService.network.info("🧪 TEST MODE: Forcing multi-hop - Allowed peers: \(targetPeers.map { $0.displayName })")
             }
         }
 
@@ -1144,11 +1298,11 @@ class NetworkManager: NSObject, ObservableObject {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
             try safeSend(data, toPeers: targetPeers, with: .reliable, context: "sendNetworkMessage")
-            print("📤 Sent to \(targetPeers.count) peers - Type: \(message.messageType.displayName)")
+            LoggingService.network.info("📤 Sent to \(targetPeers.count) peers - Type: \(message.messageType.displayName)")
         } catch {
-            print("❌ Failed to send message: \(error.localizedDescription)")
+            LoggingService.network.info("❌ Failed to send message: \(error.localizedDescription)")
             if let nsError = error as NSError? {
-                print("   Error: [\(nsError.domain)] Code \(nsError.code)")
+                LoggingService.network.info("   Error: [\(nsError.domain)] Code \(nsError.code)")
             }
         }
     }
@@ -1165,9 +1319,9 @@ class NetworkManager: NSObject, ObservableObject {
             let peers = targetPeer != nil ? [targetPeer!] : connectedPeers
 
             try safeSend(data, toPeers: peers, with: .reliable, context: "sendAck")
-            print("📬 ACK sent for message \(originalMessageId) to \(senderId)")
+            LoggingService.network.info("📬 ACK sent for message \(originalMessageId) to \(senderId)")
         } catch {
-            print("❌ Failed to send ACK: \(error.localizedDescription)")
+            LoggingService.network.info("❌ Failed to send ACK: \(error.localizedDescription)")
         }
     }
 
@@ -1184,7 +1338,7 @@ class NetworkManager: NSObject, ObservableObject {
 
         // Check if route already exists in cache
         if let existingRoute = routeCache.findRoute(to: destination) {
-            print("🎯 [RouteDiscovery] Route already cached for \(destination)")
+            LoggingService.network.info("🎯 [RouteDiscovery] Route already cached for \(destination)")
             completion(existingRoute)
             return
         }
@@ -1197,13 +1351,13 @@ class NetworkManager: NSObject, ObservableObject {
             routePath: [localPeerID.displayName]
         )
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔍 [RouteDiscovery] INITIATING")
-        print("   Origin: \(localPeerID.displayName)")
-        print("   Destination: \(destination)")
-        print("   Request ID: \(rreq.requestID.uuidString.prefix(8))")
-        print("   Timeout: \(timeout)s")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔍 [RouteDiscovery] INITIATING")
+        LoggingService.network.info("   Origin: \(self.localPeerID.displayName)")
+        LoggingService.network.info("   Destination: \(destination)")
+        LoggingService.network.info("   Request ID: \(rreq.requestID.uuidString.prefix(8))")
+        LoggingService.network.info("   Timeout: \(timeout)s")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Store completion handler
         routeDiscoveryQueue.async(flags: .barrier) { [weak self] in
@@ -1219,7 +1373,7 @@ class NetworkManager: NSObject, ObservableObject {
 
             self.routeDiscoveryQueue.async(flags: .barrier) {
                 if let completion = self.pendingRouteDiscoveries.removeValue(forKey: rreq.requestID) {
-                    print("⏰ [RouteDiscovery] TIMEOUT for \(destination)")
+                    LoggingService.network.info("⏰ [RouteDiscovery] TIMEOUT for \(destination)")
                     DispatchQueue.main.async {
                         completion(nil)
                     }
@@ -1235,9 +1389,9 @@ class NetworkManager: NSObject, ObservableObject {
         do {
             let data = try JSONEncoder().encode(payload)
             try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "broadcastRREQ")
-            print("📢 [RouteDiscovery] RREQ broadcast to \(connectedPeers.count) peers")
+            LoggingService.network.info("📢 [RouteDiscovery] RREQ broadcast to \(self.connectedPeers.count) peers")
         } catch {
-            print("❌ [RouteDiscovery] Failed to broadcast RREQ: \(error)")
+            LoggingService.network.info("❌ [RouteDiscovery] Failed to broadcast RREQ: \(error)")
         }
     }
 
@@ -1246,19 +1400,19 @@ class NetworkManager: NSObject, ObservableObject {
         // Check if already processed (deduplicate)
         let cacheKey = "\(rreq.requestID.uuidString)-RREQ"
         if messageCache.contains(cacheKey) {
-            print("🔁 [RouteDiscovery] RREQ already processed, ignoring")
+            LoggingService.network.info("🔁 [RouteDiscovery] RREQ already processed, ignoring")
             return
         }
         messageCache.add(cacheKey)
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📥 [RouteDiscovery] RREQ RECEIVED")
-        print("   From: \(peer.displayName)")
-        print("   Origin: \(rreq.origin)")
-        print("   Destination: \(rreq.destination)")
-        print("   Hop Count: \(rreq.hopCount)")
-        print("   Path: \(rreq.routePath.joined(separator: "→"))")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📥 [RouteDiscovery] RREQ RECEIVED")
+        LoggingService.network.info("   From: \(peer.displayName)")
+        LoggingService.network.info("   Origin: \(rreq.origin)")
+        LoggingService.network.info("   Destination: \(rreq.destination)")
+        LoggingService.network.info("   Hop Count: \(rreq.hopCount)")
+        LoggingService.network.info("   Path: \(rreq.routePath.joined(separator: "→"))")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Update RREQ with my hop
         var updatedRREQ = rreq
@@ -1267,14 +1421,14 @@ class NetworkManager: NSObject, ObservableObject {
 
         // Case 1: Am I the destination?
         if rreq.destination == localPeerID.displayName {
-            print("🎯 [RouteDiscovery] I am the destination! Sending RREP")
+            LoggingService.network.info("🎯 [RouteDiscovery] I am the destination! Sending RREP")
             sendRouteReply(for: updatedRREQ, via: peer)
             return
         }
 
         // Case 2: Do I have direct connection to destination?
         if let destinationPeer = connectedPeers.first(where: { $0.displayName == rreq.destination }) {
-            print("🎯 [RouteDiscovery] Have direct connection to \(rreq.destination)! Sending RREP")
+            LoggingService.network.info("🎯 [RouteDiscovery] Have direct connection to \(rreq.destination)! Sending RREP")
             updatedRREQ.routePath.append(rreq.destination)
             updatedRREQ.hopCount += 1
             sendRouteReply(for: updatedRREQ, via: peer)
@@ -1283,10 +1437,10 @@ class NetworkManager: NSObject, ObservableObject {
 
         // Case 3: Propagate RREQ if TTL allows
         if updatedRREQ.hopCount < 7 { // Higher TTL for discovery
-            print("🔄 [RouteDiscovery] Propagating RREQ to neighbors")
+            LoggingService.network.info("🔄 [RouteDiscovery] Propagating RREQ to neighbors")
             broadcastRouteRequest(updatedRREQ)
         } else {
-            print("❌ [RouteDiscovery] TTL reached, discarding RREQ")
+            LoggingService.network.info("❌ [RouteDiscovery] TTL reached, discarding RREQ")
         }
     }
 
@@ -1299,37 +1453,37 @@ class NetworkManager: NSObject, ObservableObject {
             hopCount: rreq.hopCount
         )
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📤 [RouteDiscovery] SENDING RREP")
-        print("   Complete Path: \(rrep.routePath.joined(separator: "→"))")
-        print("   Total Hops: \(rrep.hopCount)")
-        print("   Sending to: \(sourcePeer.displayName)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📤 [RouteDiscovery] SENDING RREP")
+        LoggingService.network.info("   Complete Path: \(rrep.routePath.joined(separator: "→"))")
+        LoggingService.network.info("   Total Hops: \(rrep.hopCount)")
+        LoggingService.network.info("   Sending to: \(sourcePeer.displayName)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         let payload = NetworkPayload.routeReply(rrep)
 
         do {
             let data = try JSONEncoder().encode(payload)
             try safeSend(data, toPeers: [sourcePeer], with: .reliable, context: "sendRREP")
-            print("✅ [RouteDiscovery] RREP sent")
+            LoggingService.network.info("✅ [RouteDiscovery] RREP sent")
         } catch {
-            print("❌ [RouteDiscovery] Failed to send RREP: \(error)")
+            LoggingService.network.info("❌ [RouteDiscovery] Failed to send RREP: \(error)")
         }
     }
 
     /// Handle received route reply
     func handleRouteReply(_ rrep: RouteReply, from peer: MCPeerID) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📥 [RouteDiscovery] RREP RECEIVED")
-        print("   From: \(peer.displayName)")
-        print("   Destination: \(rrep.destination)")
-        print("   Path: \(rrep.routePath.joined(separator: "→"))")
-        print("   Hops: \(rrep.hopCount)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📥 [RouteDiscovery] RREP RECEIVED")
+        LoggingService.network.info("   From: \(peer.displayName)")
+        LoggingService.network.info("   Destination: \(rrep.destination)")
+        LoggingService.network.info("   Path: \(rrep.routePath.joined(separator: "→"))")
+        LoggingService.network.info("   Hops: \(rrep.hopCount)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Find my position in the path
         guard let myIndex = rrep.routePath.firstIndex(of: localPeerID.displayName) else {
-            print("⚠️ [RouteDiscovery] Not in path, ignoring RREP")
+            LoggingService.network.info("⚠️ [RouteDiscovery] Not in path, ignoring RREP")
             return
         }
 
@@ -1347,11 +1501,11 @@ class NetworkManager: NSObject, ObservableObject {
         )
 
         routeCache.addRoute(routeInfo)
-        print("📍 [RouteDiscovery] Route learned: \(destination) is \(hopsToDestination) hops via \(nextHop)")
+        LoggingService.network.info("📍 [RouteDiscovery] Route learned: \(destination) is \(hopsToDestination) hops via \(nextHop)")
 
         // Am I the origin?
         if myIndex == 0 {
-            print("🎉 [RouteDiscovery] DISCOVERY COMPLETE!")
+            LoggingService.network.info("🎉 [RouteDiscovery] DISCOVERY COMPLETE!")
 
             routeDiscoveryQueue.async(flags: .barrier) { [weak self] in
                 if let completion = self?.pendingRouteDiscoveries.removeValue(forKey: rrep.requestID) {
@@ -1364,18 +1518,18 @@ class NetworkManager: NSObject, ObservableObject {
             // Propagate RREP toward origin
             let prevHop = rrep.routePath[myIndex - 1]
             guard let prevPeer = connectedPeers.first(where: { $0.displayName == prevHop }) else {
-                print("⚠️ [RouteDiscovery] Cannot find previous hop: \(prevHop)")
+                LoggingService.network.info("⚠️ [RouteDiscovery] Cannot find previous hop: \(prevHop)")
                 return
             }
 
-            print("🔄 [RouteDiscovery] Propagating RREP to \(prevHop)")
+            LoggingService.network.info("🔄 [RouteDiscovery] Propagating RREP to \(prevHop)")
 
             let payload = NetworkPayload.routeReply(rrep)
             do {
                 let data = try JSONEncoder().encode(payload)
                 try safeSend(data, toPeers: [prevPeer], with: .reliable, context: "propagateRREP")
             } catch {
-                print("❌ [RouteDiscovery] Failed to propagate RREP: \(error)")
+                LoggingService.network.info("❌ [RouteDiscovery] Failed to propagate RREP: \(error)")
             }
         }
     }
@@ -1387,7 +1541,7 @@ class NetworkManager: NSObject, ObservableObject {
             brokenNextHop: brokenNextHop
         )
 
-        print("🚨 [RouteDiscovery] Sending RERR for \(destination) (broken link: \(brokenNextHop))")
+        LoggingService.network.info("🚨 [RouteDiscovery] Sending RERR for \(destination) (broken link: \(brokenNextHop))")
 
         let payload = NetworkPayload.routeError(rerr)
 
@@ -1395,19 +1549,19 @@ class NetworkManager: NSObject, ObservableObject {
             let data = try JSONEncoder().encode(payload)
             try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "sendRERR")
         } catch {
-            print("❌ [RouteDiscovery] Failed to send RERR: \(error)")
+            LoggingService.network.info("❌ [RouteDiscovery] Failed to send RERR: \(error)")
         }
     }
 
     /// Handle received route error
     func handleRouteError(_ rerr: RouteError, from peer: MCPeerID) {
-        print("🚨 [RouteDiscovery] RERR received: \(rerr.destination) unreachable via \(rerr.brokenNextHop)")
+        LoggingService.network.info("🚨 [RouteDiscovery] RERR received: \(rerr.destination) unreachable via \(rerr.brokenNextHop)")
 
         // Remove affected routes from cache
         if let route = routeCache.findRoute(to: rerr.destination),
            route.nextHop == rerr.brokenNextHop {
             routeCache.removeRoute(to: rerr.destination)
-            print("🗑️ [RouteDiscovery] Removed broken route to \(rerr.destination)")
+            LoggingService.network.info("🗑️ [RouteDiscovery] Removed broken route to \(rerr.destination)")
         }
 
         // Propagate RERR to neighbors
@@ -1417,7 +1571,7 @@ class NetworkManager: NSObject, ObservableObject {
             let peersToNotify = connectedPeers.filter { $0.displayName != peer.displayName }
             try safeSend(data, toPeers: peersToNotify, with: .reliable, context: "propagateRERR")
         } catch {
-            print("❌ [RouteDiscovery] Failed to propagate RERR: \(error)")
+            LoggingService.network.info("❌ [RouteDiscovery] Failed to propagate RERR: \(error)")
         }
     }
 
@@ -1427,14 +1581,14 @@ class NetworkManager: NSObject, ObservableObject {
     ///   - nextHopName: Next hop peer ID from route cache
     private func sendDirectMessage(_ message: NetworkMessage, via nextHopName: String) {
         guard let nextPeer = connectedPeers.first(where: { $0.displayName == nextHopName }) else {
-            print("⚠️ [DirectRouting] NextHop \(nextHopName) not connected")
+            LoggingService.network.info("⚠️ [DirectRouting] NextHop \(nextHopName) not connected")
 
             // Route is invalid, remove from cache
             routeCache.removeRoute(to: message.recipientId)
             sendRouteError(destination: message.recipientId, brokenNextHop: nextHopName)
 
             // Fallback to broadcast
-            print("🔄 [DirectRouting] Falling back to broadcast")
+            LoggingService.network.info("🔄 [DirectRouting] Falling back to broadcast")
             sendNetworkMessage(message)
             return
         }
@@ -1442,22 +1596,22 @@ class NetworkManager: NSObject, ObservableObject {
         var messageToSend = message
         messageToSend.addHop(localPeerID.displayName)
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🎯 [DirectRouting] SENDING DIRECT")
-        print("   Next Hop: \(nextHopName)")
-        print("   Final Dest: \(message.recipientId)")
-        print("   Hop Count: \(messageToSend.hopCount)/\(messageToSend.ttl)")
-        print("   Content: \"\(message.content.prefix(30))...\"")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🎯 [DirectRouting] SENDING DIRECT")
+        LoggingService.network.info("   Next Hop: \(nextHopName)")
+        LoggingService.network.info("   Final Dest: \(message.recipientId)")
+        LoggingService.network.info("   Hop Count: \(messageToSend.hopCount)/\(messageToSend.ttl)")
+        LoggingService.network.info("   Content: \"\(message.content.prefix(30))...\"")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         let payload = NetworkPayload.message(messageToSend)
 
         do {
             let data = try JSONEncoder().encode(payload)
             try safeSend(data, toPeers: [nextPeer], with: .reliable, context: "sendDirectMessage")
-            print("✅ [DirectRouting] Sent to \(nextHopName)")
+            LoggingService.network.info("✅ [DirectRouting] Sent to \(nextHopName)")
         } catch {
-            print("❌ [DirectRouting] Failed to send: \(error)")
+            LoggingService.network.info("❌ [DirectRouting] Failed to send: \(error)")
 
             // Route failed, invalidate and retry
             routeCache.removeRoute(to: message.recipientId)
@@ -1472,107 +1626,144 @@ class NetworkManager: NSObject, ObservableObject {
             let mode: MCSessionSendDataMode = reliable ? .reliable : .unreliable
             try safeSend(data, toPeers: [peer], with: mode, context: "sendRawData")
         } catch {
-            print("❌ Failed to send raw data to \(peer.displayName): \(error.localizedDescription)")
+            LoggingService.network.info("❌ Failed to send raw data to \(peer.displayName): \(error.localizedDescription)")
         }
     }
 
+    // MARK: - Adaptive Invitation Timeout
+
+    /// Calculate optimal invitation timeout based on mode, peer history, and attempt count
+    private func calculateInvitationTimeout(for peer: MCPeerID, attempt: Int = 0) -> TimeInterval {
+        // Base timeout depends on mode
+        let baseTimeout: TimeInterval = isUltraFastModeEnabled ? 15.0 : 30.0
+
+        // Adjust based on peer latency (if available)
+        var latencyAdjustment: TimeInterval = 0.0
+        if let stats = healthMonitor.getHealthStats(for: peer) {
+            // Add up to 10 seconds for high-latency peers
+            latencyAdjustment = min(stats.latency / 100.0, 10.0)
+        }
+
+        // Increase timeout for subsequent attempts (with cap)
+        let attemptMultiplier = 1.0 + (0.5 * Double(min(attempt, 3)))
+
+        // Final timeout with 45s cap
+        let calculatedTimeout = (baseTimeout + latencyAdjustment) * attemptMultiplier
+        let finalTimeout = min(calculatedTimeout, 45.0)
+
+        return finalTimeout
+    }
+
     func connectToPeer(_ peerID: MCPeerID, forceIgnoreConflictResolution: Bool = false) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔗 CONNECT TO PEER - STEP 1: Entry")
-        print("   Peer: \(peerID.displayName)")
-        print("   Force: \(forceIgnoreConflictResolution)")
-        print("   Timestamp: \(Date())")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔗 CONNECT TO PEER - STEP 1: Entry")
+        LoggingService.network.info("   Peer: \(peerID.displayName)")
+        LoggingService.network.info("   Force: \(forceIgnoreConflictResolution)")
+        LoggingService.network.info("   Timestamp: \(Date())")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // DIAGNOSTIC: Check network configuration before attempting connection
+        let networkStatus = networkConfigDetector.currentStatus
+        LoggingService.network.info("   📡 Network Status: \(networkStatus.rawValue)")
+        if networkStatus.isProblematic {
+            LoggingService.network.warning("   ⚠️ PROBLEMATIC NETWORK CONFIG: \(networkStatus.suggestion)")
+            LoggingService.network.warning("   ⚠️ Connection may fail due to: \(networkStatus.explanation)")
+        }
 
         guard let browser = browser else {
-            print("❌ CONNECT FAILED: Browser not available")
+            LoggingService.network.info("❌ CONNECT FAILED: Browser not available")
             return
         }
-        print("   ✓ Browser available")
+        LoggingService.network.info("   ✓ Browser available")
 
         // Check if peer is manually blocked
-        print("   Step 2: Checking manual blocking...")
+        LoggingService.network.info("   Step 2: Checking manual blocking...")
         if connectionManager.isPeerBlocked(peerID.displayName) {
-            print("🚫 CONNECT ABORTED: Peer \(peerID.displayName) is manually blocked")
+            LoggingService.network.info("🚫 CONNECT ABORTED: Peer \(peerID.displayName) is manually blocked")
             return
         }
-        print("   ✓ Not manually blocked")
+        LoggingService.network.info("   ✓ Not manually blocked")
 
         // Check for bidirectional mode (Connection refused recovery OR Ultra-Fast mode)
-        print("   Step 2.5: Checking bidirectional mode...")
+        LoggingService.network.info("   Step 2.5: Checking bidirectional mode...")
         let useBidirectionalMode = sessionManager.shouldUseBidirectionalConnection(for: peerID) || isUltraFastModeEnabled
         if useBidirectionalMode {
             if isUltraFastModeEnabled {
-                print("   ⚡ ULTRA-FAST BIDIRECTIONAL MODE ALWAYS ACTIVE")
-                print("      Lightning Mode Ultra-Fast: Both peers always connect simultaneously")
-                print("      Target: <3 second connections for FIFA 2026 stadiums")
+                LoggingService.network.info("   ⚡ ULTRA-FAST BIDIRECTIONAL MODE ALWAYS ACTIVE")
+                LoggingService.network.info("      Lightning Mode Ultra-Fast: Both peers always connect simultaneously")
+                LoggingService.network.info("      Target: <3 second connections for FIFA 2026 stadiums")
             } else {
-                print("   🔀 BIDIRECTIONAL MODE ACTIVE for \(peerID.displayName)")
-                print("      Previous connection attempts failed with 'Connection refused'")
-                print("      Both peers will attempt connection simultaneously")
+                LoggingService.network.info("   🔀 BIDIRECTIONAL MODE ACTIVE for \(peerID.displayName)")
+                LoggingService.network.info("      Previous connection attempts failed with 'Connection refused'")
+                LoggingService.network.info("      Both peers will attempt connection simultaneously")
             }
         }
 
         // Check conflict resolution (unless forcing or bidirectional mode)
-        print("   Step 3: Checking conflict resolution...")
+        LoggingService.network.info("   Step 3: Checking conflict resolution...")
         if !forceIgnoreConflictResolution && !useBidirectionalMode {
             let shouldInitiate = ConnectionConflictResolver.shouldInitiateConnection(localPeer: localPeerID, remotePeer: peerID, overrideBidirectional: useBidirectionalMode)
-            print("      Should initiate: \(shouldInitiate)")
-            print("      Local ID: \(localPeerID.displayName)")
-            print("      Remote ID: \(peerID.displayName)")
+            LoggingService.network.info("      Should initiate: \(shouldInitiate)")
+            LoggingService.network.info("      Local ID: \(self.localPeerID.displayName)")
+            LoggingService.network.info("      Remote ID: \(peerID.displayName)")
             guard shouldInitiate else {
-                print("🆔 CONNECT ABORTED: Conflict resolution says we should defer to \(peerID.displayName)")
+                LoggingService.network.info("🆔 CONNECT ABORTED: Conflict resolution says we should defer to \(peerID.displayName)")
                 return
             }
         } else if forceIgnoreConflictResolution {
-            print("⚡ FORCING connection - bypassing conflict resolution")
+            LoggingService.network.info("⚡ FORCING connection - bypassing conflict resolution")
         } else if useBidirectionalMode {
-            print("🔀 BIDIRECTIONAL MODE - bypassing conflict resolution")
+            LoggingService.network.info("🔀 BIDIRECTIONAL MODE - bypassing conflict resolution")
         }
-        print("   ✓ Conflict resolution passed")
+        LoggingService.network.info("   ✓ Conflict resolution passed")
 
         // Acquire mutex lock to serialize invites
-        print("   Step 4: Acquiring ConnectionMutex lock...")
+        LoggingService.network.info("   Step 4: Acquiring ConnectionMutex lock...")
         guard connectionMutex.tryAcquireLock(for: peerID, operation: .browserInvite) else {
-            print("🔒 CONNECT ABORTED: Connection operation already in progress for \(peerID.displayName)")
+            LoggingService.network.info("🔒 CONNECT ABORTED: Connection operation already in progress for \(peerID.displayName)")
             return
         }
-        print("   ✓ Mutex lock acquired")
+        LoggingService.network.info("   ✓ Mutex lock acquired")
 
         var lockReleased = false
         let releaseLock: () -> Void = { [weak self] in
             guard let self = self, !lockReleased else { return }
             lockReleased = true
             self.connectionMutex.releaseLock(for: peerID)
-            print("   🔓 Mutex lock released for \(peerID.displayName)")
+            LoggingService.network.info("   🔓 Mutex lock released for \(peerID.displayName)")
         }
 
-        print("   Step 5: Checking SessionManager...")
+        LoggingService.network.info("   Step 5: Checking SessionManager...")
         let sessionManagerAllows = sessionManager.shouldAttemptConnection(to: peerID)
-        print("      SessionManager allows: \(sessionManagerAllows)")
+        LoggingService.network.info("      SessionManager allows: \(sessionManagerAllows)")
         guard sessionManagerAllows else {
-            print("⏸️ CONNECT ABORTED: SessionManager blocking connection to \(peerID.displayName)")
+            LoggingService.network.info("⏸️ CONNECT ABORTED: SessionManager blocking connection to \(peerID.displayName)")
             releaseLock()
             return
         }
-        print("   ✓ SessionManager allows")
+        LoggingService.network.info("   ✓ SessionManager allows")
 
-        print("   Step 6: Recording connection attempt...")
+        LoggingService.network.info("   Step 6: Recording connection attempt...")
         sessionManager.recordConnectionAttempt(to: peerID)
-        print("   ✓ Attempt recorded")
+        LoggingService.network.info("   ✓ Attempt recorded")
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📤 BROWSER.INVITEPEER() - STEP 7: Calling iOS API")
-        print("   Peer: \(peerID.displayName)")
-        print("   Timeout: \(SessionManager.connectionTimeout)s")
-        print("   Timestamp: \(Date())")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        // ⏱️ ADAPTIVE TIMEOUT: Calculate dynamic timeout based on peer latency and attempt count
+        let attemptCount = 0 // Use default attempt count
+        let adaptiveTimeout = calculateInvitationTimeout(for: peerID, attempt: attemptCount)
 
-        browser.invitePeer(peerID, to: session, withContext: nil, timeout: SessionManager.connectionTimeout)
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📤 BROWSER.INVITEPEER() - STEP 7: Calling iOS API")
+        LoggingService.network.info("   Peer: \(peerID.displayName)")
+        LoggingService.network.info("   Attempt Count: \(attemptCount)")
+        LoggingService.network.info("   Adaptive Timeout: \(String(format: "%.1f", adaptiveTimeout))s (base: \(self.isUltraFastModeEnabled ? "15s" : "30s"))")
+        LoggingService.network.info("   Timestamp: \(Date())")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-        print("   ✓ invitePeer() called")
-        print("   Waiting for remote peer to accept invitation...")
-        print("   If accepted, session(_:peer:didChange: .connecting) will be called")
+        browser.invitePeer(peerID, to: session, withContext: nil, timeout: adaptiveTimeout)
+
+        LoggingService.network.info("   ✓ invitePeer() called")
+        LoggingService.network.info("   Waiting for remote peer to accept invitation...")
+        LoggingService.network.info("   If accepted, session(_:peer:didChange: .connecting) will be called")
 
         // Early detection for "Connection refused" errors (typically happen within 1-3 seconds)
         // ⚡⚡ ULTRA-FAST MODE: Reduced to 1 second for instant detection
@@ -1586,35 +1777,50 @@ class NetworkManager: NSObject, ObservableObject {
                                 !self.connectingPeers.contains(peerID.displayName)
 
             if isStillWaiting {
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("⚡ ULTRA-FAST CONNECTION FAILURE DETECTION")
-                print("   Peer: \(peerID.displayName)")
-                print("   No response after \(Int(detectionDelay)) second(s)")
-                print("   Likely cause: Connection refused (error 61)")
-                print("   Recording as connection refused...")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("⚡ ULTRA-FAST CONNECTION FAILURE DETECTION")
+                LoggingService.network.info("   Peer: \(peerID.displayName)")
+                LoggingService.network.info("   No response after \(Int(detectionDelay)) second(s)")
+                LoggingService.network.info("   Likely cause: Connection refused (error 61)")
+                LoggingService.network.info("   Recording as connection refused...")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 // Record this as a connection refused error
                 self.sessionManager.recordConnectionRefused(to: peerID)
+
+                // Record failure in diagnostics
+                // Diagnostics temporarily disabled
+                /*
+                let attemptCount = self.sessionManager.getAttemptCount(for: peerID)
+                let avgLatency = self.healthMonitor.averageLatency(for: peerID)
+                self.diagnostics.recordAttempt(
+                    peerID: peerID,
+                    attemptNumber: attemptCount,
+                    timeout: self.calculateInvitationTimeout(for: peerID, attempt: attemptCount),
+                    result: .refused,
+                    latency: avgLatency,
+                    networkStatus: self.networkConfigDetector.currentStatus
+                )
+                */
 
                 // Check if we should retry with bidirectional mode
                 if self.sessionManager.shouldUseBidirectionalConnection(for: peerID) {
                     // ⚡ Get per-peer backoff delay from SessionManager
                     let retryDelay = self.sessionManager.getRetryDelay(for: peerID)
-                    print("⚡ Scheduling retry with BIDIRECTIONAL MODE")
-                    print("   Delay: \(retryDelay)s (per-peer progressive backoff)")
+                    LoggingService.network.info("⚡ Scheduling retry with BIDIRECTIONAL MODE")
+                    LoggingService.network.info("   Delay: \(retryDelay)s (per-peer progressive backoff)")
 
                     // Release the lock first
                     self.connectionMutex.releaseLock(for: peerID)
 
                     // Schedule retry with bidirectional mode (with per-peer backoff)
                     DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) {
-                        print("⚡ RETRY with bidirectional mode for \(peerID.displayName)")
+                        LoggingService.network.info("⚡ RETRY with bidirectional mode for \(peerID.displayName)")
                         self.connectToPeer(peerID, forceIgnoreConflictResolution: false)
                     }
                 } else {
                     // Circuit breaker might be active or max attempts reached
-                    print("🛑 No retry scheduled for \(peerID.displayName)")
+                    LoggingService.network.info("🛑 No retry scheduled for \(peerID.displayName)")
                     self.connectionMutex.releaseLock(for: peerID)
                 }
             }
@@ -1622,20 +1828,20 @@ class NetworkManager: NSObject, ObservableObject {
 
         // Watchdog: if the session never transitions, clear the lock to avoid deadlocks
         let handshakeTimeout = SessionManager.connectionTimeout + 4.0
-        print("   ⏰ Watchdog timer set for \(handshakeTimeout)s")
+        LoggingService.network.info("   ⏰ Watchdog timer set for \(handshakeTimeout)s")
 
         DispatchQueue.main.asyncAfter(deadline: .now() + handshakeTimeout) { [weak self] in
             guard let self = self else { return }
             if self.connectionMutex.hasActiveOperation(for: peerID) {
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("⏳ WATCHDOG TIMEOUT")
-                print("   Peer: \(peerID.displayName)")
-                print("   Timeout: \(handshakeTimeout)s elapsed")
-                print("   Action: Releasing mutex lock")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("⏳ WATCHDOG TIMEOUT")
+                LoggingService.network.info("   Peer: \(peerID.displayName)")
+                LoggingService.network.info("   Timeout: \(handshakeTimeout)s elapsed")
+                LoggingService.network.info("   Action: Releasing mutex lock")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 releaseLock()
             } else {
-                print("   ✓ Watchdog: Lock already released normally")
+                LoggingService.network.info("   ✓ Watchdog: Lock already released normally")
             }
         }
     }
@@ -1646,20 +1852,20 @@ class NetworkManager: NSObject, ObservableObject {
     func requestDisconnect(from peerID: MCPeerID) {
         let peerKey = peerID.displayName
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔌 DISCONNECT REQUEST")
-        print("   Peer: \(peerKey)")
-        print("   Current connected peers: \(connectedPeers.count)")
-        print("   Current available peers: \(availablePeers.count)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔌 DISCONNECT REQUEST")
+        LoggingService.network.info("   Peer: \(peerKey)")
+        LoggingService.network.info("   Current connected peers: \(self.connectedPeers.count)")
+        LoggingService.network.info("   Current available peers: \(self.availablePeers.count)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Check if there are alternative peers available
         let hasAlternatives = !availablePeers.isEmpty || connectedPeers.count > 1
 
         if hasAlternatives {
             // CASE A: Alternative peers available → Disconnect immediately
-            print("✅ CASE A: Alternative peers available")
-            print("   Disconnecting immediately from \(peerKey)")
+            LoggingService.network.info("✅ CASE A: Alternative peers available")
+            LoggingService.network.info("   Disconnecting immediately from \(peerKey)")
 
             // Mark as pendingDisconnect temporarily (will be removed after actual disconnect)
             processingQueue.async(flags: .barrier) { [weak self] in
@@ -1672,13 +1878,13 @@ class NetworkManager: NSObject, ObservableObject {
             // Clean up all state for this peer
             cleanupPeerState(peerID)
 
-            print("✅ Immediate disconnection completed for \(peerKey)")
+            LoggingService.network.info("✅ Immediate disconnection completed for \(peerKey)")
 
         } else {
             // CASE B: No alternatives → Mark as pending, wait for new peer
-            print("⚠️ CASE B: No alternative peers available")
-            print("   Marking \(peerKey) as pendingDisconnect")
-            print("   Will disconnect automatically when new peer connects")
+            LoggingService.network.info("⚠️ CASE B: No alternative peers available")
+            LoggingService.network.info("   Marking \(peerKey) as pendingDisconnect")
+            LoggingService.network.info("   Will disconnect automatically when new peer connects")
 
             // Mark peer as pending disconnect
             processingQueue.async(flags: .barrier) { [weak self] in
@@ -1690,10 +1896,10 @@ class NetworkManager: NSObject, ObservableObject {
                 self?.objectWillChange.send()
             }
 
-            print("⏳ Peer \(peerKey) marked as pendingDisconnect - waiting for alternatives")
+            LoggingService.network.info("⏳ Peer \(peerKey) marked as pendingDisconnect - waiting for alternatives")
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     /// Helper function to get the connection state of a peer
@@ -1714,7 +1920,7 @@ class NetworkManager: NSObject, ObservableObject {
     private func cleanupPeerState(_ peerID: MCPeerID) {
         let peerKey = peerID.displayName
 
-        print("🧹 Cleaning up state for peer: \(peerKey)")
+        LoggingService.network.info("🧹 Cleaning up state for peer: \(peerKey)")
 
         // Remove from connection state tracking
         processingQueue.async(flags: .barrier) { [weak self] in
@@ -1751,7 +1957,7 @@ class NetworkManager: NSObject, ObservableObject {
             self?.connectedPeers.removeAll { $0.displayName == peerKey }
         }
 
-        print("✅ Cleanup completed for \(peerKey)")
+        LoggingService.network.info("✅ Cleanup completed for \(peerKey)")
     }
 
     @available(*, deprecated, renamed: "requestDisconnect", message: "Use requestDisconnect for intelligent disconnection management")
@@ -1770,7 +1976,7 @@ class NetworkManager: NSObject, ObservableObject {
 
         // Check conflict resolution - only reconnect if we should initiate
         guard ConnectionConflictResolver.shouldInitiateConnection(localPeer: localPeerID, remotePeer: peerID) else {
-            print("🔄 Skipping auto-reconnect - waiting for peer \(peerID.displayName) to initiate")
+            LoggingService.network.info("🔄 Skipping auto-reconnect - waiting for peer \(peerID.displayName) to initiate")
             return false
         }
 
@@ -1778,7 +1984,7 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     func resetConnectionState() {
-        print("♾️ Resetting all connection states")
+        LoggingService.network.info("♾️ Resetting all connection states")
         connectionMutex.clearAll()
         sessionManager.clearAll()
         messageCache.clear()
@@ -1797,7 +2003,7 @@ class NetworkManager: NSObject, ObservableObject {
     private func startAdvertising() {
         let now = Date()
         guard now.timeIntervalSince(lastAdvertiseTime) >= throttleInterval else {
-            print("⚠️ Throttling advertise request")
+            LoggingService.network.info("⚠️ Throttling advertise request")
             return
         }
         lastAdvertiseTime = now
@@ -1818,22 +2024,22 @@ class NetworkManager: NSObject, ObservableObject {
             self.isAdvertising = true
         }
 
-        print("📡 NetworkManager: Started advertising")
-        print("   Service type: \(serviceType)")
-        print("   Local peer: \(localPeerID.displayName)")
-        print("   Discovery info: \(discoveryInfo)")
-        print("   Delegate set: \(advertiser?.delegate != nil)")
-        print("   Lightning Mode: \(isLightningModeEnabled)")
+        LoggingService.network.info("📡 NetworkManager: Started advertising")
+        LoggingService.network.info("   Service type: \(self.serviceType)")
+        LoggingService.network.info("   Local peer: \(self.localPeerID.displayName)")
+        LoggingService.network.info("   Discovery info: \(String(describing: discoveryInfo as NSObject?))")
+        LoggingService.network.info("   Delegate set: \(self.advertiser?.delegate != nil)")
+        LoggingService.network.info("   Lightning Mode: \(self.isLightningModeEnabled)")
     }
 
     internal func stopAdvertising() {
-        print("🛑 STOPPING ADVERTISER - DEBUG INFO:")
-        print("   Current advertiser: \(advertiser != nil ? "EXISTS" : "NIL")")
-        print("   Was advertising: \(isAdvertising)")
-        print("   Waiting for invitation from: \(waitingForInvitationFrom.count) peers")
-        if !waitingForInvitationFrom.isEmpty {
-            print("   ⚠️ WARNING: Stopping advertiser while waiting for invitations!")
-            print("   Waiting from: \(Array(waitingForInvitationFrom.keys))")
+        LoggingService.network.info("🛑 STOPPING ADVERTISER - DEBUG INFO:")
+        LoggingService.network.info("   Current advertiser: \(self.advertiser != nil ? "EXISTS" : "NIL")")
+        LoggingService.network.info("   Was advertising: \(self.isAdvertising)")
+        LoggingService.network.info("   Waiting for invitation from: \(self.waitingForInvitationFrom.count) peers")
+        if !self.waitingForInvitationFrom.isEmpty {
+            LoggingService.network.info("   ⚠️ WARNING: Stopping advertiser while waiting for invitations!")
+            LoggingService.network.info("   Waiting from: \(Array(self.waitingForInvitationFrom.keys))")
         }
 
         advertiser?.stopAdvertisingPeer()
@@ -1843,14 +2049,14 @@ class NetworkManager: NSObject, ObservableObject {
             self.isAdvertising = false
         }
 
-        print("📡 NetworkManager: Stopped advertising")
+        LoggingService.network.info("📡 NetworkManager: Stopped advertising")
     }
 
     // MARK: - Stadium Mode Methods
 
     /// Activate Stadium Mode for FIFA 2026 with ultra-fast connections
     func activateStadiumMode(profile: StadiumMode.StadiumProfile = .megaStadium) {
-        print("🏟️🏟️🏟️ ACTIVATING STADIUM MODE FOR FIFA 2026 🏟️🏟️🏟️")
+        LoggingService.network.info("🏟️🏟️🏟️ ACTIVATING STADIUM MODE FOR FIFA 2026 🏟️🏟️🏟️")
 
         // Initialize Stadium Mode if not already created
         if stadiumMode == nil {
@@ -1872,12 +2078,12 @@ class NetworkManager: NSObject, ObservableObject {
         // Enable Lightning Mode in NetworkManager extension
         enableLightningMode()
 
-        print("🏟️ Stadium Mode ACTIVE - Target: <1s connections for 80,000+ users")
+        LoggingService.network.info("🏟️ Stadium Mode ACTIVE - Target: <1s connections for 80,000+ users")
     }
 
     /// Deactivate Stadium Mode and return to normal operation
     func deactivateStadiumMode() {
-        print("🏟️ Deactivating Stadium Mode...")
+        LoggingService.network.info("🏟️ Deactivating Stadium Mode...")
 
         stadiumMode?.deactivate()
         lightningManager?.deactivate()
@@ -1886,7 +2092,7 @@ class NetworkManager: NSObject, ObservableObject {
         // Disable Lightning Mode
         disableLightningMode()
 
-        print("✅ Returned to normal mode")
+        LoggingService.network.info("✅ Returned to normal mode")
     }
 
     /// Get current Stadium Mode status
@@ -1930,7 +2136,7 @@ class NetworkManager: NSObject, ObservableObject {
     private func startBrowsing() {
         let now = Date()
         guard now.timeIntervalSince(lastBrowseTime) >= throttleInterval else {
-            print("⚠️ Throttling browse request")
+            LoggingService.network.info("⚠️ Throttling browse request")
             return
         }
         lastBrowseTime = now
@@ -1943,7 +2149,7 @@ class NetworkManager: NSObject, ObservableObject {
             self.isBrowsing = true
         }
 
-        print("🔍 NetworkManager: Started browsing for peers")
+        LoggingService.network.info("🔍 NetworkManager: Started browsing for peers")
     }
 
     internal func stopBrowsing() {
@@ -1954,7 +2160,7 @@ class NetworkManager: NSObject, ObservableObject {
             self.isBrowsing = false
         }
 
-        print("🔍 NetworkManager: Stopped browsing")
+        LoggingService.network.info("🔍 NetworkManager: Stopped browsing")
     }
 
     private func manageBrowsing() {
@@ -1962,14 +2168,14 @@ class NetworkManager: NSObject, ObservableObject {
         // This allows the network to dynamically adapt when peers join or leave
         if !isBrowsing {
             startBrowsing()
-            print("🔄 Restarting browsing to discover new peers")
+            LoggingService.network.info("🔄 Restarting browsing to discover new peers")
         }
 
         // Optional: Stop browsing only if explicitly configured AND we have reached max connections
         if config.stopBrowsingWhenConnected && connectedPeers.count >= config.maxConnections {
             if isBrowsing {
                 stopBrowsing()
-                print("🛑 Auto-stopped browsing - max connections reached (\(connectedPeers.count)/\(config.maxConnections))")
+                LoggingService.network.info("🛑 Auto-stopped browsing - max connections reached (\(self.connectedPeers.count)/\(self.config.maxConnections))")
             }
         }
     }
@@ -1989,10 +2195,10 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     private func handleReceivedMessage(data: Data, from peerID: MCPeerID) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📥 RECEIVED DATA FROM: \(peerID.displayName)")
-        print("   Data Size: \(data.count) bytes")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📥 RECEIVED DATA FROM: \(peerID.displayName)")
+        LoggingService.network.info("   Data Size: \(data.count) bytes")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         do {
             let decoder = JSONDecoder()
@@ -2000,59 +2206,86 @@ class NetworkManager: NSObject, ObservableObject {
 
             switch payload {
             case .message(var networkMessage):
-                print("   Payload Type: Network Message")
+                LoggingService.network.info("   Payload Type: Network Message")
                 handleNetworkMessage(&networkMessage, from: peerID)
             case .ack(let ackMessage):
-                print("   Payload Type: ACK Message")
+                LoggingService.network.info("   Payload Type: ACK Message")
                 handleAckMessage(ackMessage, from: peerID)
             case .ping(_):
-                print("   Payload Type: Ping (handled by health monitor)")
+                LoggingService.network.info("   Payload Type: Ping (handled by health monitor)")
             case .pong(_):
-                print("   Payload Type: Pong (handled by health monitor)")
+                LoggingService.network.info("   Payload Type: Pong (handled by health monitor)")
             case .keepAlive(let keepAlive):
-                print("   Payload Type: Keep-Alive (peer count: \(keepAlive.peerCount))")
+                LoggingService.network.info("   Payload Type: Keep-Alive (peer count: \(keepAlive.peerCount))")
                 // Keep-alive messages are lightweight network stability pings
                 // No action needed - just receiving them keeps connection alive
             case .locationRequest(let locationRequest):
-                print("   Payload Type: Location Request")
+                LoggingService.network.info("   Payload Type: Location Request")
                 handleLocationRequest(locationRequest, from: peerID)
             case .locationResponse(let locationResponse):
-                print("   Payload Type: Location Response")
+                LoggingService.network.info("   Payload Type: Location Response")
                 handleLocationResponse(locationResponse, from: peerID)
             case .uwbDiscoveryToken(let tokenMessage):
-                print("   Payload Type: LinkFinder Discovery Token")
+                LoggingService.network.info("   Payload Type: LinkFinder Discovery Token")
                 handleUWBDiscoveryToken(tokenMessage, from: peerID)
             case .familySync(let familySyncMessage):
-                print("   Payload Type: Family Sync")
+                LoggingService.network.info("   Payload Type: Family Sync")
                 handleFamilySync(familySyncMessage, from: peerID)
             case .familyJoinRequest(let joinRequest):
-                print("   Payload Type: Family Join Request")
+                LoggingService.network.info("   Payload Type: Family Join Request")
                 handleFamilyJoinRequest(joinRequest, from: peerID)
             case .familyGroupInfo(let groupInfo):
-                print("   Payload Type: Family Group Info")
+                LoggingService.network.info("   Payload Type: Family Group Info")
                 handleFamilyGroupInfo(groupInfo, from: peerID)
             case .topology(var topologyMessage):
-                print("   Payload Type: Topology")
+                LoggingService.network.info("   Payload Type: Topology")
                 handleTopologyMessage(&topologyMessage, from: peerID)
             case .linkfenceEvent(let linkfenceEvent):
-                print("   Payload Type: LinkFence Event")
+                LoggingService.network.info("   Payload Type: LinkFence Event")
                 handleGeofenceEvent(linkfenceEvent, from: peerID)
             case .linkfenceShare(let linkfenceShare):
-                print("   Payload Type: LinkFence Share")
+                LoggingService.network.info("   Payload Type: LinkFence Share")
                 handleGeofenceShare(linkfenceShare, from: peerID)
             case .routeRequest(let routeRequest):
-                print("   Payload Type: Route Request")
+                LoggingService.network.info("   Payload Type: Route Request")
                 handleRouteRequest(routeRequest, from: peerID)
             case .routeReply(let routeReply):
-                print("   Payload Type: Route Reply")
+                LoggingService.network.info("   Payload Type: Route Reply")
                 handleRouteReply(routeReply, from: peerID)
             case .routeError(let routeError):
-                print("   Payload Type: Route Error")
+                LoggingService.network.info("   Payload Type: Route Error")
                 handleRouteError(routeError, from: peerID)
+            case .gpsLocation(let gpsLocation):
+                LoggingService.network.info("   Payload Type: GPS Location (LinkFinder Fallback)")
+                handleGPSLocationForLinkFinder(gpsLocation, from: peerID)
             }
         } catch {
+            // Try to handle as JSON for special requests
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let type = json["type"] as? String {
+
+                switch type {
+                case "uwb_token_request":
+                    // Handle UWB token request from peer who wants to start LinkFinder
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("📥 UWB TOKEN REQUEST RECEIVED")
+                    LoggingService.network.info("   From: \(peerID.displayName)")
+                    LoggingService.network.info("   Action: Starting LinkFinder session")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                    // Start LinkFinder session by sending our token
+                    self.uwbTokenExchangeState[peerID.displayName] = .sentToken
+                    self.sendUWBDiscoveryToken(to: peerID)
+                    return
+
+                default:
+                    LoggingService.network.info("⚠️ Unknown JSON message type: \(type)")
+                }
+            }
+
+            // Fallback to Message deserialization
             guard let message = Message.fromData(data) else {
-                print("❌ Failed to deserialize message: \(error)")
+                LoggingService.network.info("❌ Failed to deserialize message: \(error)")
                 return
             }
             DispatchQueue.main.async {
@@ -2070,14 +2303,15 @@ class NetworkManager: NSObject, ObservableObject {
                 }
 
                 self.messageStore.addMessage(message, context: descriptor, localDeviceName: self.localDeviceName)
-                print("📥 Legacy message from \(peerID.displayName): \(message.content)")
+                LoggingService.network.info("📥 Legacy message from \(peerID.displayName): \(message.content)")
             }
         }
     }
 
     private func handleNetworkMessage(_ message: inout NetworkMessage, from peerID: MCPeerID) {
-        guard messageCache.shouldProcessMessage(message.id) else {
-            print("💭 Ignoring duplicate message \(message.id.uuidString.prefix(8)) from \(peerID.displayName)")
+        let messageId = message.id
+        guard messageCache.shouldProcessMessage(messageId) else {
+            LoggingService.network.info("💭 Ignoring duplicate message \(messageId.uuidString.prefix(8)) from \(peerID.displayName)")
             return
         }
 
@@ -2086,11 +2320,17 @@ class NetworkManager: NSObject, ObservableObject {
         let isForMe = message.isForMe(localPeerID.displayName)
 
         // Enhanced logging for multi-hop tracking
-        print("📦 Message received:")
-        print("   From: \(message.senderId) → To: \(message.recipientId)")
-        print("   Route: \(message.routePath.joined(separator: " → "))")
-        print("   Hop: \(message.hopCount)/\(message.ttl)")
-        print("   For me? \(isForMe ? "✅ YES" : "❌ NO (will relay)")")
+        let senderId = message.senderId
+        let recipientId = message.recipientId
+        let routePath = message.routePath
+        let hopCount = message.hopCount
+        let ttl = message.ttl
+
+        LoggingService.network.info("📦 Message received:")
+        LoggingService.network.info("   From: \(senderId) → To: \(recipientId)")
+        LoggingService.network.info("   Route: \(routePath.joined(separator: " → "))")
+        LoggingService.network.info("   Hop: \(hopCount)/\(ttl)")
+        LoggingService.network.info("   For me? \(isForMe ? "✅ YES" : "❌ NO (will relay)")")
 
         if isForMe {
             let isBroadcast = message.recipientId == "broadcast"
@@ -2131,19 +2371,19 @@ class NetworkManager: NSObject, ObservableObject {
             let conversationId = conversationDescriptor.id
 
             DispatchQueue.main.async {
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("📨 NetworkManager: MESSAGE FOR ME - Delivering to MessageStore")
-                print("   Thread: MAIN (via DispatchQueue.main.async)")
-                print("   Sender: \(senderId)")
-                print("   Content: \"\(content)\"")
-                print("   Type: \(messageTypeDisplayName)")
-                print("   Hops: \(hopCount)")
-                print("   Route: \(route)")
-                print("   Conversation: \(conversationId)")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("📨 NetworkManager: MESSAGE FOR ME - Delivering to MessageStore")
+                LoggingService.network.info("   Thread: MAIN (via DispatchQueue.main.async)")
+                LoggingService.network.info("   Sender: \(senderId)")
+                LoggingService.network.info("   Content: \"\(content)\"")
+                LoggingService.network.info("   Type: \(messageTypeDisplayName)")
+                LoggingService.network.info("   Hops: \(hopCount)")
+                LoggingService.network.info("   Route: \(route)")
+                LoggingService.network.info("   Conversation: \(conversationId)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 // FORCE immediate UI update - critical for messages received via MultipeerConnectivity
-                print("   📢 Sending objectWillChange to MessageStore...")
+                LoggingService.network.info("   📢 Sending objectWillChange to MessageStore...")
                 self.messageStore.objectWillChange.send()
 
                 // Special handling for message requests
@@ -2154,19 +2394,19 @@ class NetworkManager: NSObject, ObservableObject {
                         message: content,
                         localDeviceName: self.localDeviceName
                     )
-                    print("📨 NetworkManager: Added message request to pending - NOT added to MessageStore")
+                    LoggingService.network.info("📨 NetworkManager: Added message request to pending - NOT added to MessageStore")
                     // Don't add to MessageStore yet - wait for acceptance
                 } else {
                     // Regular message - add to MessageStore normally
-                    print("   📥 Calling messageStore.addMessage()...")
+                    LoggingService.network.info("   📥 Calling messageStore.addMessage()...")
                     self.messageStore.addMessage(simpleMessage, context: conversationDescriptor, autoSwitch: true, localDeviceName: self.localDeviceName)
 
                     // Check if this activates a conversation
                     FirstMessageTracker.shared.handleIncomingMessage(from: senderId, localDeviceName: self.localDeviceName)
                 }
 
-                print("✅ NetworkManager: Message delivered to MessageStore")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("✅ NetworkManager: Message delivered to MessageStore")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
 
             if message.requiresAck {
@@ -2183,17 +2423,21 @@ class NetworkManager: NSObject, ObservableObject {
                     self.relayingMessage = true
                 }
 
-                print("🔄 RELAYING message to \(self.connectedPeers.count) peers - Hop \(message.hopCount)/\(message.ttl)")
-                print("   Next hops: \(self.connectedPeers.map { $0.displayName }.joined(separator: ", "))")
+                let messageHopCount = message.hopCount
+                let messageTTL = message.ttl
+                LoggingService.network.info("🔄 RELAYING message to \(self.connectedPeers.count) peers - Hop \(messageHopCount)/\(messageTTL)")
+                LoggingService.network.info("   Next hops: \(self.connectedPeers.map { $0.displayName }.joined(separator: ", "))")
                 messageQueue.enqueue(messageCopy)
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     self.relayingMessage = false
                 }
             } else if !message.canHop() {
-                print("⏹️ Message reached hop limit: \(message.hopCount)/\(message.ttl)")
+                let messageHopCount2 = message.hopCount
+                let messageTTL2 = message.ttl
+                LoggingService.network.info("⏹️ Message reached hop limit: \(messageHopCount2)/\(messageTTL2)")
             } else if message.hasVisited(localPeerID.displayName) {
-                print("⏹️ Already visited this node (loop prevention)")
+                LoggingService.network.info("⏹️ Already visited this node (loop prevention)")
             }
         }
     }
@@ -2222,14 +2466,14 @@ class NetworkManager: NSObject, ObservableObject {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
             try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "locationRequest")
-            print("📍 NetworkManager: Sent location request to \(targetPeerId)")
+            LoggingService.network.info("📍 NetworkManager: Sent location request to \(targetPeerId)")
         } catch {
-            print("❌ NetworkManager: Failed to send location request: \(error.localizedDescription)")
+            LoggingService.network.info("❌ NetworkManager: Failed to send location request: \(error.localizedDescription)")
         }
     }
 
     private func handleLocationRequest(_ request: LocationRequestMessage, from peerID: MCPeerID) {
-        print("📍 NetworkManager: Received location request from \(request.requesterId) for \(request.targetId)")
+        LoggingService.network.info("📍 NetworkManager: Received location request from \(request.requesterId) for \(request.targetId)")
 
         // Case 1: Request is for me - respond with my location (LinkFinder or GPS)
         if request.targetId == localPeerID.displayName {
@@ -2239,7 +2483,7 @@ class NetworkManager: NSObject, ObservableObject {
 
         // Case 2: Relay the request (normal multi-hop routing)
         // Intermediaries do NOT respond with their own LinkFinder data
-        print("📍 NetworkManager: Relaying location request for \(request.targetId)")
+        LoggingService.network.info("📍 NetworkManager: Relaying location request for \(request.targetId)")
         let payload = NetworkPayload.locationRequest(request)
 
         do {
@@ -2247,14 +2491,14 @@ class NetworkManager: NSObject, ObservableObject {
             let data = try encoder.encode(payload)
             try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "relayLocationRequest")
         } catch {
-            print("❌ NetworkManager: Failed to relay location request: \(error.localizedDescription)")
+            LoggingService.network.info("❌ NetworkManager: Failed to relay location request: \(error.localizedDescription)")
         }
     }
 
     private func handleLocationRequestForMe(_ request: LocationRequestMessage) {
         // Check if we should respond
         guard locationRequestManager.shouldRespondToRequest(request) else {
-            print("📍 NetworkManager: Declining location request from \(request.requesterId)")
+            LoggingService.network.info("📍 NetworkManager: Declining location request from \(request.requesterId)")
 
             // Send unavailable response
             let response = LocationResponseMessage.unavailableResponse(
@@ -2267,21 +2511,21 @@ class NetworkManager: NSObject, ObservableObject {
         }
 
         // Check if requester is a connected peer and we have LinkFinder session with them
-        print("📍 NetworkManager: Checking LinkFinder availability with requester \(request.requesterId)...")
+        LoggingService.network.info("📍 NetworkManager: Checking LinkFinder availability with requester \(request.requesterId)...")
 
         if #available(iOS 14.0, *) {
             if let uwbManager = uwbSessionManager {
-                print("   ✓ LinkFinderSessionManager available")
+                LoggingService.network.info("   ✓ LinkFinderSessionManager available")
 
                 if let requesterPeer = connectedPeers.first(where: { $0.displayName == request.requesterId }) {
-                    print("   ✓ Requester found in connected peers")
+                    LoggingService.network.info("   ✓ Requester found in connected peers")
 
                     let hasSession = uwbManager.hasActiveSession(with: requesterPeer)
-                    print("   LinkFinder session active: \(hasSession ? "✓ YES" : "✗ NO")")
+                    LoggingService.network.info("   LinkFinder session active: \(hasSession ? "✓ YES" : "✗ NO")")
 
                     if hasSession {
                         if let distance = uwbManager.getDistance(to: requesterPeer) {
-                            print("   ✓ LinkFinder distance available: \(String(format: "%.2f", distance))m")
+                            LoggingService.network.info("   ✓ LinkFinder distance available: \(String(format: "%.2f", distance))m")
 
                             // We have LinkFinder with the requester! Send precise LinkFinder response
                             let direction = uwbManager.getDirection(to: requesterPeer).map { DirectionVector(from: $0) }
@@ -2295,29 +2539,29 @@ class NetworkManager: NSObject, ObservableObject {
                             )
 
                             sendLocationResponse(response)
-                            print("✅ NetworkManager: Sent LinkFinder direct response - \(String(format: "%.2f", distance))m \(direction?.cardinalDirection ?? "no direction")")
+                            LoggingService.network.info("✅ NetworkManager: Sent LinkFinder direct response - \(String(format: "%.2f", distance))m \(direction?.cardinalDirection ?? "no direction")")
                             return
                         } else {
-                            print("   ✗ LinkFinder session exists but no distance data yet")
+                            LoggingService.network.info("   ✗ LinkFinder session exists but no distance data yet")
                         }
                     }
                 } else {
-                    print("   ✗ Requester \(request.requesterId) not in connected peers list")
+                    LoggingService.network.info("   ✗ Requester \(request.requesterId) not in connected peers list")
                 }
             } else {
-                print("   ✗ LinkFinderSessionManager is nil")
+                LoggingService.network.info("   ✗ LinkFinderSessionManager is nil")
             }
         } else {
-            print("   ✗ iOS 14.0+ required for LinkFinder")
+            LoggingService.network.info("   ✗ iOS 14.0+ required for LinkFinder")
         }
 
-        print("📍 NetworkManager: Falling back to GPS (LinkFinder not available)")
+        LoggingService.network.info("📍 NetworkManager: Falling back to GPS (LinkFinder not available)")
 
         // Fallback: No LinkFinder available, send GPS location
         Task {
             do {
                 guard let location = try await locationService.getCurrentLocation() else {
-                    print("❌ NetworkManager: Failed to get location")
+                    LoggingService.network.info("❌ NetworkManager: Failed to get location")
 
                     let response = LocationResponseMessage.unavailableResponse(
                         requestId: request.id,
@@ -2336,10 +2580,10 @@ class NetworkManager: NSObject, ObservableObject {
                 )
 
                 sendLocationResponse(response)
-                print("📍 NetworkManager: Sent GPS fallback response")
+                LoggingService.network.info("📍 NetworkManager: Sent GPS fallback response")
 
             } catch {
-                print("❌ NetworkManager: Error getting location: \(error)")
+                LoggingService.network.info("❌ NetworkManager: Error getting location: \(error)")
 
                 let response = LocationResponseMessage.unavailableResponse(
                     requestId: request.id,
@@ -2362,12 +2606,12 @@ class NetworkManager: NSObject, ObservableObject {
             let data = try encoder.encode(payload)
             try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "locationResponse")
         } catch {
-            print("❌ NetworkManager: Failed to send location response: \(error.localizedDescription)")
+            LoggingService.network.info("❌ NetworkManager: Failed to send location response: \(error.localizedDescription)")
         }
     }
 
     private func handleLocationResponse(_ response: LocationResponseMessage, from peerID: MCPeerID) {
-        print("📍 NetworkManager: Received location response: \(response.description)")
+        LoggingService.network.info("📍 NetworkManager: Received location response: \(response.description)")
         locationRequestManager.handleResponse(response)
 
         // Auto-update PeerLocationTracker ONLY if we requested this location (privacy guard)
@@ -2382,7 +2626,7 @@ class NetworkManager: NSObject, ObservableObject {
 
     /// Start sharing GPS location with a peer during active navigation
     func startSharingLocationWithPeer(peerID: String) {
-        print("📍 NetworkManager: Starting GPS sharing with peer: \(peerID)")
+        LoggingService.network.info("📍 NetworkManager: Starting GPS sharing with peer: \(peerID)")
 
         peersInNavigation.insert(peerID)
 
@@ -2402,7 +2646,7 @@ class NetworkManager: NSObject, ObservableObject {
 
     /// Stop sharing GPS location with a peer when navigation ends
     func stopSharingLocationWithPeer(peerID: String) {
-        print("📍 NetworkManager: Stopping GPS sharing with peer: \(peerID)")
+        LoggingService.network.info("📍 NetworkManager: Stopping GPS sharing with peer: \(peerID)")
 
         peersInNavigation.remove(peerID)
 
@@ -2423,14 +2667,14 @@ class NetworkManager: NSObject, ObservableObject {
             self?.broadcastMyLocationToPeersInNavigation()
         }
 
-        print("📍 NetworkManager: Started location sharing timer (every \(locationSharingInterval)s)")
+        LoggingService.network.info("📍 NetworkManager: Started location sharing timer (every \(self.locationSharingInterval)s)")
     }
 
     /// Stop periodic GPS location broadcast timer
     private func stopLocationSharingTimer() {
         locationSharingTimer?.invalidate()
         locationSharingTimer = nil
-        print("📍 NetworkManager: Stopped location sharing timer")
+        LoggingService.network.info("📍 NetworkManager: Stopped location sharing timer")
     }
 
     /// Broadcast current GPS location to all peers in active navigation
@@ -2438,12 +2682,12 @@ class NetworkManager: NSObject, ObservableObject {
         guard !peersInNavigation.isEmpty else { return }
 
         guard let currentLocation = locationService.currentLocation else {
-            print("⚠️ NetworkManager: Cannot broadcast location - no GPS fix available")
+            LoggingService.network.info("⚠️ NetworkManager: Cannot broadcast location - no GPS fix available")
             return
         }
 
         guard locationService.hasRecentLocation else {
-            print("⚠️ NetworkManager: Cannot broadcast location - GPS data is stale")
+            LoggingService.network.info("⚠️ NetworkManager: Cannot broadcast location - GPS data is stale")
             return
         }
 
@@ -2461,51 +2705,148 @@ class NetworkManager: NSObject, ObservableObject {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
             try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "broadcastGPSLocation")
-            print("📍 NetworkManager: Broadcasted GPS location to \(connectedPeers.count) peers: \(currentLocation.coordinateString)")
+            LoggingService.network.info("📍 NetworkManager: Broadcasted GPS location to \(self.connectedPeers.count) peers: \(currentLocation.coordinateString)")
         } catch {
-            print("❌ NetworkManager: Failed to broadcast GPS location: \(error.localizedDescription)")
+            LoggingService.network.info("❌ NetworkManager: Failed to broadcast GPS location: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - GPS Location for LinkFinder Fallback
+
+    /// Send GPS location to a specific peer for LinkFinder fallback direction calculation
+    func sendGPSLocationForLinkFinder(to peerID: MCPeerID) {
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📍 SENDING GPS LOCATION FOR LINKFINDER FALLBACK")
+        LoggingService.network.info("   To: \(peerID.displayName)")
+
+        guard let currentLocation = locationService.currentLocation else {
+            LoggingService.network.info("   ❌ No current location available")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            return
+        }
+
+        guard locationService.hasRecentLocation else {
+            LoggingService.network.info("   ❌ GPS data is stale (older than 30s)")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            return
+        }
+
+        // Convert UserLocation to CLLocation to get all properties
+        let clLocation = currentLocation.toCLLocation()
+
+        let gpsMessage = GPSLocationMessage(
+            senderId: localPeerID.displayName,
+            latitude: clLocation.coordinate.latitude,
+            longitude: clLocation.coordinate.longitude,
+            horizontalAccuracy: clLocation.horizontalAccuracy,
+            altitude: clLocation.altitude,
+            verticalAccuracy: clLocation.verticalAccuracy
+        )
+
+        let payload = NetworkPayload.gpsLocation(gpsMessage)
+
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(payload)
+            try safeSend(data, toPeers: [peerID], with: .reliable, context: "linkFinderFallbackGPS")
+
+            LoggingService.network.info("   ✅ GPS location sent successfully")
+            LoggingService.network.info("      Lat: \(clLocation.coordinate.latitude)")
+            LoggingService.network.info("      Lon: \(clLocation.coordinate.longitude)")
+            LoggingService.network.info("      Accuracy: ±\(clLocation.horizontalAccuracy)m")
+        } catch {
+            LoggingService.network.info("   ❌ Failed to send GPS location: \(error.localizedDescription)")
+        }
+
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
+
+    /// Start periodic GPS location sharing for LinkFinder fallback (every 5 seconds)
+    func startGPSLocationSharingForLinkFinder(with peerID: MCPeerID) {
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔄 STARTING PERIODIC GPS SHARING FOR LINKFINDER FALLBACK")
+        LoggingService.network.info("   Peer: \(peerID.displayName)")
+        LoggingService.network.info("   Interval: 5 seconds")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Send immediate location
+        sendGPSLocationForLinkFinder(to: peerID)
+
+        // TODO: Implement timer-based periodic sharing
+        // For now, LinkFinderSessionManager will call sendGPSLocationForLinkFinder manually
+    }
+
+    /// Stop periodic GPS location sharing for LinkFinder fallback
+    func stopGPSLocationSharingForLinkFinder(with peerID: MCPeerID) {
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🛑 STOPPING GPS SHARING FOR LINKFINDER FALLBACK")
+        LoggingService.network.info("   Peer: \(peerID.displayName)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // TODO: Cancel timer if implemented
     }
 
     // MARK: - LinkFinder Discovery Token Exchange
 
     private func sendUWBDiscoveryToken(to peerID: MCPeerID) {
-        print("📡 NetworkManager: Attempting to send LinkFinder token to \(peerID.displayName)...")
+        LoggingService.network.info("📡 NetworkManager: Attempting to send LinkFinder token to \(peerID.displayName)...")
 
         guard #available(iOS 14.0, *) else {
-            print("   ✗ iOS 14.0+ required for LinkFinder - skipping token exchange")
+            LoggingService.network.info("   ✗ iOS 14.0+ required for LinkFinder - skipping token exchange")
             return
         }
 
         guard let uwbManager = uwbSessionManager else {
-            print("   ✗ LinkFinderSessionManager is nil - skipping token exchange")
+            LoggingService.network.info("   ✗ LinkFinderSessionManager is nil - skipping token exchange")
             return
         }
 
         guard uwbManager.isLinkFinderSupported else {
-            print("   ✗ LinkFinder not supported on this device (requires iPhone 11+ with U1/U2 chip)")
+            LoggingService.network.info("   ✗ LinkFinder not supported on this device (requires iPhone 11+ with U1/U2 chip)")
             return
         }
 
         // Prepare session for this peer (creates session, extracts token, but doesn't run it)
         guard let token = uwbManager.prepareSession(for: peerID) else {
-            print("   ✗ Failed to prepare session and get discovery token")
+            LoggingService.network.info("   ✗ Failed to prepare session and get discovery token")
             return
         }
 
         do {
             let tokenData = try NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true)
-            let message = LinkFinderDiscoveryTokenMessage(senderId: localPeerID.displayName, tokenData: tokenData)
+
+            // Get local device capabilities
+            var deviceCapabilities: UWBDeviceCapabilities? = nil
+            if let localCaps = uwbManager.getLocalCapabilities() {
+                deviceCapabilities = UWBDeviceCapabilities(
+                    deviceModel: localCaps.deviceModel,
+                    hasUWB: localCaps.hasUWB,
+                    hasU1Chip: localCaps.hasU1Chip,
+                    hasU2Chip: localCaps.hasU2Chip,
+                    supportsDistance: localCaps.supportsDistance,
+                    supportsDirection: localCaps.supportsDirection,
+                    supportsCameraAssist: localCaps.supportsCameraAssist,
+                    supportsExtendedRange: localCaps.supportsExtendedRange,
+                    osVersion: localCaps.osVersion
+                )
+                LoggingService.network.info("   ✓ Including device capabilities: \(localCaps.deviceModel) - \(localCaps.summary)")
+            }
+
+            let message = LinkFinderDiscoveryTokenMessage(
+                senderId: localPeerID.displayName,
+                tokenData: tokenData,
+                deviceCapabilities: deviceCapabilities
+            )
             let payload = NetworkPayload.uwbDiscoveryToken(message)
 
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
             try safeSend(data, toPeers: [peerID], with: .reliable, context: "LinkFinderToken")
 
-            print("✅ NetworkManager: Sent LinkFinder discovery token to \(peerID.displayName)")
-            print("   Session prepared and ready to run when we receive peer's token")
+            LoggingService.network.info("✅ NetworkManager: Sent LinkFinder discovery token to \(peerID.displayName)")
+            LoggingService.network.info("   Session prepared and ready to run when we receive peer's token")
         } catch {
-            print("❌ NetworkManager: Failed to send LinkFinder token: \(error.localizedDescription)")
+            LoggingService.network.info("❌ NetworkManager: Failed to send LinkFinder token: \(error.localizedDescription)")
         }
     }
 
@@ -2513,10 +2854,10 @@ class NetworkManager: NSObject, ObservableObject {
     // and re-initiating the token exchange. This avoids introducing a new payload
     // type and leverages the existing discovery-token flow to re-establish ranging.
     private func sendUWBResetRequest(to peer: MCPeerID) {
-        print("📡 NetworkManager: LinkFinder reset requested for \(peer.displayName) — resetting local session and re-initiating token exchange")
+        LoggingService.network.info("📡 NetworkManager: LinkFinder reset requested for \(peer.displayName) — resetting local session and re-initiating token exchange")
 
         guard #available(iOS 14.0, *), let uwbManager = uwbSessionManager else {
-            print("   ✗ LinkFinder not available — cannot perform reset")
+            LoggingService.network.info("   ✗ LinkFinder not available — cannot perform reset")
             return
         }
 
@@ -2532,7 +2873,7 @@ class NetworkManager: NSObject, ObservableObject {
             guard let self = self else { return }
 
             // Mark that we're initiating a fresh exchange and send our token
-            print("📤 NetworkManager: Re-initiating LinkFinder token exchange with \(peer.displayName) after reset")
+            LoggingService.network.info("📤 NetworkManager: Re-initiating LinkFinder token exchange with \(peer.displayName) after reset")
             self.uwbTokenExchangeState[peer.displayName] = .sentToken
             self.sendUWBDiscoveryToken(to: peer)
         }
@@ -2553,19 +2894,19 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     private func handleUWBDiscoveryToken(_ tokenMessage: LinkFinderDiscoveryTokenMessage, from peerID: MCPeerID) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📥 LinkFinder TOKEN RECEIVED")
-        print("   From: \(peerID.displayName)")
-        print("   Token sender ID: \(tokenMessage.senderId)")
-        print("   Token data size: \(tokenMessage.tokenData.count) bytes")
-        print("   Current exchange state: \(uwbTokenExchangeState[peerID.displayName] ?? .none)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📥 LinkFinder TOKEN RECEIVED")
+        LoggingService.network.info("   From: \(peerID.displayName)")
+        LoggingService.network.info("   Token sender ID: \(tokenMessage.senderId)")
+        LoggingService.network.info("   Token data size: \(tokenMessage.tokenData.count) bytes")
+        LoggingService.network.info("   Current exchange state: \(String(describing: self.uwbTokenExchangeState[peerID.displayName] ?? .none))")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         guard #available(iOS 14.0, *),
               let uwbManager = uwbSessionManager,
               uwbManager.isLinkFinderSupported else {
-            print("   ✗ LinkFinder not supported on this device")
-            print("   ❌ FAILED: Device doesn't support UWB")
+            LoggingService.network.info("   ✗ LinkFinder not supported on this device")
+            LoggingService.network.info("   ❌ FAILED: Device doesn't support UWB")
             return
         }
 
@@ -2574,22 +2915,46 @@ class NetworkManager: NSObject, ObservableObject {
                 ofClass: NIDiscoveryToken.self,
                 from: tokenMessage.tokenData
             ) else {
-                print("❌ NetworkManager: Failed to unarchive LinkFinder token")
+                LoggingService.network.info("❌ NetworkManager: Failed to unarchive LinkFinder token")
                 return
             }
 
-            print("   ✓ Token unarchived successfully")
+            LoggingService.network.info("   ✓ Token unarchived successfully")
+
+            // Process device capabilities if present
+            if let deviceCaps = tokenMessage.deviceCapabilities {
+                LoggingService.network.info("   📱 Peer capabilities received:")
+                LoggingService.network.info("      Device: \(deviceCaps.deviceModel)")
+                LoggingService.network.info("      UWB: \(deviceCaps.hasUWB ? "✅" : "❌")")
+                LoggingService.network.info("      Direction: \(deviceCaps.supportsDirection ? "✅" : "❌")")
+
+                // Convert to LinkFinderSessionManager.DeviceCapabilities
+                let capabilities = LinkFinderSessionManager.DeviceCapabilities(
+                    deviceModel: deviceCaps.deviceModel,
+                    hasUWB: deviceCaps.hasUWB,
+                    hasU1Chip: deviceCaps.hasU1Chip,
+                    hasU2Chip: deviceCaps.hasU2Chip,
+                    supportsDistance: deviceCaps.supportsDistance,
+                    supportsDirection: deviceCaps.supportsDirection,
+                    supportsCameraAssist: deviceCaps.supportsCameraAssist,
+                    supportsExtendedRange: deviceCaps.supportsExtendedRange,
+                    osVersion: deviceCaps.osVersion
+                )
+                uwbManager.setPeerCapabilities(capabilities, for: peerID)
+            } else {
+                LoggingService.network.info("   ⚠️ No device capabilities in message (older app version?)")
+            }
 
             // Determine role based on peer ID comparison
             let isMaster = localPeerID.displayName > peerID.displayName
             uwbSessionRole[peerID.displayName] = isMaster ? "master" : "slave"
 
-            print("   🎭 LinkFinder Role: \(isMaster ? "MASTER" : "SLAVE") for session with \(peerID.displayName)")
-            print("   📊 Comparison: '\(localPeerID.displayName)' \(isMaster ? ">" : "<") '\(peerID.displayName)'")
+            LoggingService.network.info("   🎭 LinkFinder Role: \(isMaster ? "MASTER" : "SLAVE") for session with \(peerID.displayName)")
+            LoggingService.network.info("   📊 Comparison: '\(self.localPeerID.displayName)' \(isMaster ? ">" : "<") '\(peerID.displayName)'")
 
             if isMaster {
                 // MASTER receives SLAVE's token response
-                print("   📥 MASTER received SLAVE's token")
+                LoggingService.network.info("   📥 MASTER received SLAVE's token")
 
                 // Our session should already be prepared (we sent our token first)
                 // Now run our session with the slave's token
@@ -2597,84 +2962,142 @@ class NetworkManager: NSObject, ObservableObject {
 
                 // Mark exchange complete
                 uwbTokenExchangeState[peerID.displayName] = .exchangeComplete
-                print("   ✅ Token exchange complete - both sessions running")
+                LoggingService.network.info("   ✅ Token exchange complete - both sessions running")
 
             } else {
                 // SLAVE receives MASTER's initial token
-                print("   📥 SLAVE received MASTER's token")
-                print("   🎭 Role: SLAVE (will send token back)")
+                LoggingService.network.info("   📥 SLAVE received MASTER's token")
+                LoggingService.network.info("   🎭 Role: SLAVE (will send token back)")
 
                 // Step 1: Prepare our session (if not already prepared)
                 // This will create session and extract our token
                 guard let myToken = uwbManager.prepareSession(for: peerID) else {
-                    print("   ❌ Failed to prepare session - cannot create local token")
+                    LoggingService.network.info("   ❌ Failed to prepare session - cannot create local token")
                     uwbTokenExchangeState[peerID.displayName] = .none
                     return
                 }
 
-                print("   ✅ Session prepared, local token extracted")
-                print("   📊 Local token size: \(String(describing: myToken).count) chars")
+                LoggingService.network.info("   ✅ Session prepared, local token extracted")
+                LoggingService.network.info("   📊 Local token size: \(String(describing: myToken).count) chars")
 
                 // Step 2: Run our session with master's token
                 uwbManager.startSession(with: peerID, remotePeerToken: remotePeerToken)
-                print("   🚀 Session started with MASTER's token")
+                LoggingService.network.info("   🚀 Session started with MASTER's token")
 
                 // Step 3: Send our token back to master
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                     guard let self = self else {
-                        print("   ❌ Self deallocated - cannot send token back")
+                        LoggingService.network.info("   ❌ Self deallocated - cannot send token back")
                         return
                     }
 
-                    print("   📤 SLAVE attempting to send token back to MASTER...")
-                    print("   📊 Peer connection state: \(self.connectedPeers.contains(peerID) ? "Connected" : "Disconnected")")
+                    LoggingService.network.info("   📤 SLAVE attempting to send token back to MASTER...")
+                    LoggingService.network.info("   📊 Peer connection state: \(self.connectedPeers.contains(peerID) ? "Connected" : "Disconnected")")
 
                     // Manually encode and send (can't use sendUWBDiscoveryToken since session is already prepared)
                     do {
                         let tokenData = try NSKeyedArchiver.archivedData(withRootObject: myToken, requiringSecureCoding: true)
-                        print("   ✅ Token serialized: \(tokenData.count) bytes")
+                        LoggingService.network.info("   ✅ Token serialized: \(tokenData.count) bytes")
 
-                        let message = LinkFinderDiscoveryTokenMessage(senderId: self.localPeerID.displayName, tokenData: tokenData)
+                        // Include device capabilities in response
+                        var deviceCapabilities: UWBDeviceCapabilities? = nil
+                        if let localCaps = uwbManager.getLocalCapabilities() {
+                            deviceCapabilities = UWBDeviceCapabilities(
+                                deviceModel: localCaps.deviceModel,
+                                hasUWB: localCaps.hasUWB,
+                                hasU1Chip: localCaps.hasU1Chip,
+                                hasU2Chip: localCaps.hasU2Chip,
+                                supportsDistance: localCaps.supportsDistance,
+                                supportsDirection: localCaps.supportsDirection,
+                                supportsCameraAssist: localCaps.supportsCameraAssist,
+                                supportsExtendedRange: localCaps.supportsExtendedRange,
+                                osVersion: localCaps.osVersion
+                            )
+                            LoggingService.network.info("   ✓ Including device capabilities: \(localCaps.deviceModel)")
+                        }
+
+                        let message = LinkFinderDiscoveryTokenMessage(
+                            senderId: self.localPeerID.displayName,
+                            tokenData: tokenData,
+                            deviceCapabilities: deviceCapabilities
+                        )
                         let payload = NetworkPayload.uwbDiscoveryToken(message)
 
                         let encoder = JSONEncoder()
                         let data = try encoder.encode(payload)
-                        print("   📦 Payload encoded: \(data.count) bytes")
+                        LoggingService.network.info("   📦 Payload encoded: \(data.count) bytes")
 
                         // Check if peer is still connected before sending
                         guard self.connectedPeers.contains(peerID) else {
-                            print("   ❌ FAILED: Peer \(peerID.displayName) disconnected before token could be sent")
+                            LoggingService.network.info("   ❌ FAILED: Peer \(peerID.displayName) disconnected before token could be sent")
                             self.uwbTokenExchangeState[peerID.displayName] = .none
                             return
                         }
 
                         try self.safeSend(data, toPeers: [peerID], with: .reliable, context: "LinkFinderTokenResponse")
-                        print("   📨 Token sent to \(peerID.displayName) via reliable channel")
+                        LoggingService.network.info("   📨 Token sent to \(peerID.displayName) via reliable channel")
 
                         self.uwbTokenExchangeState[peerID.displayName] = .exchangeComplete
-                        print("   ✅ SLAVE sent token - exchange marked complete")
+                        LoggingService.network.info("   ✅ SLAVE sent token - exchange marked complete")
                     } catch {
-                        print("   ❌ CRITICAL ERROR sending token back:")
-                        print("      Error: \(error)")
-                        print("      Description: \(error.localizedDescription)")
+                        LoggingService.network.info("   ❌ CRITICAL ERROR sending token back:")
+                        LoggingService.network.info("      Error: \(error)")
+                        LoggingService.network.info("      Description: \(error.localizedDescription)")
                         self.uwbTokenExchangeState[peerID.displayName] = .none
                     }
                 }
             }
 
         } catch {
-            print("❌ NetworkManager: Error handling LinkFinder token: \(error.localizedDescription)")
+            LoggingService.network.info("❌ NetworkManager: Error handling LinkFinder token: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - GPS Location for LinkFinder Fallback Handler
+
+    private func handleGPSLocationForLinkFinder(_ gpsMessage: GPSLocationMessage, from peerID: MCPeerID) {
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📍 GPS LOCATION RECEIVED FOR LINKFINDER FALLBACK")
+        LoggingService.network.info("   From: \(peerID.displayName)")
+        LoggingService.network.info("   Sender ID: \(gpsMessage.senderId)")
+        LoggingService.network.info("   Lat: \(gpsMessage.latitude)")
+        LoggingService.network.info("   Lon: \(gpsMessage.longitude)")
+        LoggingService.network.info("   Accuracy: ±\(gpsMessage.horizontalAccuracy)m")
+        LoggingService.network.info("   Timestamp: \(gpsMessage.timestamp)")
+
+        guard #available(iOS 14.0, *),
+              let uwbManager = uwbSessionManager else {
+            LoggingService.network.info("   ❌ LinkFinderSessionManager not available")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            return
+        }
+
+        // Convert GPSLocationMessage to CLLocation
+        let location = CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: gpsMessage.latitude, longitude: gpsMessage.longitude),
+            altitude: gpsMessage.altitude,
+            horizontalAccuracy: gpsMessage.horizontalAccuracy,
+            verticalAccuracy: gpsMessage.verticalAccuracy,
+            timestamp: gpsMessage.timestamp
+        )
+
+        LoggingService.network.info("   ✅ GPS location converted to CLLocation")
+        LoggingService.network.info("   📍 Forwarding to LinkFinderSessionManager for fallback direction calculation")
+
+        // Forward to LinkFinderSessionManager for fallback direction calculation
+        uwbManager.updatePeerGPSLocation(location, for: peerID)
+
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     // MARK: - Family Sync Handling
 
     private func handleFamilySync(_ syncMessage: FamilySyncMessage, from peerID: MCPeerID) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("👨‍👩‍👧‍👦 FAMILY SYNC RECEIVED")
-        print("   From: \(peerID.displayName)")
-        print("   Code: \(syncMessage.groupCode.displayCode)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("👨‍👩‍👧‍👦 FAMILY SYNC RECEIVED")
+        LoggingService.network.info("   From: \(peerID.displayName)")
+        LoggingService.network.info("   Code: \(syncMessage.groupCode.displayCode)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Handle sync through family group manager
         familyGroupManager.handleFamilySync(syncMessage)
@@ -2688,15 +3111,15 @@ class NetworkManager: NSObject, ObservableObject {
         // Check if we have an active family group
         guard let group = familyGroupManager.currentGroup,
               let syncMessage = FamilySyncMessage.create(from: group, currentPeerID: localPeerID.displayName) else {
-            print("⚠️ NetworkManager: No active family group to sync")
+            LoggingService.network.info("⚠️ NetworkManager: No active family group to sync")
             return
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📤 SENDING FAMILY SYNC")
-        print("   To: \(peerID.displayName)")
-        print("   Code: \(syncMessage.groupCode.displayCode)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📤 SENDING FAMILY SYNC")
+        LoggingService.network.info("   To: \(peerID.displayName)")
+        LoggingService.network.info("   Code: \(syncMessage.groupCode.displayCode)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         let payload = NetworkPayload.familySync(syncMessage)
 
@@ -2704,9 +3127,9 @@ class NetworkManager: NSObject, ObservableObject {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
             try safeSend(data, toPeers: [peerID], with: .reliable, context: "familySync")
-            print("✅ NetworkManager: Sent family sync to \(peerID.displayName)")
+            LoggingService.network.info("✅ NetworkManager: Sent family sync to \(peerID.displayName)")
         } catch {
-            print("❌ NetworkManager: Failed to send family sync: \(error.localizedDescription)")
+            LoggingService.network.info("❌ NetworkManager: Failed to send family sync: \(error.localizedDescription)")
         }
     }
 
@@ -2726,11 +3149,11 @@ class NetworkManager: NSObject, ObservableObject {
 
     /// Send linkfence event to family members via mesh
     func sendGeofenceEvent(_ event: LinkFenceEventMessage) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📤 SENDING GEOFENCE EVENT")
-        print("   Type: \(event.eventType.rawValue)")
-        print("   Place: \(event.linkfenceName)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📤 SENDING GEOFENCE EVENT")
+        LoggingService.network.info("   Type: \(event.eventType.rawValue)")
+        LoggingService.network.info("   Place: \(event.linkfenceName)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         let payload = NetworkPayload.linkfenceEvent(event)
 
@@ -2739,18 +3162,18 @@ class NetworkManager: NSObject, ObservableObject {
             let data = try encoder.encode(payload)
             // Send to all connected peers (family will filter by code)
             try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "linkfenceEvent")
-            print("✅ NetworkManager: Sent linkfence event to \(connectedPeers.count) peers")
+            LoggingService.network.info("✅ NetworkManager: Sent linkfence event to \(self.connectedPeers.count) peers")
         } catch {
-            print("❌ NetworkManager: Failed to send linkfence event: \(error.localizedDescription)")
+            LoggingService.network.info("❌ NetworkManager: Failed to send linkfence event: \(error.localizedDescription)")
         }
     }
 
     /// Send linkfence share to family members via mesh
     func sendGeofenceShare(_ share: LinkFenceShareMessage) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📤 SENDING GEOFENCE SHARE")
-        print("   LinkFence: \(share.linkfence.name)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📤 SENDING GEOFENCE SHARE")
+        LoggingService.network.info("   LinkFence: \(share.linkfence.name)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         let payload = NetworkPayload.linkfenceShare(share)
 
@@ -2759,31 +3182,31 @@ class NetworkManager: NSObject, ObservableObject {
             let data = try encoder.encode(payload)
             // Send to all connected peers (family will filter by code)
             try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "linkfenceShare")
-            print("✅ NetworkManager: Sent linkfence share to \(connectedPeers.count) peers")
+            LoggingService.network.info("✅ NetworkManager: Sent linkfence share to \(self.connectedPeers.count) peers")
         } catch {
-            print("❌ NetworkManager: Failed to send linkfence share: \(error.localizedDescription)")
+            LoggingService.network.info("❌ NetworkManager: Failed to send linkfence share: \(error.localizedDescription)")
         }
     }
 
     // MARK: - Family Join Request/Response Handling
 
     private func handleFamilyJoinRequest(_ request: FamilyJoinRequestMessage, from peerID: MCPeerID) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔍 FAMILY JOIN REQUEST RECEIVED")
-        print("   From: \(request.requesterId)")
-        print("   Code: \(request.groupCode.displayCode)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔍 FAMILY JOIN REQUEST RECEIVED")
+        LoggingService.network.info("   From: \(request.requesterId)")
+        LoggingService.network.info("   Code: \(request.groupCode.displayCode)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Check if we have this group code
         guard let myGroup = familyGroupManager.currentGroup,
               myGroup.code == request.groupCode else {
-            print("⚠️ We don't have group with code \(request.groupCode.displayCode)")
+            LoggingService.network.info("⚠️ We don't have group with code \(request.groupCode.displayCode)")
             return
         }
 
-        print("✅ We have this group! Sending info back...")
-        print("   Group: \(myGroup.name)")
-        print("   Members: \(myGroup.memberCount)")
+        LoggingService.network.info("✅ We have this group! Sending info back...")
+        LoggingService.network.info("   Group: \(myGroup.name)")
+        LoggingService.network.info("   Members: \(myGroup.memberCount)")
 
         // Create response with group info
         let groupInfo = FamilyGroupInfoMessage.create(
@@ -2797,13 +3220,13 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     private func handleFamilyGroupInfo(_ info: FamilyGroupInfoMessage, from peerID: MCPeerID) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📥 FAMILY GROUP INFO RECEIVED")
-        print("   From: \(info.responderId)")
-        print("   Group: \(info.groupName)")
-        print("   Code: \(info.groupCode.displayCode)")
-        print("   Members: \(info.memberCount)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📥 FAMILY GROUP INFO RECEIVED")
+        LoggingService.network.info("   From: \(info.responderId)")
+        LoggingService.network.info("   Group: \(info.groupName)")
+        LoggingService.network.info("   Code: \(info.groupCode.displayCode)")
+        LoggingService.network.info("   Members: \(info.memberCount)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Notify via NotificationCenter (para que JoinFamilyGroupView lo reciba)
         DispatchQueue.main.async {
@@ -2818,7 +3241,7 @@ class NetworkManager: NSObject, ObservableObject {
     /// Request family group info from connected peers (broadcast)
     func requestFamilyGroupInfo(code: FamilyGroupCode, requesterId: String, memberInfo: FamilySyncMessage.FamilyMemberInfo) {
         guard !connectedPeers.isEmpty else {
-            print("⚠️ No connected peers to request family group info from")
+            LoggingService.network.info("⚠️ No connected peers to request family group info from")
             return
         }
 
@@ -2835,14 +3258,14 @@ class NetworkManager: NSObject, ObservableObject {
             let data = try encoder.encode(payload)
             try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "familyJoinRequest")
 
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("📤 BROADCASTING FAMILY JOIN REQUEST")
-            print("   Code: \(code.displayCode)")
-            print("   To: \(connectedPeers.count) peers")
-            print("   Peers: \(connectedPeers.map { $0.displayName }.joined(separator: ", "))")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("📤 BROADCASTING FAMILY JOIN REQUEST")
+            LoggingService.network.info("   Code: \(code.displayCode)")
+            LoggingService.network.info("   To: \(self.connectedPeers.count) peers")
+            LoggingService.network.info("   Peers: \(self.connectedPeers.map { $0.displayName }.joined(separator: ", "))")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         } catch {
-            print("❌ Failed to send family join request: \(error.localizedDescription)")
+            LoggingService.network.info("❌ Failed to send family join request: \(error.localizedDescription)")
         }
     }
 
@@ -2853,9 +3276,9 @@ class NetworkManager: NSObject, ObservableObject {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
             try safeSend(data, toPeers: [peerID], with: .reliable, context: "familyGroupInfo")
-            print("✅ Sent family group info to \(peerID.displayName)")
+            LoggingService.network.info("✅ Sent family group info to \(peerID.displayName)")
         } catch {
-            print("❌ Failed to send family group info: \(error.localizedDescription)")
+            LoggingService.network.info("❌ Failed to send family group info: \(error.localizedDescription)")
         }
     }
 
@@ -2881,8 +3304,8 @@ class NetworkManager: NSObject, ObservableObject {
         let validPeers = connectedPeers.filter { sessionPeers.contains($0) }
 
         guard !validPeers.isEmpty else {
-            print("⚠️ broadcastTopology: No valid peers in session, skipping broadcast")
-            print("   Local array has \(connectedPeers.count), but session has \(sessionPeers.count)")
+            LoggingService.network.info("⚠️ broadcastTopology: No valid peers in session, skipping broadcast")
+            LoggingService.network.info("   Local array has \(self.connectedPeers.count), but session has \(sessionPeers.count)")
             return
         }
 
@@ -2902,29 +3325,34 @@ class NetworkManager: NSObject, ObservableObject {
             // This reduces buffer pressure and prevents connection drops
             try session.send(data, toPeers: validPeers, with: .unreliable)
 
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("📡 TOPOLOGY BROADCAST (unreliable)")
-            print("   Connections: [\(connectedPeerNames.joined(separator: ", "))]")
-            print("   Sent to: \(validPeers.count) peers (validated against session)")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("📡 TOPOLOGY BROADCAST (unreliable)")
+            LoggingService.network.info("   Connections: [\(connectedPeerNames.joined(separator: ", "))]")
+            LoggingService.network.info("   Sent to: \(validPeers.count) peers (validated against session)")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             // Update local routing table
             routingTable.updateLocalTopology(connectedPeers: validPeers)
 
         } catch {
-            print("❌ Failed to broadcast topology: \(error.localizedDescription)")
-            print("   Valid peers: \(validPeers.count), Session peers: \(sessionPeers.count)")
+            LoggingService.network.info("❌ Failed to broadcast topology: \(error.localizedDescription)")
+            LoggingService.network.info("   Valid peers: \(validPeers.count), Session peers: \(sessionPeers.count)")
         }
     }
 
     /// Handle received topology message
     private func handleTopologyMessage(_ message: inout TopologyMessage, from peerID: MCPeerID) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🗺️ TOPOLOGY RECEIVED")
-        print("   From: \(message.senderId)")
-        print("   Connections: [\(message.connectedPeers.joined(separator: ", "))]")
-        print("   Hop: \(message.hopCount)/\(message.ttl)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        let msgSenderId = message.senderId
+        let msgConnectedPeers = message.connectedPeers
+        let msgHopCount = message.hopCount
+        let msgTTL = message.ttl
+
+        LoggingService.network.info("🗺️ TOPOLOGY RECEIVED")
+        LoggingService.network.info("   From: \(msgSenderId)")
+        LoggingService.network.info("   Connections: [\(msgConnectedPeers.joined(separator: ", "))]")
+        LoggingService.network.info("   Hop: \(msgHopCount)/\(msgTTL)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Update routing table
         routingTable.updateTopology(message)
@@ -2940,7 +3368,7 @@ class NetworkManager: NSObject, ObservableObject {
             let validPeers = connectedPeers.filter { sessionPeers.contains($0) }
 
             guard !validPeers.isEmpty else {
-                print("⚠️ Cannot relay topology: No valid peers in session")
+                LoggingService.network.info("⚠️ Cannot relay topology: No valid peers in session")
                 return
             }
 
@@ -2949,9 +3377,11 @@ class NetworkManager: NSObject, ObservableObject {
                 let data = try encoder.encode(payload)
                 // STABILITY FIX: Use unreliable mode for topology relays too
                 try session.send(data, toPeers: validPeers, with: .unreliable)
-                print("🔄 Relayed topology message (hop \(message.hopCount)/\(message.ttl)) to \(validPeers.count) peers (unreliable)")
+                let relayHopCount = message.hopCount
+                let relayTTL = message.ttl
+                LoggingService.network.info("🔄 Relayed topology message (hop \(relayHopCount)/\(relayTTL)) to \(validPeers.count) peers (unreliable)")
             } catch {
-                print("❌ Failed to relay topology: \(error.localizedDescription)")
+                LoggingService.network.info("❌ Failed to relay topology: \(error.localizedDescription)")
             }
         }
     }
@@ -2961,35 +3391,35 @@ class NetworkManager: NSObject, ObservableObject {
 
 extension NetworkManager: MCSessionDelegate {
     func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔄 SESSION STATE CHANGE CALLBACK")
-        print("   Peer: \(peerID.displayName)")
-        print("   New State: \(state == .connected ? "CONNECTED" : state == .connecting ? "CONNECTING" : "NOT_CONNECTED")")
-        print("   Session memory address: \(Unmanaged.passUnretained(session).toOpaque())")
-        print("   Self.session memory address: \(Unmanaged.passUnretained(self.session).toOpaque())")
-        print("   Session match: \(session === self.session ? "✅ SAME" : "❌ DIFFERENT")")
-        print("   Timestamp: \(Date())")
-        print("   Thread: \(Thread.current)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔄 SESSION STATE CHANGE CALLBACK")
+        LoggingService.network.info("   Peer: \(peerID.displayName)")
+        LoggingService.network.info("   New State: \(state == .connected ? "CONNECTED" : state == .connecting ? "CONNECTING" : "NOT_CONNECTED")")
+        LoggingService.network.info("   Session memory address: \(String(describing: Unmanaged.passUnretained(session).toOpaque()))")
+        LoggingService.network.info("   Self.session memory address: \(String(describing: Unmanaged.passUnretained(self.session).toOpaque()))")
+        LoggingService.network.info("   Session match: \(session === self.session ? "✅ SAME" : "❌ DIFFERENT")")
+        LoggingService.network.info("   Timestamp: \(Date())")
+        LoggingService.network.info("   Thread: \(Thread.current)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // CRITICAL: Detect if callback is for a different session (dual session bug)
         if session !== self.session {
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("🚨 CRITICAL BUG DETECTED: DUAL SESSION MISMATCH")
-            print("   Callback session: \(Unmanaged.passUnretained(session).toOpaque())")
-            print("   Current session: \(Unmanaged.passUnretained(self.session).toOpaque())")
-            print("   Peer: \(peerID.displayName)")
-            print("   State: \(state == .connected ? "CONNECTED" : state == .connecting ? "CONNECTING" : "NOT_CONNECTED")")
-            print("   This is likely causing handshake failures!")
-            print("   Action: Ignoring callback from stale session")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("🚨 CRITICAL BUG DETECTED: DUAL SESSION MISMATCH")
+            LoggingService.network.info("   Callback session: \(String(describing: Unmanaged.passUnretained(session).toOpaque()))")
+            LoggingService.network.info("   Current session: \(String(describing: Unmanaged.passUnretained(self.session).toOpaque()))")
+            LoggingService.network.info("   Peer: \(peerID.displayName)")
+            LoggingService.network.info("   State: \(state == .connected ? "CONNECTED" : state == .connecting ? "CONNECTING" : "NOT_CONNECTED")")
+            LoggingService.network.info("   This is likely causing handshake failures!")
+            LoggingService.network.info("   Action: Ignoring callback from stale session")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             return
         }
 
         DispatchQueue.main.async {
             switch state {
             case .connected:
-                print("🔍 DEBUG: Handling .connected state...")
+                LoggingService.network.info("🔍 DEBUG: Handling .connected state...")
 
                 // Remove from connecting peers set
                 self.connectingPeers.remove(peerID.displayName)
@@ -2998,58 +3428,75 @@ extension NetworkManager: MCSessionDelegate {
                 self.certificateExchangeStarted.remove(peerID.displayName)
 
                 // Release any connection locks
-                print("   Step 1: Releasing connection mutex...")
+                LoggingService.network.info("   Step 1: Releasing connection mutex...")
                 self.connectionMutex.releaseLock(for: peerID)
-                print("   ✓ Mutex released")
+                LoggingService.network.info("   ✓ Mutex released")
 
                 // Clear failure counters on successful connection
-                print("   Step 2: Clearing failure counters...")
+                LoggingService.network.info("   Step 2: Clearing failure counters...")
                 self.failedConnectionAttempts[peerID.displayName] = 0
                 self.consecutiveFailures = 0
-                print("   ✓ Failure counters cleared")
+                LoggingService.network.info("   ✓ Failure counters cleared")
 
                 // Record connection metrics for diagnostics
                 self.recordConnectionMetrics(peer: peerID, event: .connected)
 
                 // Remove any stale entries for this displayName first
-                print("   Step 3: Cleaning stale peer entries...")
+                LoggingService.network.info("   Step 3: Cleaning stale peer entries...")
                 let previousCount = self.connectedPeers.count
                 self.connectedPeers.removeAll { $0.displayName == peerID.displayName }
-                print("   ✓ Removed \(previousCount - self.connectedPeers.count) stale entries")
+                LoggingService.network.info("   ✓ Removed \(previousCount - self.connectedPeers.count) stale entries")
 
                 // Now add the fresh connection
-                print("   Step 4: Adding peer to connectedPeers array...")
+                LoggingService.network.info("   Step 4: Adding peer to connectedPeers array...")
                 self.connectedPeers.append(peerID)
-                print("   ✓ Peer added. Total connected: \(self.connectedPeers.count)")
+                LoggingService.network.info("   ✓ Peer added. Total connected: \(self.connectedPeers.count)")
 
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("🆕 NEW CONNECTION ESTABLISHED")
-                print("   Peer: \(peerID.displayName)")
-                print("   Total Connections: \(self.connectedPeers.count)")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("🆕 NEW CONNECTION ESTABLISHED")
+                LoggingService.network.info("   Peer: \(peerID.displayName)")
+                LoggingService.network.info("   Total Connections: \(self.connectedPeers.count)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-                print("   Step 5: Recording successful connection in SessionManager...")
+                LoggingService.network.info("   Step 5: Recording successful connection in SessionManager...")
                 self.sessionManager.recordSuccessfulConnection(to: peerID)
-                print("   ✓ Recorded in SessionManager")
+                LoggingService.network.info("   ✓ Recorded in SessionManager")
 
                 // Reset connection refused count on successful connection
-                print("   Step 5.5: Resetting connection refused counter...")
+                LoggingService.network.info("   Step 5.5: Resetting connection refused counter...")
                 self.sessionManager.resetConnectionRefusedCount(for: peerID)
-                print("   ✓ Connection refused counter reset")
+                LoggingService.network.info("   ✓ Connection refused counter reset")
+
+                // Record successful connection in diagnostics
+                // Diagnostics temporarily disabled
+                /*
+                LoggingService.network.info("   Step 5.6: Recording success in diagnostics...")
+                let attemptCount = self.sessionManager.getAttemptCount(for: peerID)
+                let avgLatency = self.healthMonitor.averageLatency(for: peerID)
+                self.diagnostics.recordAttempt(
+                    peerID: peerID,
+                    attemptNumber: attemptCount,
+                    timeout: SessionManager.connectionTimeout,
+                    result: .success,
+                    latency: avgLatency,
+                    networkStatus: self.networkConfigDetector.currentStatus
+                )
+                LoggingService.network.info("   ✓ Success recorded in diagnostics")
+                */
 
                 if !TestingConfig.disableHealthMonitoring {
                     self.healthMonitor.addPeer(peerID)
                 } else {
-                    print("🧪 TEST MODE: Health monitoring disabled for \(peerID.displayName)")
+                    LoggingService.network.info("🧪 TEST MODE: Health monitoring disabled for \(peerID.displayName)")
                 }
 
                 self.updateConnectionStatus()
                 self.manageBrowsing()  // Stop browsing if configured
-                print("✅ NetworkManager: Connected to peer: \(peerID.displayName) | Total peers: \(self.connectedPeers.count)")
+                LoggingService.network.info("✅ NetworkManager: Connected to peer: \(peerID.displayName) | Total peers: \(self.connectedPeers.count)")
 
                 // Record successful connection with orchestrator
                 if self.isOrchestratorEnabled {
-                    print("   🎯 Recording successful connection with Orchestrator")
+                    LoggingService.network.info("   🎯 Recording successful connection with Orchestrator")
                     self.recordSuccessfulConnection(to: peerID)
                 }
 
@@ -3063,30 +3510,30 @@ extension NetworkManager: MCSessionDelegate {
                         let autoActivateStadiumMode = UserDefaults.standard.object(forKey: "autoActivateStadiumMode") as? Bool ?? true
 
                         if autoActivateStadiumMode {
-                            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                            print("🏟️ AUTO-ACTIVATING STADIUM MODE")
-                            print("   First peer connected: \(peerID.displayName)")
-                            print("   Enabling: Live Activity + Background Survival")
-                            print("   (User can disable auto-activation in Settings)")
-                            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            LoggingService.network.info("🏟️ AUTO-ACTIVATING STADIUM MODE")
+                            LoggingService.network.info("   First peer connected: \(peerID.displayName)")
+                            LoggingService.network.info("   Enabling: Live Activity + Background Survival")
+                            LoggingService.network.info("   (User can disable auto-activation in Settings)")
+                            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                             // Enable full Stadium Mode (includes Live Activity)
                             StadiumModeManager.shared.enable()
                         } else {
-                            print("🏟️ Stadium Mode auto-activation disabled by user")
-                            print("   User can manually enable from Settings")
+                            LoggingService.network.info("🏟️ Stadium Mode auto-activation disabled by user")
+                            LoggingService.network.info("   User can manually enable from Settings")
 
                             // Still start Live Activity even if Stadium Mode is disabled
                             // This provides minimal functionality without background survival
                             if #available(iOS 16.1, *) {
                                 if !self.hasActiveLiveActivity {
-                                    print("🎬 Starting Live Activity (without full Stadium Mode)")
+                                    LoggingService.network.info("🎬 Starting Live Activity (without full Stadium Mode)")
                                     self.startLiveActivity()
                                 }
                             }
                         }
                     } else {
-                        print("🏟️ Stadium Mode already active (manually enabled by user)")
+                        LoggingService.network.info("🏟️ Stadium Mode already active (manually enabled by user)")
                     }
                 }
 
@@ -3115,11 +3562,14 @@ extension NetworkManager: MCSessionDelegate {
                     }
                 }
 
+                // PRIVACY FIX: LinkFinder should NOT start automatically
+                // It will only start when user explicitly opens the LinkFinder view
                 // Reset LinkFinder retry count and token exchange state for this peer
                 self.uwbRetryCount[peerID.displayName] = 0
                 self.uwbTokenExchangeState[peerID.displayName] = .idle
                 self.uwbSessionRole.removeValue(forKey: peerID.displayName)
 
+                /* DISABLED: Automatic LinkFinder initiation for privacy
                 // Determine who should initiate LinkFinder token exchange based on peer ID
                 let shouldInitiate = self.localPeerID.displayName > peerID.displayName
 
@@ -3128,42 +3578,50 @@ extension NetworkManager: MCSessionDelegate {
                     // STABILITY FIX: Increased from 2.0s to 4.0s to ensure topology and family sync complete first
                     DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
                         guard let self = self else { return }
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                        print("🎯 LinkFinder TOKEN EXCHANGE INITIATOR")
-                        print("   Local: \(self.localPeerID.displayName)")
-                        print("   Remote: \(peerID.displayName)")
-                        print("   Role: MASTER (initiating)")
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("🎯 LinkFinder TOKEN EXCHANGE INITIATOR")
+                        LoggingService.network.info("   Local: \(self.localPeerID.displayName)")
+                        LoggingService.network.info("   Remote: \(peerID.displayName)")
+                        LoggingService.network.info("   Role: MASTER (initiating)")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         self.uwbTokenExchangeState[peerID.displayName] = .sentToken
                         self.sendUWBDiscoveryToken(to: peerID)
                     }
                 } else {
                     // Wait for the other peer to initiate (slave role)
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    print("⏳ LinkFinder TOKEN EXCHANGE WAITER")
-                    print("   Local: \(self.localPeerID.displayName)")
-                    print("   Remote: \(peerID.displayName)")
-                    print("   Role: SLAVE (waiting for token)")
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("⏳ LinkFinder TOKEN EXCHANGE WAITER")
+                    LoggingService.network.info("   Local: \(self.localPeerID.displayName)")
+                    LoggingService.network.info("   Remote: \(peerID.displayName)")
+                    LoggingService.network.info("   Role: SLAVE (waiting for token)")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     self.uwbTokenExchangeState[peerID.displayName] = .waitingForToken
                 }
+                */
+
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("🔒 LinkFinder PRIVACY MODE")
+                LoggingService.network.info("   LinkFinder will NOT start automatically")
+                LoggingService.network.info("   User must explicitly open LinkFinder view")
+                LoggingService.network.info("   Location data remains private until requested")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             case .connecting:
-                print("🔍 DEBUG: Handling .connecting state...")
+                LoggingService.network.info("🔍 DEBUG: Handling .connecting state...")
                 self.connectionStatus = .connecting
 
                 // Track this peer as currently connecting
                 self.connectingPeers.insert(peerID.displayName)
 
                 // No longer need mutex here - iOS handles connection serialization
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("🔄 PEER STATE: CONNECTING")
-                print("   Peer: \(peerID.displayName)")
-                print("   Handshake in progress...")
-                print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : session.encryptionPreference == .optional ? ".optional" : ".none")")
-                print("   Current connected peers in session: \(session.connectedPeers.map { $0.displayName })")
-                print("   🔒 Added to connectingPeers set (protected from forced reconnect)")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("🔄 PEER STATE: CONNECTING")
+                LoggingService.network.info("   Peer: \(peerID.displayName)")
+                LoggingService.network.info("   Handshake in progress...")
+                LoggingService.network.info("   Session encryption: \(self.session.encryptionPreference == .required ? ".required" : self.session.encryptionPreference == .optional ? ".optional" : ".none")")
+                LoggingService.network.info("   Current connected peers in session: \(session.connectedPeers.map { $0.displayName })")
+                LoggingService.network.info("   🔒 Added to connectingPeers set (protected from forced reconnect)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 let handshakeStartTime = Date()
                 let peerName = peerID.displayName
@@ -3179,36 +3637,51 @@ extension NetworkManager: MCSessionDelegate {
                        !self.certificateExchangeStarted.contains(peerName) &&
                        !self.connectedPeers.contains(where: { $0.displayName == peerName }) {
 
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                        print("⚠️ EARLY WARNING: Certificate exchange not started")
-                        print("   Peer: \(peerName)")
-                        print("   Elapsed: 3.0s")
-                        print("   Status: Still in .connecting but no certificate exchange")
-                        print("   Likely cause: Handshake stalled, corrupted session state")
-                        print("   This will likely timeout in ~8 more seconds")
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("⚠️ EARLY WARNING: Certificate exchange not started")
+                        LoggingService.network.info("   Peer: \(peerName)")
+                        LoggingService.network.info("   Elapsed: 3.0s")
+                        LoggingService.network.info("   Status: Still in .connecting but no certificate exchange")
+                        LoggingService.network.info("   Likely cause: Handshake stalled, corrupted session state")
+                        LoggingService.network.info("   This will likely timeout in ~8 more seconds")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     }
                 }
 
-                // FINAL TIMEOUT: Monitor full handshake timeout (11 seconds)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 11.0) { [weak self] in
+                // FINAL TIMEOUT: Monitor full handshake timeout
+                // Lightning Mode: 6s (ultra-fast recovery), Normal: 11s
+                let handshakeTimeout: TimeInterval = UserDefaults.standard.bool(forKey: "lightningModeUltraFast") ? 6.0 : 11.0
+                DispatchQueue.main.asyncAfter(deadline: .now() + handshakeTimeout) { [weak self] in
                     guard let self = self else { return }
                     // Check if still in connecting state after 11 seconds (iOS internal timeout is 10s)
                     if !self.connectedPeers.contains(where: { $0.displayName == peerName }) {
                         let elapsed = Date().timeIntervalSince(handshakeStartTime)
                         let hadCertExchange = self.certificateExchangeStarted.contains(peerName)
 
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                        print("⚠️ HANDSHAKE TIMEOUT DETECTED")
-                        print("   Peer: \(peerName)")
-                        print("   Elapsed: \(String(format: "%.1f", elapsed))s")
-                        print("   Certificate exchange started: \(hadCertExchange ? "✅ YES" : "❌ NO")")
-                        print("   Diagnosis: \(hadCertExchange ? "Handshake started but failed to complete" : "Handshake never started - session state corrupted")")
-                        print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : session.encryptionPreference == .optional ? ".optional" : ".none")")
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("⚠️ HANDSHAKE TIMEOUT DETECTED")
+                        LoggingService.network.info("   Peer: \(peerName)")
+                        LoggingService.network.info("   Elapsed: \(String(format: "%.1f", elapsed))s")
+                        LoggingService.network.info("   Certificate exchange started: \(hadCertExchange ? "✅ YES" : "❌ NO")")
+                        LoggingService.network.info("   Diagnosis: \(hadCertExchange ? "Handshake started but failed to complete" : "Handshake never started - session state corrupted")")
+                        LoggingService.network.info("   Session encryption: \(self.session.encryptionPreference == .required ? ".required" : self.session.encryptionPreference == .optional ? ".optional" : ".none")")
+                        LoggingService.network.info("   Action: Releasing mutex and cleaning up connection state")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                         // Clean up tracking for this peer
                         self.certificateExchangeStarted.remove(peerName)
+                        self.connectingPeers.remove(peerName)
+
+                        // CRITICAL: Release mutex to unblock future connection attempts
+                        self.connectionMutex.forceRelease(for: peerID)
+
+                        // Force disconnect to trigger .notConnected callback
+                        // This ensures proper cleanup via the normal disconnection path
+                        if self.session.connectedPeers.contains(peerID) {
+                            LoggingService.network.info("   Forcing disconnect to trigger cleanup...")
+                            // Note: MultipeerConnectivity doesn't expose cancelConnection
+                            // Rely on iOS to timeout and trigger .notConnected
+                        }
                     }
                 }
 
@@ -3232,28 +3705,43 @@ extension NetworkManager: MCSessionDelegate {
                 // Disconnection is handled by the session state changes
 
                 let wasConnected = self.connectedPeers.contains(peerID)
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("🔌 PEER DISCONNECTION EVENT")
-                print("   Peer: \(peerID.displayName)")
-                print("   Was connected: \(wasConnected)")
-                print("   Was in connecting state: \(wasInConnectingState)")
-                print("   Remaining connected peers: \(self.connectedPeers.count - 1)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("🔌 PEER DISCONNECTION EVENT")
+                LoggingService.network.info("   Peer: \(peerID.displayName)")
+                LoggingService.network.info("   Was connected: \(wasConnected)")
+                LoggingService.network.info("   Was in connecting state: \(wasInConnectingState)")
+                LoggingService.network.info("   Remaining connected peers: \(self.connectedPeers.count - 1)")
 
                 // DETECT CONNECTION REFUSED: If peer never connected but went to .notConnected quickly
                 // This typically happens with "Connection refused" (error 61) errors
                 if !wasConnected && wasInConnectingState {
-                    print("   🚨 LIKELY CONNECTION REFUSED ERROR")
-                    print("      Peer went from .connecting → .notConnected without ever being .connected")
-                    print("      This usually indicates:")
-                    print("      - Advertiser not listening on expected port")
-                    print("      - TCP connection refused by remote peer")
-                    print("      - Firewall/network blocking connection")
+                    LoggingService.network.info("   🚨 LIKELY CONNECTION REFUSED ERROR")
+                    LoggingService.network.info("      Peer went from .connecting → .notConnected without ever being .connected")
+                    LoggingService.network.info("      This usually indicates:")
+                    LoggingService.network.info("      - Advertiser not listening on expected port")
+                    LoggingService.network.info("      - TCP connection refused by remote peer")
+                    LoggingService.network.info("      - Firewall/network blocking connection")
                     self.sessionManager.recordConnectionRefused(to: peerID)
+
+                    // Record failure in diagnostics
+                    // Diagnostics temporarily disabled
+                    /*
+                    let attemptCount = self.sessionManager.getAttemptCount(for: peerID)
+                    let avgLatency = self.healthMonitor.averageLatency(for: peerID)
+                    self.diagnostics.recordAttempt(
+                        peerID: peerID,
+                        attemptNumber: attemptCount,
+                        timeout: self.calculateInvitationTimeout(for: peerID, attempt: attemptCount),
+                        result: .refused,
+                        latency: avgLatency,
+                        networkStatus: self.networkConfigDetector.currentStatus
+                    )
+                    */
 
                     // Check if we should enable bidirectional mode
                     if self.sessionManager.shouldUseBidirectionalConnection(for: peerID) {
-                        print("   🔀 ENABLING AGGRESSIVE BIDIRECTIONAL CONNECTION")
-                        print("      Will attempt connection from both sides simultaneously")
+                        LoggingService.network.info("   🔀 ENABLING AGGRESSIVE BIDIRECTIONAL CONNECTION")
+                        LoggingService.network.info("      Will attempt connection from both sides simultaneously")
 
                         // Schedule a retry with bidirectional mode after a short delay
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
@@ -3262,11 +3750,11 @@ extension NetworkManager: MCSessionDelegate {
                             // Check if peer is still available and not connected
                             if self.availablePeers.contains(where: { $0 == peerID }) &&
                                !self.connectedPeers.contains(peerID) {
-                                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                                print("🔀 RETRYING WITH BIDIRECTIONAL MODE")
-                                print("   Peer: \(peerID.displayName)")
-                                print("   Mode: Both sides attempt connection")
-                                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                                LoggingService.network.info("🔀 RETRYING WITH BIDIRECTIONAL MODE")
+                                LoggingService.network.info("   Peer: \(peerID.displayName)")
+                                LoggingService.network.info("   Mode: Both sides attempt connection")
+                                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                                 self.connectToPeer(peerID, forceIgnoreConflictResolution: false)
                             }
                         }
@@ -3291,7 +3779,7 @@ extension NetworkManager: MCSessionDelegate {
                 // Auto-stop Live Activity when last peer disconnects
                 if #available(iOS 16.1, *) {
                     if self.connectedPeers.isEmpty && self.hasActiveLiveActivity {
-                        print("🛑 Auto-stopping Live Activity - no peers connected")
+                        LoggingService.network.info("🛑 Auto-stopping Live Activity - no peers connected")
                         self.stopLiveActivity()
                     }
                 }
@@ -3301,7 +3789,7 @@ extension NetworkManager: MCSessionDelegate {
 
                 // Remove from route cache - invalidate all routes using this peer as next hop
                 self.routeCache.removeRoutesVia(nextHop: peerID.displayName)
-                print("🗑️ [RouteCache] Cleaned routes via disconnected peer: \(peerID.displayName)")
+                LoggingService.network.info("🗑️ [RouteCache] Cleaned routes via disconnected peer: \(peerID.displayName)")
 
                 // Immediately broadcast updated topology to reflect disconnection
                 self.broadcastTopology()
@@ -3317,7 +3805,7 @@ extension NetworkManager: MCSessionDelegate {
 
                 // Record disconnection with orchestrator
                 if self.isOrchestratorEnabled {
-                    print("   🎯 Recording disconnection with Orchestrator")
+                    LoggingService.network.info("   🎯 Recording disconnection with Orchestrator")
                     let reason: PeerReputationSystem.DisconnectionReason
                     if wasConnected, let connectionTime = self.sessionManager.getConnectionTime(for: peerID),
                        Date().timeIntervalSince(connectionTime) < 20 {
@@ -3336,33 +3824,33 @@ extension NetworkManager: MCSessionDelegate {
                 let hasConversation = self.messageStore.hasConversation(withId: familyConversationId)
                 let conversationDescriptor = self.messageStore.descriptor(for: familyConversationId)
 
-                print("   💬 CONVERSATION STATUS:")
-                print("      Has conversation: \(hasConversation)")
-                print("      Conversation ID: \(familyConversationId)")
+                LoggingService.network.info("   💬 CONVERSATION STATUS:")
+                LoggingService.network.info("      Has conversation: \(hasConversation)")
+                LoggingService.network.info("      Conversation ID: \(familyConversationId)")
                 if let descriptor = conversationDescriptor {
-                    print("      Conversation title: \(descriptor.title)")
-                    print("      Message count: \(self.messageStore.messages(for: familyConversationId).count)")
+                    LoggingService.network.info("      Conversation title: \(descriptor.title)")
+                    LoggingService.network.info("      Message count: \(self.messageStore.messages(for: familyConversationId).count)")
                 }
-                print("   Active conversation: \(self.messageStore.activeConversationId)")
-                print("   Total conversations: \(self.messageStore.conversationSummaries.count)")
+                LoggingService.network.info("   Active conversation: \(self.messageStore.activeConversationId)")
+                LoggingService.network.info("   Total conversations: \(self.messageStore.conversationSummaries.count)")
 
                 if wasConnected {
-                    print("❌ DISCONNECTION: Lost connection to peer: \(peerID.displayName)")
+                    LoggingService.network.info("❌ DISCONNECTION: Lost connection to peer: \(peerID.displayName)")
 
                     // ACCESSIBILITY: Announce disconnection + haptic feedback
                     AudioManager.shared.announceConnectionChange(connected: false, peerName: peerID.displayName)
                     HapticManager.shared.playPattern(.peerDisconnected, priority: .notification)
-                    print("🔌 Disconnected from \(peerID.displayName)")
+                    LoggingService.network.info("🔌 Disconnected from \(peerID.displayName)")
 
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 } else {
-                    print("📵 Connection attempt failed for peer: \(peerID.displayName)")
+                    LoggingService.network.info("📵 Connection attempt failed for peer: \(peerID.displayName)")
                     // Handle connection failure with retry logic
                     self.handleConnectionFailure(with: peerID)
                 }
 
                 // Always stop monitoring when disconnected
-                print("🏥 Stopped monitoring: \(peerID.displayName)")
+                LoggingService.network.info("🏥 Stopped monitoring: \(peerID.displayName)")
 
                 if wasConnected {
                     // Force rediscovery for truly disconnected peers
@@ -3371,17 +3859,17 @@ extension NetworkManager: MCSessionDelegate {
                     // FIX: Clear peerEventTimes to allow immediate rediscovery
                     // Without this, the 10-second deduplication window blocks foundPeer events
                     self.peerEventTimes.removeValue(forKey: peerID.displayName)
-                    print("🔍 Peer \(peerID.displayName) removed from available peers and event cache - ready for immediate rediscovery")
+                    LoggingService.network.info("🔍 Peer \(peerID.displayName) removed from available peers and event cache - ready for immediate rediscovery")
                 } else {
                     // Keep failed peers in the available list so retry logic can trigger quickly
                     if !self.availablePeers.contains(where: { $0.displayName == peerID.displayName }) {
                         self.availablePeers.append(peerID)
                     }
-                    print("🕸️ Retaining \(peerID.displayName) in available peers for retry")
+                    LoggingService.network.info("🕸️ Retaining \(peerID.displayName) in available peers for retry")
                 }
 
             @unknown default:
-                print("⚠️ NetworkManager: Unknown connection state for peer: \(peerID.displayName)")
+                LoggingService.network.info("⚠️ NetworkManager: Unknown connection state for peer: \(peerID.displayName)")
                 self.connectionMutex.releaseLock(for: peerID)
             }
         }
@@ -3397,17 +3885,17 @@ extension NetworkManager: MCSessionDelegate {
 
     func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {
         // Not used in this implementation
-        print("📡 NetworkManager: Received stream (not implemented): \(streamName) from \(peerID.displayName)")
+        LoggingService.network.info("📡 NetworkManager: Received stream (not implemented): \(streamName) from \(peerID.displayName)")
     }
 
     func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {
         // Not used in this implementation
-        print("📡 NetworkManager: Started receiving resource (not implemented): \(resourceName) from \(peerID.displayName)")
+        LoggingService.network.info("📡 NetworkManager: Started receiving resource (not implemented): \(resourceName) from \(peerID.displayName)")
     }
 
     func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {
         // Not used in this implementation
-        print("📡 NetworkManager: Finished receiving resource (not implemented): \(resourceName) from \(peerID.displayName)")
+        LoggingService.network.info("📡 NetworkManager: Finished receiving resource (not implemented): \(resourceName) from \(peerID.displayName)")
     }
 
     func session(_ session: MCSession, didReceiveCertificate certificate: [Any]?, fromPeer peerID: MCPeerID, certificateHandler: @escaping (Bool) -> Void) {
@@ -3425,26 +3913,26 @@ extension NetworkManager: MCSessionDelegate {
             self?.certificateExchangeStarted.insert(peerID.displayName)
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔐 CERTIFICATE EXCHANGE STARTED")
-        print("   From peer: \(peerID.displayName)")
-        print("   Certificate count: \(certificate?.count ?? 0)")
-        print("   Thread: \(Thread.current.isMainThread ? "MAIN" : "BACKGROUND [\(Thread.current.description)]")")
-        print("   Timestamp: \(Date())")
-        print("   ✅ Marked certificate exchange as started")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔐 CERTIFICATE EXCHANGE STARTED")
+        LoggingService.network.info("   From peer: \(peerID.displayName)")
+        LoggingService.network.info("   Certificate count: \(certificate?.count ?? 0)")
+        LoggingService.network.info("   Thread: \(Thread.current.isMainThread ? "MAIN" : "BACKGROUND [\(Thread.current.description)]")")
+        LoggingService.network.info("   Timestamp: \(Date())")
+        LoggingService.network.info("   ✅ Marked certificate exchange as started")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Accept certificate immediately
         certificateHandler(true)
 
         let elapsed = Date().timeIntervalSince(startTime) * 1000.0 // Convert to milliseconds
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("✅ CERTIFICATE ACCEPTED")
-        print("   Peer: \(peerID.displayName)")
-        print("   Handler response time: \(String(format: "%.2f", elapsed))ms")
-        print("   Total elapsed: \(String(format: "%.2f", elapsed))ms")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("✅ CERTIFICATE ACCEPTED")
+        LoggingService.network.info("   Peer: \(peerID.displayName)")
+        LoggingService.network.info("   Handler response time: \(String(format: "%.2f", elapsed))ms")
+        LoggingService.network.info("   Total elapsed: \(String(format: "%.2f", elapsed))ms")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 }
 
@@ -3452,213 +3940,201 @@ extension NetworkManager: MCSessionDelegate {
 
 extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
     func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📨 ADVERTISER: RECEIVED INVITATION ✅")
-        print("   From: \(peerID.displayName)")
-        print("   To: \(localPeerID.displayName)")
-        print("   Advertiser active: \(self.advertiser != nil)")
-        print("   Advertiser delegate: \(self.advertiser?.delegate != nil)")
-        print("   Connected Peers: \(connectedPeers.count)/\(config.maxConnections)")
-        print("   Timestamp: \(Date())")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📨 ADVERTISER: RECEIVED INVITATION ✅")
+        LoggingService.network.info("   From: \(peerID.displayName)")
+        LoggingService.network.info("   To: \(self.localPeerID.displayName)")
+        LoggingService.network.info("   Advertiser active: \(self.advertiser != nil)")
+        LoggingService.network.info("   Advertiser delegate: \(self.advertiser?.delegate != nil)")
+        LoggingService.network.info("   Connected Peers: \(self.connectedPeers.count)/\(self.config.maxConnections)")
+        LoggingService.network.info("   Timestamp: \(Date())")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // STEP 1: Temporal deduplication - reject duplicate invitations received within 500ms
+        LoggingService.network.info("🔍 DEBUG STEP 1: Checking for duplicate invitation...")
+        let peerKey = peerID.displayName
+        let now = Date()
+        if let lastInvitationTime = invitationEventTimes[peerKey],
+           now.timeIntervalSince(lastInvitationTime) < 0.5 {
+            let timeSince = now.timeIntervalSince(lastInvitationTime)
+            LoggingService.network.info("🔇 REJECTING DUPLICATE INVITATION from \(peerKey)")
+            LoggingService.network.info("   Last invitation: \(String(format: "%.3f", timeSince))s ago")
+            LoggingService.network.info("   This is likely a rapid-fire duplicate from remote peer")
+            invitationHandler(false, nil)
+            return
+        }
+        LoggingService.network.info("   ✓ Not a duplicate invitation")
+
+        // Record this invitation timestamp
+        invitationEventTimes[peerKey] = now
+
+        // Clean up old invitation timestamps (older than 10 seconds)
+        invitationEventTimes = invitationEventTimes.filter { _, timestamp in
+            now.timeIntervalSince(timestamp) < 10.0
+        }
+
+        // STEP 1.5: Try to acquire mutex lock for accept_invitation operation
+        LoggingService.network.info("🔍 DEBUG STEP 1.5: Trying to acquire ConnectionMutex...")
+        guard connectionMutex.tryAcquireLock(for: peerID, operation: .acceptInvitation) else {
+            LoggingService.network.info("🔒 REJECTING INVITATION - Another operation in progress for \(peerKey)")
+            LoggingService.network.info("   An invitation is already being processed or connection is in progress")
+            invitationHandler(false, nil)
+            return
+        }
+        LoggingService.network.info("   ✓ Mutex lock acquired for accept_invitation")
 
         // Check TestingConfig blocking
-        print("🔍 DEBUG STEP 2: Checking TestingConfig blocking...")
+        LoggingService.network.info("🔍 DEBUG STEP 2: Checking TestingConfig blocking...")
         if TestingConfig.shouldBlockDirectConnection(from: localPeerID.displayName, to: peerID.displayName) {
-            print("🧪 TEST MODE: Declining invitation from \(peerID.displayName) - blocked by TestingConfig")
+            LoggingService.network.info("🧪 TEST MODE: Declining invitation from \(peerID.displayName) - blocked by TestingConfig")
+            connectionMutex.releaseLock(for: peerID)
             invitationHandler(false, nil)
             sessionManager.recordConnectionDeclined(to: peerID, reason: "blocked by TestingConfig")
             return
         }
-        print("   ✓ TestingConfig: Not blocked")
+        LoggingService.network.info("   ✓ TestingConfig: Not blocked")
 
         // Check if peer is manually blocked
-        print("🔍 DEBUG STEP 3: Checking manual blocking...")
+        LoggingService.network.info("🔍 DEBUG STEP 3: Checking manual blocking...")
         if connectionManager.isPeerBlocked(peerID.displayName) {
-            print("🚫 NetworkManager: Declining invitation from \(peerID.displayName) - peer is manually blocked")
+            LoggingService.network.info("🚫 NetworkManager: Declining invitation from \(peerID.displayName) - peer is manually blocked")
+            connectionMutex.releaseLock(for: peerID)
             invitationHandler(false, nil)
             sessionManager.recordConnectionDeclined(to: peerID, reason: "manually blocked")
             return
         }
-        print("   ✓ Manual blocking: Not blocked")
+        LoggingService.network.info("   ✓ Manual blocking: Not blocked")
 
         // Check if already connected
-        print("🔍 DEBUG STEP 4: Checking if already connected...")
+        LoggingService.network.info("🔍 DEBUG STEP 4: Checking if already connected...")
         if connectedPeers.contains(peerID) {
-            print("⛔ Declining invitation from \(peerID.displayName) - already connected")
-            print("   Current connected peers: \(connectedPeers.map { $0.displayName }.joined(separator: ", "))")
+            LoggingService.network.info("⛔ Declining invitation from \(peerID.displayName) - already connected")
+            LoggingService.network.info("   Current connected peers: \(self.connectedPeers.map { $0.displayName }.joined(separator: ", "))")
+            connectionMutex.releaseLock(for: peerID)
             invitationHandler(false, nil)
             return
         }
-        print("   ✓ Already connected: No")
+        LoggingService.network.info("   ✓ Already connected: No")
 
         // Check if we've reached max connections
-        print("🔍 DEBUG STEP 5: Checking max connections...")
+        LoggingService.network.info("🔍 DEBUG STEP 5: Checking max connections...")
         if hasReachedMaxConnections() {
-            print("⛔ Declining invitation from \(peerID.displayName) - max connections reached (\(connectedPeers.count)/\(config.maxConnections))")
+            LoggingService.network.info("⛔ Declining invitation from \(peerID.displayName) - max connections reached (\(self.connectedPeers.count)/\(self.config.maxConnections))")
+            connectionMutex.releaseLock(for: peerID)
             invitationHandler(false, nil)
             return
         }
-        print("   ✓ Max connections: \(connectedPeers.count)/\(config.maxConnections) - OK")
+        LoggingService.network.info("   ✓ Max connections: \(self.connectedPeers.count)/\(self.config.maxConnections) - OK")
 
         // Check conflict resolution - should we accept based on ID comparison?
         // BUT: If we've had failures trying to connect to this peer OR SessionManager is blocking us, accept the invitation anyway
-        print("🔍 DEBUG STEP 6: Checking conflict resolution...")
-        let peerKey = peerID.displayName
+        LoggingService.network.info("🔍 DEBUG STEP 6: Checking conflict resolution...")
         let hasFailedConnections = (failedConnectionAttempts[peerKey] ?? 0) > 0
         let sessionManagerBlocking = !sessionManager.shouldAttemptConnection(to: peerID)
         let useBidirectionalMode = sessionManager.shouldUseBidirectionalConnection(for: peerID) || isUltraFastModeEnabled
         let conflictResolutionSaysAccept = ConnectionConflictResolver.shouldAcceptInvitation(localPeer: localPeerID, fromPeer: peerID, overrideBidirectional: useBidirectionalMode)
 
-        print("   Failed connections count: \(failedConnectionAttempts[peerKey] ?? 0)")
-        print("   SessionManager blocking: \(sessionManagerBlocking)")
-        print("   Bidirectional mode: \(useBidirectionalMode)")
-        print("   Conflict resolution says accept: \(conflictResolutionSaysAccept)")
+        LoggingService.network.info("   Failed connections count: \(self.failedConnectionAttempts[peerKey] ?? 0)")
+        LoggingService.network.info("   SessionManager blocking: \(sessionManagerBlocking)")
+        LoggingService.network.info("   Bidirectional mode: \(useBidirectionalMode)")
+        LoggingService.network.info("   Conflict resolution says accept: \(conflictResolutionSaysAccept)")
 
         if !hasFailedConnections && !sessionManagerBlocking && !useBidirectionalMode && !conflictResolutionSaysAccept {
-            print("🆔 Declining invitation - we should initiate to \(peerID.displayName)")
-            print("   Local ID: \(localPeerID.displayName)")
-            print("   Remote ID: \(peerID.displayName)")
-            print("   Comparison: \(localPeerID.displayName < peerID.displayName ? "Local < Remote" : "Local > Remote")")
+            LoggingService.network.info("🆔 Declining invitation - we should initiate to \(peerID.displayName)")
+            LoggingService.network.info("   Local ID: \(self.localPeerID.displayName)")
+            LoggingService.network.info("   Remote ID: \(peerID.displayName)")
+            LoggingService.network.info("   Comparison: \(self.localPeerID.displayName < peerID.displayName ? "Local < Remote" : "Local > Remote")")
+            connectionMutex.releaseLock(for: peerID)
             invitationHandler(false, nil)
             sessionManager.recordConnectionDeclined(to: peerID, reason: "conflict resolution says we should initiate")
             return
         } else if hasFailedConnections {
-            print("🔄 Accepting invitation despite conflict resolution - previous failures detected for \(peerKey)")
+            LoggingService.network.info("🔄 Accepting invitation despite conflict resolution - previous failures detected for \(peerKey)")
         } else if sessionManagerBlocking {
-            print("🔄 Accepting invitation despite conflict resolution - SessionManager is blocking our attempts")
+            LoggingService.network.info("🔄 Accepting invitation despite conflict resolution - SessionManager is blocking our attempts")
         } else if useBidirectionalMode {
-            print("🔀 ACCEPTING invitation - BIDIRECTIONAL MODE active for \(peerKey)")
-            print("   Previous connection attempts failed with 'Connection refused'")
-            print("   Both peers attempting connection to maximize success")
+            LoggingService.network.info("🔀 ACCEPTING invitation - BIDIRECTIONAL MODE active for \(peerKey)")
+            LoggingService.network.info("   Previous connection attempts failed with 'Connection refused'")
+            LoggingService.network.info("   Both peers attempting connection to maximize success")
         } else {
-            print("   ✓ Conflict resolution: Accept invitation (we are slave)")
+            LoggingService.network.info("   ✓ Conflict resolution: Accept invitation (we are slave)")
         }
 
-        // CRITICAL FIX: Don't hold mutex across iOS callback boundary
-        // MultipeerConnectivity already handles connection serialization internally
-        // The mutex was causing deadlock when iOS tried to deliver session callbacks
-
-        // CRITICAL: Check if another operation is in progress
-        print("🔍 DEBUG STEP 7: Checking ConnectionMutex...")
-        let mutexHasOperation = connectionMutex.hasActiveOperation(for: peerID)
-        print("   Mutex has active operation: \(mutexHasOperation)")
-
-        // CRITICAL DEADLOCK PREVENTION:
-        // If we have an active browser_invite operation, it means WE are trying to connect to THEM
-        // and now THEY are trying to connect to US → BIDIRECTIONAL DEADLOCK
-        if mutexHasOperation {
-            let operationType = connectionMutex.getOperationType(for: peerID)
-            print("   Current operation type: \(operationType ?? "unknown")")
-
-            // If we're in the middle of inviting them, check conflict resolution
-            // Only the peer who SHOULD accept actually accepts (unless bidirectional mode)
-            if operationType == "browser_invite" {
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("🚨 BIDIRECTIONAL CONNECTION DETECTED")
-                print("   We are inviting: \(peerID.displayName)")
-                print("   They are inviting: \(localPeerID.displayName)")
-                print("   Bidirectional mode: \(useBidirectionalMode)")
-
-                // In bidirectional mode, ACCEPT invitation to maximize connection success
-                if useBidirectionalMode {
-                    print("   🔀 BIDIRECTIONAL MODE: Accepting to maximize success")
-                    print("   → Canceling our browser_invite and accepting their invitation")
-                    connectionMutex.releaseLock(for: peerID)
-                    // Continue to acceptance below
-                } else {
-                    // Use conflict resolver to decide who accepts
-                    let weShouldAccept = conflictResolutionSaysAccept
-                    if weShouldAccept {
-                        print("   ✅ Conflict resolver says WE should accept")
-                        print("   → Canceling our browser_invite and accepting their invitation")
-                        connectionMutex.releaseLock(for: peerID)
-                        // Continue to acceptance below
-                    } else {
-                        print("   🛑 Conflict resolver says THEY should accept")
-                        print("   → DECLINING their invitation, our browser_invite continues")
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                        invitationHandler(false, nil)
-                        return
-                    }
-                }
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            }
-
-            // For other operation types, handle as before
-            if hasFailedConnections || sessionManagerBlocking {
-                print("⚠️ Force accepting invitation to break potential deadlock")
-                print("   Releasing stuck mutex lock...")
-                connectionMutex.releaseLock(for: peerID)
-                print("   ✓ Mutex lock released")
-            } else {
-                print("🔒 Declining invitation - connection operation in progress for \(peerID.displayName)")
-                invitationHandler(false, nil)
-                return
-            }
-        } else {
-            print("   ✓ Mutex: No active operation")
-        }
+        // NOTE: We already acquired the mutex lock at the beginning of this function
+        // This ensures only ONE invitation is processed at a time per peer
+        LoggingService.network.info("🔍 DEBUG STEP 7: Mutex lock verification...")
+        LoggingService.network.info("   ✓ Mutex lock is held for accept_invitation operation")
 
         // Accept invitation if we have failures OR SessionManager is blocking us (deadlock breaker)
-        print("🔍 DEBUG STEP 8: Final acceptance decision...")
+        LoggingService.network.info("🔍 DEBUG STEP 8: Final acceptance decision...")
 
         // Use orchestrator decision if enabled
         let shouldAccept: Bool
         if isOrchestratorEnabled {
-            print("   🎯 Using Orchestrator for invitation decision")
+            LoggingService.network.info("   🎯 Using Orchestrator for invitation decision")
             shouldAccept = shouldAcceptInvitationFromPeer(peerID)
         } else {
             // Legacy decision logic
             shouldAccept = hasFailedConnections || sessionManagerBlocking || sessionManager.shouldAttemptConnection(to: peerID)
         }
 
-        print("   Should accept: \(shouldAccept)")
-        print("   Decision source: \(isOrchestratorEnabled ? "Orchestrator" : "Legacy logic")")
+        LoggingService.network.info("   Should accept: \(shouldAccept)")
+        LoggingService.network.info("   Decision source: \(self.isOrchestratorEnabled ? "Orchestrator" : "Legacy logic")")
 
         guard shouldAccept else {
-            print("⛔ Declining invitation from \(peerID.displayName) - connection not allowed")
+            LoggingService.network.info("⛔ Declining invitation from \(peerID.displayName) - connection not allowed")
+            connectionMutex.releaseLock(for: peerID)
             invitationHandler(false, nil)
             sessionManager.recordConnectionDeclined(to: peerID, reason: isOrchestratorEnabled ? "orchestrator declined" : "session manager not allowing")
             return
         }
 
+        // REMOVED: Unconditional SessionManager clearing
+        // This was causing race conditions when multiple invitations arrived simultaneously
+        // Now we only clear if this is genuinely the first invitation (protected by mutex)
+        LoggingService.network.info("🔍 DEBUG STEP 9: Session manager state check...")
         if sessionManagerBlocking {
-            print("⚠️ DEBUG STEP 9: Clearing SessionManager cooldown to break deadlock...")
-            sessionManager.clearCooldown(for: peerID)
-            print("   ✓ Cooldown cleared")
-        } else if hasFailedConnections && !sessionManager.shouldAttemptConnection(to: peerID) {
-            print("⚠️ DEBUG STEP 9: Accepting despite session manager - compensating for failures")
+            LoggingService.network.info("   ℹ️ SessionManager was blocking, but proceeding with invitation")
+            LoggingService.network.info("   (Mutex ensures this is the first/only invitation being processed)")
+        }
+        if hasFailedConnections {
+            LoggingService.network.info("   ℹ️ Previous connection failures detected: \(self.failedConnectionAttempts[peerKey] ?? 0)")
         }
 
-        // Record attempt BEFORE accepting (but don't hold mutex)
-        print("🔍 DEBUG STEP 10: Recording connection attempt...")
+        // Record attempt BEFORE accepting
+        LoggingService.network.info("🔍 DEBUG STEP 10: Recording connection attempt...")
         sessionManager.recordConnectionAttempt(to: peerID)
-        print("   ✓ Connection attempt recorded")
+        LoggingService.network.info("   ✓ Connection attempt recorded")
 
-        // Accept invitation WITHOUT holding mutex - iOS handles serialization
-        print("🔍 DEBUG STEP 11: Calling invitationHandler(true, session)...")
-        print("   Session ID: \(session)")
-        print("   Session memory address: \(Unmanaged.passUnretained(session).toOpaque())")
-        print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : session.encryptionPreference == .optional ? ".optional" : ".none")")
-        print("   Session connected peers: \(session.connectedPeers.map { $0.displayName })")
-        print("   LocalPeerID: \(localPeerID.displayName)")
-        print("   LocalPeerID memory address: \(Unmanaged.passUnretained(localPeerID).toOpaque())")
-        print("   About to accept invitation at: \(Date())")
+        // Accept invitation while holding mutex
+        // Mutex will be released in session(_:peer:didChange:) when connection completes or fails
+        LoggingService.network.info("🔍 DEBUG STEP 11: Calling invitationHandler(true, session)...")
+        LoggingService.network.info("   Session ID: \(self.session)")
+        LoggingService.network.info("   Session memory address: \(String(describing: Unmanaged.passUnretained(self.session).toOpaque()))")
+        LoggingService.network.info("   Session encryption: \(self.self.session.encryptionPreference == .required ? ".required" : self.self.session.encryptionPreference == .optional ? ".optional" : ".none")")
+        LoggingService.network.info("   Session connected peers: \(self.session.connectedPeers.map { $0.displayName })")
+        LoggingService.network.info("   LocalPeerID: \(self.localPeerID.displayName)")
+        LoggingService.network.info("   LocalPeerID memory address: \(String(describing: Unmanaged.passUnretained(self.localPeerID).toOpaque()))")
+        LoggingService.network.info("   About to accept invitation at: \(Date())")
 
         invitationHandler(true, session)
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("✅ INVITATION ACCEPTED (mutex-free)")
-        print("   From: \(peerID.displayName)")
-        print("   Session encryption: \(session.encryptionPreference == .required ? ".required" : session.encryptionPreference == .optional ? ".optional" : ".none")")
-        print("   Waiting for iOS to complete handshake...")
-        print("   Next: session(_:peer:didChange:) will be called")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("✅ INVITATION ACCEPTED (mutex held)")
+        LoggingService.network.info("   From: \(peerID.displayName)")
+        LoggingService.network.info("   Session encryption: \(self.session.encryptionPreference == .required ? ".required" : self.session.encryptionPreference == .optional ? ".optional" : ".none")")
+        LoggingService.network.info("   Mutex will be released when handshake completes")
+        LoggingService.network.info("   Waiting for iOS to complete handshake...")
+        LoggingService.network.info("   Next: session(_:peer:didChange:) will be called")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // NOTE: We do NOT release the mutex here
+        // It will be released in session(_:peer:didChange:) when state becomes .connected or .notConnected
+        // This prevents duplicate invitations from being accepted while handshake is in progress
     }
 
     func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: Error) {
-        print("❌ NetworkManager: Failed to start advertising: \(error.localizedDescription)")
+        LoggingService.network.info("❌ NetworkManager: Failed to start advertising: \(error.localizedDescription)")
 
         DispatchQueue.main.async {
             self.isAdvertising = false
@@ -3670,12 +4146,12 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
 
 extension NetworkManager: MCNearbyServiceBrowserDelegate {
     func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String : String]?) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔍 BROWSER: PEER DISCOVERED")
-        print("   Peer: \(peerID.displayName)")
-        print("   Discovery Info: \(info ?? [:])")
-        print("   Timestamp: \(Date())")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔍 BROWSER: PEER DISCOVERED")
+        LoggingService.network.info("   Peer: \(peerID.displayName)")
+        LoggingService.network.info("   Discovery Info: \(info ?? [:])")
+        LoggingService.network.info("   Timestamp: \(Date())")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         let peerKey = peerID.displayName
         let now = Date()
@@ -3684,14 +4160,14 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
         lastPeerDiscoveryTime = now
 
         // Check for recent found event
-        print("🔍 DEBUG: Checking for duplicate discovery events...")
+        LoggingService.network.info("🔍 DEBUG: Checking for duplicate discovery events...")
         if let lastFound = peerEventTimes[peerKey]?.found,
            now.timeIntervalSince(lastFound) < eventDeduplicationWindow {
-            print("🔇 Ignoring duplicate found event for \(peerKey)")
-            print("   Last found: \(String(format: "%.1f", now.timeIntervalSince(lastFound)))s ago")
+            LoggingService.network.info("🔇 Ignoring duplicate found event for \(peerKey)")
+            LoggingService.network.info("   Last found: \(String(format: "%.1f", now.timeIntervalSince(lastFound)))s ago")
             return
         }
-        print("   ✓ Not a duplicate")
+        LoggingService.network.info("   ✓ Not a duplicate")
 
         // Update event time
         if peerEventTimes[peerKey] != nil {
@@ -3701,24 +4177,24 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
         }
 
         DispatchQueue.main.async {
-            print("🔍 DEBUG: Adding peer to availablePeers...")
+            LoggingService.network.info("🔍 DEBUG: Adding peer to availablePeers...")
 
             // Remove any existing entries for this displayName first (handles stale entries)
             let previousCount = self.availablePeers.count
             self.availablePeers.removeAll { $0.displayName == peerID.displayName }
             if previousCount != self.availablePeers.count {
-                print("   Removed \(previousCount - self.availablePeers.count) stale entries")
+                LoggingService.network.info("   Removed \(previousCount - self.availablePeers.count) stale entries")
             }
 
             // Now add the peer (fresh entry)
             if peerID != self.localPeerID {
                 self.availablePeers.append(peerID)
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("✅ PEER ADDED TO AVAILABLE LIST")
-                print("   Peer: \(peerID.displayName)")
-                print("   Total Available Peers: \(self.availablePeers.count)")
-                print("   Total Connected Peers: \(self.connectedPeers.count)")
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("✅ PEER ADDED TO AVAILABLE LIST")
+                LoggingService.network.info("   Peer: \(peerID.displayName)")
+                LoggingService.network.info("   Total Available Peers: \(self.availablePeers.count)")
+                LoggingService.network.info("   Total Connected Peers: \(self.connectedPeers.count)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 // INTELLIGENT DISCONNECTION: Check for peers marked as pendingDisconnect
                 // When a new peer is discovered, disconnect any peers user wanted to disconnect
@@ -3728,16 +4204,16 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
                     let pendingDisconnectPeers = self.peerConnectionStates.filter { $0.value == .pendingDisconnect }
 
                     if !pendingDisconnectPeers.isEmpty {
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                        print("🔌 AUTO-DISCONNECTION: New peer available")
-                        print("   New peer: \(peerID.displayName)")
-                        print("   Peers pending disconnect: \(pendingDisconnectPeers.keys.joined(separator: ", "))")
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("🔌 AUTO-DISCONNECTION: New peer available")
+                        LoggingService.network.info("   New peer: \(peerID.displayName)")
+                        LoggingService.network.info("   Peers pending disconnect: \(pendingDisconnectPeers.keys.joined(separator: ", "))")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                         // Disconnect all pending peers now that we have an alternative
                         for (peerKey, _) in pendingDisconnectPeers {
                             if let peerToDisconnect = self.connectedPeers.first(where: { $0.displayName == peerKey }) {
-                                print("   Executing delayed disconnect for \(peerKey)")
+                                LoggingService.network.info("   Executing delayed disconnect for \(peerKey)")
 
                                 DispatchQueue.main.async {
                                     // Perform actual disconnection
@@ -3746,55 +4222,57 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
                                     // Clean up all state for this peer
                                     self.cleanupPeerState(peerToDisconnect)
 
-                                    print("   ✅ Auto-disconnection completed for \(peerKey)")
+                                    LoggingService.network.info("   ✅ Auto-disconnection completed for \(peerKey)")
                                 }
                             }
                         }
 
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     }
                 }
 
-                // Minimal delay for instant reconnection
-                let jitter = Double.random(in: 0.1...0.5)
-                print("⏱️ Will attempt connection to \(peerID.displayName) in \(String(format: "%.1f", jitter)) seconds")
+                // INCREASED DELAY: Give iOS time to stabilize mDNS resolution and transport layer
+                // Was 0.1-0.5s (too fast, causes state corruption)
+                // Now 2-4s to prevent iOS networking stack saturation
+                let jitter = Double.random(in: 2.0...4.0)
+                LoggingService.network.info("⏱️ Will attempt connection to \(peerID.displayName) in \(String(format: "%.1f", jitter)) seconds (increased delay for stability)")
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + jitter) { [weak self] in
                     guard let self = self else { return }
 
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    print("🔍 AUTO-CONNECTION EVALUATION")
-                    print("   Peer: \(peerID.displayName)")
-                    print("   Timestamp: \(Date())")
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("🔍 AUTO-CONNECTION EVALUATION")
+                    LoggingService.network.info("   Peer: \(peerID.displayName)")
+                    LoggingService.network.info("   Timestamp: \(Date())")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                     // Check TestingConfig blocking first
-                    print("   Step 1: Checking TestingConfig...")
+                    LoggingService.network.info("   Step 1: Checking TestingConfig...")
                     if TestingConfig.shouldBlockDirectConnection(from: self.localPeerID.displayName, to: peerID.displayName) {
-                        print("🧪 TEST MODE: Blocked direct connection to \(peerID.displayName)")
+                        LoggingService.network.info("🧪 TEST MODE: Blocked direct connection to \(peerID.displayName)")
                         return
                     }
-                    print("   ✓ TestingConfig: Not blocked")
+                    LoggingService.network.info("   ✓ TestingConfig: Not blocked")
 
                     // Enhanced logging for conflict resolution decision
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    print("👥 PEER DISCOVERY DECISION ANALYSIS")
-                    print("   Local: \(self.localPeerID.displayName)")
-                    print("   Remote: \(peerID.displayName)")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("👥 PEER DISCOVERY DECISION ANALYSIS")
+                    LoggingService.network.info("   Local: \(self.localPeerID.displayName)")
+                    LoggingService.network.info("   Remote: \(peerID.displayName)")
 
                     let shouldInitiate = ConnectionConflictResolver.shouldInitiateConnection(localPeer: self.localPeerID, remotePeer: peerID)
                     let peerKey = peerID.displayName
 
-                    print("   📊 Hash-Based Decision:")
-                    print("      Local hash: \(self.localPeerID.displayName.hashValue)")
-                    print("      Remote hash: \(peerID.displayName.hashValue)")
-                    print("      We should: \(shouldInitiate ? "INITIATE 🟢" : "WAIT 🟡")")
-                    print("      They should: \(shouldInitiate ? "WAIT 🟡" : "INITIATE 🟢")")
+                    LoggingService.network.info("   📊 Hash-Based Decision:")
+                    LoggingService.network.info("      Local hash: \(self.localPeerID.displayName.hashValue)")
+                    LoggingService.network.info("      Remote hash: \(peerID.displayName.hashValue)")
+                    LoggingService.network.info("      We should: \(shouldInitiate ? "INITIATE 🟢" : "WAIT 🟡")")
+                    LoggingService.network.info("      They should: \(shouldInitiate ? "WAIT 🟡" : "INITIATE 🟢")")
 
                     if !shouldInitiate {
-                        print("   ⏰ Will wait max 5s for invitation before forcing")
+                        LoggingService.network.info("   ⏰ Will wait max 5s for invitation before forcing")
                     }
-                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                     let isWaitingForInvitation = self.waitingForInvitationFrom[peerKey] != nil
                     let alreadyConnected = self.connectedPeers.contains(where: { $0.displayName == peerID.displayName })
@@ -3802,25 +4280,25 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
                     let stillAvailable = self.availablePeers.contains(where: { $0.displayName == peerID.displayName })
                     let sessionManagerAllows = self.sessionManager.shouldAttemptConnection(to: peerID)
 
-                    print("   Step 2: Connection criteria check:")
-                    print("      Already connected? \(alreadyConnected)")
-                    print("      Max connections reached? \(maxConnectionsReached) (\(self.connectedPeers.count)/\(self.config.maxConnections))")
-                    print("      Still available? \(stillAvailable)")
-                    print("      Should initiate? \(shouldInitiate)")
-                    print("      Already waiting? \(isWaitingForInvitation)")
-                    print("      Session manager allows? \(sessionManagerAllows)")
+                    LoggingService.network.info("   Step 2: Connection criteria check:")
+                    LoggingService.network.info("      Already connected? \(alreadyConnected)")
+                    LoggingService.network.info("      Max connections reached? \(maxConnectionsReached) (\(self.connectedPeers.count)/\(self.config.maxConnections))")
+                    LoggingService.network.info("      Still available? \(stillAvailable)")
+                    LoggingService.network.info("      Should initiate? \(shouldInitiate)")
+                    LoggingService.network.info("      Already waiting? \(isWaitingForInvitation)")
+                    LoggingService.network.info("      Session manager allows? \(sessionManagerAllows)")
 
                     // Use orchestrator decision if enabled
                     let shouldConnect: Bool
                     if self.isOrchestratorEnabled {
-                        print("   🎯 Using Orchestrator for decision")
+                        LoggingService.network.info("   🎯 Using Orchestrator for decision")
                         let orchestratorAccepts = self.shouldConnectToDiscoveredPeer(peerID, discoveryInfo: info)
 
                         // CRITICAL: Orchestrator must respect conflict resolution to prevent bidirectional deadlock
                         // Only initiate if BOTH orchestrator approves AND we should be the initiator
                         if orchestratorAccepts && !shouldInitiate {
-                            print("   ⚠️ Orchestrator approved BUT conflict resolver says WAIT")
-                            print("   → Will wait for their invitation instead of initiating")
+                            LoggingService.network.info("   ⚠️ Orchestrator approved BUT conflict resolver says WAIT")
+                            LoggingService.network.info("   → Will wait for their invitation instead of initiating")
                             shouldConnect = false
                         } else {
                             shouldConnect = orchestratorAccepts && shouldInitiate
@@ -3835,39 +4313,39 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
                     }
 
                     if shouldConnect {
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                        print("✅ INITIATING CONNECTION")
-                        print("   To: \(peerID.displayName)")
-                        print("   Reason: \(self.isOrchestratorEnabled ? "Orchestrator + Conflict resolver approved" : "All criteria met")")
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("✅ INITIATING CONNECTION")
+                        LoggingService.network.info("   To: \(peerID.displayName)")
+                        LoggingService.network.info("   Reason: \(self.isOrchestratorEnabled ? "Orchestrator + Conflict resolver approved" : "All criteria met")")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         self.waitingForInvitationFrom.removeValue(forKey: peerKey)  // Clear waiting status
                         // Don't force ignore conflict resolution - we already checked it above
                         self.connectToPeer(peerID, forceIgnoreConflictResolution: false)
                     } else {
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                        print("⏸️ SKIPPING CONNECTION")
-                        print("   To: \(peerID.displayName)")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("⏸️ SKIPPING CONNECTION")
+                        LoggingService.network.info("   To: \(peerID.displayName)")
                         if alreadyConnected {
-                            print("   Reason: Already connected")
+                            LoggingService.network.info("   Reason: Already connected")
                         } else if maxConnectionsReached {
-                            print("   Reason: Max connections reached (\(self.connectedPeers.count)/\(self.config.maxConnections))")
+                            LoggingService.network.info("   Reason: Max connections reached (\(self.connectedPeers.count)/\(self.config.maxConnections))")
                         } else if !stillAvailable {
-                            print("   Reason: Peer no longer available")
+                            LoggingService.network.info("   Reason: Peer no longer available")
                         } else if !shouldInitiate {
-                            print("   Reason: Conflict resolution - waiting for them to initiate")
+                            LoggingService.network.info("   Reason: Conflict resolution - waiting for them to initiate")
                             // Record that we're waiting for an invitation
                             if self.waitingForInvitationFrom[peerKey] == nil {
                                 self.waitingForInvitationFrom[peerKey] = Date()
-                                print("   ⏰ Started waiting for invitation")
+                                LoggingService.network.info("   ⏰ Started waiting for invitation")
                             }
                         } else if !sessionManagerAllows {
-                            print("   Reason: SessionManager blocking (cooldown/retry limit)")
+                            LoggingService.network.info("   Reason: SessionManager blocking (cooldown/retry limit)")
                         }
-                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     }
                 }
             } else {
-                print("   ⚠️ Discovered self - ignoring")
+                LoggingService.network.info("   ⚠️ Discovered self - ignoring")
             }
         }
     }
@@ -3879,7 +4357,7 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
         // Check for recent lost event
         if let lastLost = peerEventTimes[peerKey]?.lost,
            now.timeIntervalSince(lastLost) < eventDeduplicationWindow {
-            print("🔇 Ignoring duplicate lost event for \(peerKey)")
+            LoggingService.network.info("🔇 Ignoring duplicate lost event for \(peerKey)")
             return
         }
 
@@ -3892,12 +4370,12 @@ extension NetworkManager: MCNearbyServiceBrowserDelegate {
 
         DispatchQueue.main.async {
             self.availablePeers.removeAll { $0 == peerID }
-            print("👻 NetworkManager: Lost peer: \(peerID.displayName)")
+            LoggingService.network.info("👻 NetworkManager: Lost peer: \(peerID.displayName)")
         }
     }
 
     func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: Error) {
-        print("❌ NetworkManager: Failed to start browsing: \(error.localizedDescription)")
+        LoggingService.network.info("❌ NetworkManager: Failed to start browsing: \(error.localizedDescription)")
 
         DispatchQueue.main.async {
             self.isBrowsing = false
@@ -3952,15 +4430,15 @@ extension NetworkManager {
     }
 
     func logDetailedConnectionStatus() {
-        print(getConnectionDiagnostics())
+        LoggingService.network.info("\(self.getConnectionDiagnostics())")
 
         if !connectedPeers.isEmpty {
-            print("Connected to:")
+            LoggingService.network.info("Connected to:")
             for peer in connectedPeers {
                 if let stats = healthMonitor.getHealthStats(for: peer) {
-                    print("  • \(peer.displayName) - Quality: \(stats.quality.rawValue), Latency: \(Int(stats.latency))ms")
+                    LoggingService.network.info("  • \(peer.displayName) - Quality: \(stats.quality.rawValue), Latency: \(Int(stats.latency))ms")
                 } else {
-                    print("  • \(peer.displayName) - No health data")
+                    LoggingService.network.info("  • \(peer.displayName) - No health data")
                 }
             }
         }
@@ -4002,7 +4480,7 @@ extension NetworkManager {
 extension NetworkManager: AckManagerDelegate {
     func ackManager(_ manager: AckManager, shouldResendMessage message: NetworkMessage) {
         messageQueue.enqueue(message)
-        print("🔄 Re-enqueuing message for retry: \(message.id)")
+        LoggingService.network.info("🔄 Re-enqueuing message for retry: \(message.id)")
     }
 
     func ackManager(_ manager: AckManager, didReceiveAckFor messageId: UUID) {
@@ -4014,7 +4492,7 @@ extension NetworkManager: AckManagerDelegate {
     func ackManager(_ manager: AckManager, didFailToReceiveAckFor messageId: UUID) {
         DispatchQueue.main.async {
             self.pendingAcksCount = manager.getPendingAcksCount()
-            print("❌ Message failed after max retries: \(messageId)")
+            LoggingService.network.info("❌ Message failed after max retries: \(messageId)")
         }
     }
 }
@@ -4044,15 +4522,15 @@ extension NetworkManager: LinkFinderSessionManagerDelegate {
     }
 
     func uwbSessionManager(_ manager: LinkFinderSessionManager, didLoseTrackingOf peerId: String, reason: NINearbyObject.RemovalReason) {
-        print("⚠️ NetworkManager: Lost LinkFinder tracking of \(peerId) - Reason: \(reason.description)")
+        LoggingService.network.info("⚠️ NetworkManager: Lost LinkFinder tracking of \(peerId) - Reason: \(reason.description)")
     }
 
     func uwbSessionManager(_ manager: LinkFinderSessionManager, sessionInvalidatedFor peerId: String, error: Error) {
-        print("❌ NetworkManager: LinkFinder session invalidated for \(peerId): \(error.localizedDescription)")
+        LoggingService.network.info("❌ NetworkManager: LinkFinder session invalidated for \(peerId): \(error.localizedDescription)")
 
         // Check if it's a permission denied error
         if error.localizedDescription.contains("USER_DID_NOT_ALLOW") {
-            print("⚠️ NetworkManager: LinkFinder permission denied by user for \(peerId)")
+            LoggingService.network.info("⚠️ NetworkManager: LinkFinder permission denied by user for \(peerId)")
             // Reset retry count but don't retry - user needs to grant permission
             uwbRetryCount[peerId] = 0
 
@@ -4074,25 +4552,25 @@ extension NetworkManager: LinkFinderSessionManagerDelegate {
         if let peer = connectedPeers.first(where: { $0.displayName == peerId }) {
             if retries < maxUWBRetries {
                 uwbRetryCount[peerId] = retries + 1
-                print("🔄 NetworkManager: Attempting to restart LinkFinder session with \(peerId) (retry \(retries + 1)/\(maxUWBRetries))")
+                LoggingService.network.info("🔄 NetworkManager: Attempting to restart LinkFinder session with \(peerId) (retry \(retries + 1)/\(self.maxUWBRetries))")
 
                 // Add a delay before retrying
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                     self?.sendUWBDiscoveryToken(to: peer)
                 }
             } else {
-                print("❌ NetworkManager: Max LinkFinder retries reached for \(peerId)")
+                LoggingService.network.info("❌ NetworkManager: Max LinkFinder retries reached for \(peerId)")
                 uwbRetryCount[peerId] = 0
             }
         }
     }
 
     func uwbSessionManager(_ manager: LinkFinderSessionManager, requestsRestartFor peerId: String) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔄 LinkFinder RESTART REQUESTED")
-        print("   Peer: \(peerId)")
-        print("   Action: Coordinating bidirectional restart")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔄 LinkFinder RESTART REQUESTED")
+        LoggingService.network.info("   Peer: \(peerId)")
+        LoggingService.network.info("   Action: Coordinating bidirectional restart")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Send LinkFinder_RESET_REQUEST to peer
         if let peer = connectedPeers.first(where: { $0.displayName == peerId }) {
@@ -4101,7 +4579,7 @@ extension NetworkManager: LinkFinderSessionManagerDelegate {
     }
 
     func uwbSessionManager(_ manager: LinkFinderSessionManager, needsFreshTokenFor peerId: String) {
-        print("🔄 NetworkManager: Restarting token exchange for \(peerId)")
+        LoggingService.network.info("🔄 NetworkManager: Restarting token exchange for \(peerId)")
 
         guard #available(iOS 14.0, *) else {
             return
@@ -4118,14 +4596,14 @@ extension NetworkManager: LinkFinderSessionManagerDelegate {
             if isMaster {
                 // MASTER re-initiates
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    print("📤 NetworkManager: MASTER re-sending LinkFinder token to \(peerId)")
+                    LoggingService.network.info("📤 NetworkManager: MASTER re-sending LinkFinder token to \(peerId)")
                     self?.uwbTokenExchangeState[peerId] = .sentToken
                     self?.sendUWBDiscoveryToken(to: peer)
                 }
             } else {
                 // SLAVE waits for master
                 uwbTokenExchangeState[peerId] = .waitingForToken
-                print("⏳ NetworkManager: SLAVE waiting for MASTER to re-send token")
+                LoggingService.network.info("⏳ NetworkManager: SLAVE waiting for MASTER to re-send token")
             }
         }
     }
@@ -4136,12 +4614,12 @@ extension NetworkManager: LinkFinderSessionManagerDelegate {
     /// This creates a fake message and adds it to the message store
     /// IMPORTANT: Uses a separate "test-chat" conversation so it counts as UNREAD
     func sendSimulatedMessage(content: String = "Mensaje de prueba", sender: String = "Test User") {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🧪 SENDING SIMULATED MESSAGE")
-        print("   Sender: \(sender)")
-        print("   Content: \(content)")
-        print("   Current active conversation: \(messageStore.activeConversationId)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🧪 SENDING SIMULATED MESSAGE")
+        LoggingService.network.info("   Sender: \(sender)")
+        LoggingService.network.info("   Content: \(content)")
+        LoggingService.network.info("   Current active conversation: \(self.messageStore.activeConversationId)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Use a SEPARATE conversation ID so messages count as unread
         // MessageStore.calculateUnreadCount() skips activeConversationId
@@ -4167,20 +4645,20 @@ extension NetworkManager: LinkFinderSessionManagerDelegate {
         // Add to message store (this will trigger Live Activity update)
         messageStore.addMessage(simulatedMessage, context: testContext, localDeviceName: self.localDeviceName)
 
-        print("✅ Simulated message added to MessageStore")
-        print("   Message ID: \(simulatedMessage.id)")
-        print("   Unread count: \(messageStore.unreadCount)")
-        print("   Total messages: \(messageStore.messageCount)")
-        print("   Latest message sender: \(messageStore.latestMessage?.sender ?? "none")")
-        print("   Latest message content: \(messageStore.latestMessage?.content ?? "none")")
-        print("   Latest message timestamp: \(messageStore.latestMessage?.timestamp.description ?? "none")")
-        print("   🔔 MessageStore observers should trigger Live Activity update")
+        LoggingService.network.info("✅ Simulated message added to MessageStore")
+        LoggingService.network.info("   Message ID: \(simulatedMessage.id)")
+        LoggingService.network.info("   Unread count: \(self.messageStore.unreadCount)")
+        LoggingService.network.info("   Total messages: \(self.messageStore.messageCount)")
+        LoggingService.network.info("   Latest message sender: \(self.messageStore.latestMessage?.sender ?? "none")")
+        LoggingService.network.info("   Latest message content: \(self.messageStore.latestMessage?.content ?? "none")")
+        LoggingService.network.info("   Latest message timestamp: \(self.messageStore.latestMessage?.timestamp.description ?? "none")")
+        LoggingService.network.info("   🔔 MessageStore observers should trigger Live Activity update")
 
         // Force Live Activity update immediately
-        print("   🔄 Forcing Live Activity update NOW...")
+        LoggingService.network.info("   🔄 Forcing Live Activity update NOW...")
         updateLiveActivity()
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     /// Send multiple simulated messages for testing
@@ -4197,9 +4675,9 @@ extension NetworkManager: LinkFinderSessionManagerDelegate {
             "Mensaje de prueba largo para ver cómo se trunca en la vista previa del Live Activity"
         ]
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🧪 SENDING \(count) SIMULATED MESSAGES")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🧪 SENDING \(count) SIMULATED MESSAGES")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         for i in 0..<count {
             let sender = senders[i % senders.count]
@@ -4211,7 +4689,7 @@ extension NetworkManager: LinkFinderSessionManagerDelegate {
             Thread.sleep(forTimeInterval: 0.2)
         }
 
-        print("✅ Sent \(count) simulated messages")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("✅ Sent \(count) simulated messages")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 }

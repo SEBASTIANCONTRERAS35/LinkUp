@@ -8,6 +8,7 @@
 
 import Foundation
 import Combine
+import os
 
 class MessageStore: ObservableObject {
     // MARK: - Shared Instance
@@ -113,28 +114,28 @@ class MessageStore: ObservableObject {
 
     @Published private(set) var messages: [Message] = [] {
         didSet {
-            print("🔔 MessageStore.messages CHANGED")
-            print("   Old count: \(oldValue.count)")
-            print("   New count: \(messages.count)")
-            print("   For conversation: \(activeConversationId)")
+            LoggingService.network.info("🔔 MessageStore.messages CHANGED")
+            LoggingService.network.info("   Old count: \(oldValue.count)")
+            LoggingService.network.info("   New count: \(self.messages.count)")
+            LoggingService.network.info("   For conversation: \(self.activeConversationId)")
         }
     }
 
     @Published private(set) var activeConversationId: String {
         didSet {
-            print("🔔 MessageStore.activeConversationId CHANGED")
-            print("   Old: \(oldValue)")
-            print("   New: \(activeConversationId)")
+            LoggingService.network.info("🔔 MessageStore.activeConversationId CHANGED")
+            LoggingService.network.info("   Old: \(oldValue)")
+            LoggingService.network.info("   New: \(self.activeConversationId)")
         }
     }
 
     @Published private(set) var conversationSummaries: [ConversationSummary] = [] {
         didSet {
-            print("🔔 MessageStore.conversationSummaries CHANGED")
-            print("   Old count: \(oldValue.count)")
-            print("   New count: \(conversationSummaries.count)")
+            LoggingService.network.info("🔔 MessageStore.conversationSummaries CHANGED")
+            LoggingService.network.info("   Old count: \(oldValue.count)")
+            LoggingService.network.info("   New count: \(self.conversationSummaries.count)")
             conversationSummaries.forEach { summary in
-                print("   • \(summary.title) (\(summary.id))")
+                LoggingService.network.info("   • \(summary.title) (\(summary.id))")
             }
         }
     }
@@ -176,27 +177,27 @@ class MessageStore: ObservableObject {
     // MARK: - Public API
 
     func addMessage(_ message: Message, context: ConversationDescriptor, autoSwitch: Bool = false, localDeviceName: String? = nil) {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📨 MessageStore.addMessage() CALLED")
-        print("   Thread: \(Thread.isMainThread ? "MAIN" : "BACKGROUND")")
-        print("   Message ID: \(message.id)")
-        print("   Sender: \(message.sender)")
-        print("   Content: \"\(message.content)\"")
-        print("   Conversation: \(context.id)")
-        print("   AutoSwitch: \(autoSwitch)")
-        print("   Current Active Conv: \(activeConversationId)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📨 MessageStore.addMessage() CALLED")
+        LoggingService.network.info("   Thread: \(Thread.isMainThread ? "MAIN" : "BACKGROUND")")
+        LoggingService.network.info("   Message ID: \(message.id)")
+        LoggingService.network.info("   Sender: \(message.sender)")
+        LoggingService.network.info("   Content: \"\(message.content)\"")
+        LoggingService.network.info("   Conversation: \(context.id)")
+        LoggingService.network.info("   AutoSwitch: \(autoSwitch)")
+        LoggingService.network.info("   Current Active Conv: \(self.activeConversationId)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Trigger haptic feedback for incoming messages (not for our own messages)
         // Use the localDeviceName parameter if provided, otherwise get device name
         let currentDeviceName = localDeviceName ?? ProcessInfo.processInfo.hostName
         if !message.isFromLocalDevice(deviceName: currentDeviceName) {
             // Coordinated haptic feedback + Live Activity update
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("📱 NEW MESSAGE NOTIFICATION")
-            print("   From: \(message.sender)")
-            print("   Preview: \(String(message.content.prefix(50)))")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("📱 NEW MESSAGE NOTIFICATION")
+            LoggingService.network.info("   From: \(message.sender)")
+            LoggingService.network.info("   Preview: \(String(message.content.prefix(50)))")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             // Strong haptic pattern for incoming messages
             HapticManager.shared.play(.heavy, priority: .notification)
@@ -206,8 +207,8 @@ class MessageStore: ObservableObject {
                 HapticManager.shared.play(.success, priority: .notification)
             }
 
-            print("📳 Strong vibration triggered")
-            print("🏝️ Live Activity will update automatically via observer")
+            LoggingService.network.info("📳 Strong vibration triggered")
+            LoggingService.network.info("🏝️ Live Activity will update automatically via observer")
         }
 
         var descriptor = context
@@ -232,7 +233,7 @@ class MessageStore: ObservableObject {
         if threadMessages.count > maxMessagesPerConversation {
             let excess = threadMessages.count - maxMessagesPerConversation
             threadMessages.removeFirst(excess)
-            print("📱 MessageStore: Trimmed \(excess) messages for conversation \(descriptor.id)")
+            LoggingService.network.info("📱 MessageStore: Trimmed \(excess) messages for conversation \(descriptor.id)")
         }
 
         conversations[descriptor.id] = threadMessages
@@ -241,73 +242,73 @@ class MessageStore: ObservableObject {
         if let localName = localDeviceName, message.sender == localName {
             readMessageIds.insert(message.id)
             saveReadState()
-            print("   ✅ Auto-marked own message as read (sender: \(message.sender))")
+            LoggingService.network.info("   ✅ Auto-marked own message as read (sender: \(message.sender))")
         }
 
-        print("   ✅ Message added to internal storage")
-        print("   Previous count: \(previousCount), New count: \(threadMessages.count)")
+        LoggingService.network.info("   ✅ Message added to internal storage")
+        LoggingService.network.info("   Previous count: \(previousCount), New count: \(threadMessages.count)")
 
         // CRITICAL FIX: Auto-switch to conversation when incoming message arrives
         // Only if autoSwitch is enabled and it's a different conversation
         let isNewConversation = descriptor.id != activeConversationId
 
         if autoSwitch && isNewConversation {
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("🔄 AUTO-SWITCHING TO NEW CONVERSATION")
-            print("   From: \(activeConversationId)")
-            print("   To: \(descriptor.id)")
-            print("   Reason: Incoming message from \(message.sender)")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("🔄 AUTO-SWITCHING TO NEW CONVERSATION")
+            LoggingService.network.info("   From: \(self.activeConversationId)")
+            LoggingService.network.info("   To: \(descriptor.id)")
+            LoggingService.network.info("   Reason: Incoming message from \(message.sender)")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             activeConversationId = descriptor.id
             UserDefaults.standard.set(activeConversationId, forKey: activeKey)
         }
 
-        print("   🔄 Calling saveConversations()...")
+        LoggingService.network.info("   🔄 Calling saveConversations()...")
         saveConversations()
-        print("   🔄 Calling refreshPublishedState()...")
+        LoggingService.network.info("   🔄 Calling refreshPublishedState()...")
         refreshPublishedState()
-        print("   🔄 Calling calculateUnreadCount()...")
+        LoggingService.network.info("   🔄 Calling calculateUnreadCount()...")
         calculateUnreadCount()
 
         // CRITICAL FIX: Force additional refresh when it's the first message
         // This ensures UI updates correctly for new conversations
         if previousCount == 0 && threadMessages.count == 1 {
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("🆕 FIRST MESSAGE IN CONVERSATION DETECTED")
-            print("   Forcing additional UI refresh with delay...")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("🆕 FIRST MESSAGE IN CONVERSATION DETECTED")
+            LoggingService.network.info("   Forcing additional UI refresh with delay...")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self = self else { return }
-                print("   🔄 Executing forced refresh for first message...")
+                LoggingService.network.info("   🔄 Executing forced refresh for first message...")
                 self.refreshPublishedState()
 
                 // Double-check the conversation is selected
                 if self.activeConversationId != descriptor.id {
-                    print("   ⚠️ Conversation mismatch detected - selecting correct conversation")
+                    LoggingService.network.info("   ⚠️ Conversation mismatch detected - selecting correct conversation")
                     self.selectConversation(descriptor.id)
                 }
             }
         }
 
-        print("✅ MessageStore.addMessage() COMPLETE")
-        print("   Conversation: \(descriptor.title)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("✅ MessageStore.addMessage() COMPLETE")
+        LoggingService.network.info("   Conversation: \(descriptor.title)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     func selectConversation(_ conversationId: String) {
         guard conversationId != activeConversationId else {
-            print("⚠️ MessageStore.selectConversation: Already on \(conversationId), skipping")
+            LoggingService.network.info("⚠️ MessageStore.selectConversation: Already on \(conversationId), skipping")
             return
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔄 SWITCHING CONVERSATION")
-        print("   From: \(activeConversationId)")
-        print("   To: \(conversationId)")
-        print("   Previous message count: \(conversations[activeConversationId]?.count ?? 0)")
-        print("   New message count: \(conversations[conversationId]?.count ?? 0)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔄 SWITCHING CONVERSATION")
+        LoggingService.network.info("   From: \(self.activeConversationId)")
+        LoggingService.network.info("   To: \(conversationId)")
+        LoggingService.network.info("   Previous message count: \(self.conversations[self.activeConversationId]?.count ?? 0)")
+        LoggingService.network.info("   New message count: \(self.conversations[conversationId]?.count ?? 0)")
 
         // Mark all messages in current conversation as read before switching
         markConversationAsRead(conversationId: activeConversationId)
@@ -320,8 +321,8 @@ class MessageStore: ObservableObject {
 
         refreshPublishedState()
 
-        print("   ✅ Conversation switched")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("   ✅ Conversation switched")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     func ensureConversation(_ descriptor: ConversationDescriptor) {
@@ -365,15 +366,15 @@ class MessageStore: ObservableObject {
     func deleteConversation(_ conversationId: String) {
         // Don't allow deleting the public conversation
         guard conversationId != ConversationIdentifier.public.rawValue else {
-            print("⚠️ MessageStore: Cannot delete public conversation")
+            LoggingService.network.info("⚠️ MessageStore: Cannot delete public conversation")
             return
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🗑️ DELETING CONVERSATION")
-        print("   Conversation ID: \(conversationId)")
-        print("   Message count: \(conversations[conversationId]?.count ?? 0)")
-        print("   Was active: \(activeConversationId == conversationId)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🗑️ DELETING CONVERSATION")
+        LoggingService.network.info("   Conversation ID: \(conversationId)")
+        LoggingService.network.info("   Message count: \(self.conversations[conversationId]?.count ?? 0)")
+        LoggingService.network.info("   Was active: \(self.activeConversationId == conversationId)")
 
         // Remove conversation messages and metadata
         conversations.removeValue(forKey: conversationId)
@@ -381,7 +382,7 @@ class MessageStore: ObservableObject {
 
         // If the deleted conversation was active, switch to public chat
         if activeConversationId == conversationId {
-            print("   → Switching to public chat")
+            LoggingService.network.info("   → Switching to public chat")
             activeConversationId = ConversationIdentifier.public.rawValue
             UserDefaults.standard.set(activeConversationId, forKey: activeKey)
         }
@@ -390,9 +391,9 @@ class MessageStore: ObservableObject {
         refreshPublishedState()
         calculateUnreadCount()
 
-        print("   ✅ Conversation deleted")
-        print("   Remaining conversations: \(metadata.count)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("   ✅ Conversation deleted")
+        LoggingService.network.info("   Remaining conversations: \(self.metadata.count)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     func clearAllMessages() {
@@ -401,7 +402,7 @@ class MessageStore: ObservableObject {
         ensurePublicConversationExists()
         saveConversations()
         refreshPublishedState()
-        print("📱 MessageStore: Cleared all conversations")
+        LoggingService.network.info("📱 MessageStore: Cleared all conversations")
     }
 
     func messages(for conversationId: String) -> [Message] {
@@ -480,18 +481,18 @@ class MessageStore: ObservableObject {
                 conversations = payload.messages
                 metadata = payload.metadata
 
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print("💾 LOADED CONVERSATIONS FROM STORAGE")
-                print("   Total conversations: \(payload.messages.count)")
-                print("   Total metadata entries: \(payload.metadata.count)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("💾 LOADED CONVERSATIONS FROM STORAGE")
+                LoggingService.network.info("   Total conversations: \(payload.messages.count)")
+                LoggingService.network.info("   Total metadata entries: \(payload.metadata.count)")
                 for (id, descriptor) in payload.metadata {
                     let msgCount = payload.messages[id]?.count ?? 0
-                    print("   • \(descriptor.title): \(msgCount) messages")
+                    LoggingService.network.info("   • \(descriptor.title): \(msgCount) messages")
                 }
-                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 return
             } catch {
-                print("❌ MessageStore: Failed to load conversations: \(error.localizedDescription)")
+                LoggingService.network.info("❌ MessageStore: Failed to load conversations: \(error.localizedDescription)")
             }
         }
 
@@ -501,7 +502,7 @@ class MessageStore: ObservableObject {
             conversations[ConversationIdentifier.public.rawValue] = legacyMessages.sorted { $0.timestamp < $1.timestamp }
             metadata[ConversationIdentifier.public.rawValue] = .publicChat()
             UserDefaults.standard.removeObject(forKey: legacyKey)
-            print("📱 MessageStore: Migrated \(legacyMessages.count) legacy messages to public conversation")
+            LoggingService.network.info("📱 MessageStore: Migrated \(legacyMessages.count) legacy messages to public conversation")
         }
     }
 
@@ -512,18 +513,18 @@ class MessageStore: ObservableObject {
             UserDefaults.standard.set(data, forKey: storageKey)
             UserDefaults.standard.set(activeConversationId, forKey: activeKey)
 
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("💾 SAVING CONVERSATIONS TO STORAGE")
-            print("   Total conversations: \(conversations.count)")
-            print("   Total metadata entries: \(metadata.count)")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("💾 SAVING CONVERSATIONS TO STORAGE")
+            LoggingService.network.info("   Total conversations: \(self.conversations.count)")
+            LoggingService.network.info("   Total metadata entries: \(self.metadata.count)")
             for (id, descriptor) in metadata {
                 let msgCount = conversations[id]?.count ?? 0
-                print("   • \(descriptor.title): \(msgCount) messages")
+                LoggingService.network.info("   • \(descriptor.title): \(msgCount) messages")
             }
-            print("   Active conversation: \(activeConversationId)")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("   Active conversation: \(self.activeConversationId)")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         } catch {
-            print("❌ MessageStore: Failed to save conversations: \(error.localizedDescription)")
+            LoggingService.network.info("❌ MessageStore: Failed to save conversations: \(error.localizedDescription)")
         }
     }
 
@@ -545,57 +546,57 @@ class MessageStore: ObservableObject {
         let currentMessages = conversations[activeConversationId] ?? []
         let currentSummaries = buildConversationSummaries()
 
-        print("🔄 MessageStore.refreshPublishedState() - Preparing UI update")
-        print("   Active conversation: \(currentActiveId)")
-        print("   Messages to publish: \(currentMessages.count)")
-        print("   Summaries to publish: \(currentSummaries.count)")
+        LoggingService.network.info("🔄 MessageStore.refreshPublishedState() - Preparing UI update")
+        LoggingService.network.info("   Active conversation: \(currentActiveId)")
+        LoggingService.network.info("   Messages to publish: \(currentMessages.count)")
+        LoggingService.network.info("   Summaries to publish: \(currentSummaries.count)")
 
         // CRITICAL: Always update @Published properties on main thread to ensure SwiftUI updates
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
-            print("   🎯 ON MAIN THREAD - About to update @Published properties")
-            print("      Current messages.count: \(self.messages.count)")
-            print("      New messages.count: \(currentMessages.count)")
-            print("      Current summaries.count: \(self.conversationSummaries.count)")
-            print("      New summaries.count: \(currentSummaries.count)")
+            LoggingService.network.info("   🎯 ON MAIN THREAD - About to update @Published properties")
+            LoggingService.network.info("      Current messages.count: \(self.messages.count)")
+            LoggingService.network.info("      New messages.count: \(currentMessages.count)")
+            LoggingService.network.info("      Current summaries.count: \(self.conversationSummaries.count)")
+            LoggingService.network.info("      New summaries.count: \(currentSummaries.count)")
 
             // FORCE SwiftUI to re-render by sending objectWillChange notification
             // This is critical for immediate UI updates when messages arrive via MultipeerConnectivity
-            print("   📢 Sending objectWillChange.send()...")
+            LoggingService.network.info("   📢 Sending objectWillChange.send()...")
             self.objectWillChange.send()
 
-            print("   🔄 Updating @Published var messages...")
+            LoggingService.network.info("   🔄 Updating @Published var messages...")
             self.messages = currentMessages
 
-            print("   🔄 Updating @Published var conversationSummaries...")
+            LoggingService.network.info("   🔄 Updating @Published var conversationSummaries...")
             self.conversationSummaries = currentSummaries
 
-            print("   ✅ Published state updated on main thread")
-            print("      - messages.count: \(self.messages.count)")
-            print("      - conversationSummaries.count: \(self.conversationSummaries.count)")
-            print("   🎬 SwiftUI should re-render NOW!")
+            LoggingService.network.info("   ✅ Published state updated on main thread")
+            LoggingService.network.info("      - messages.count: \(self.messages.count)")
+            LoggingService.network.info("      - conversationSummaries.count: \(self.conversationSummaries.count)")
+            LoggingService.network.info("   🎬 SwiftUI should re-render NOW!")
         }
     }
 
     private func buildConversationSummaries() -> [ConversationSummary] {
         var summaries: [ConversationSummary] = []
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📊 BUILDING CONVERSATION SUMMARIES")
-        print("   Metadata count: \(metadata.count)")
-        print("   Conversations count: \(conversations.count)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📊 BUILDING CONVERSATION SUMMARIES")
+        LoggingService.network.info("   Metadata count: \(self.metadata.count)")
+        LoggingService.network.info("   Conversations count: \(self.conversations.count)")
 
         for (conversationId, descriptor) in metadata {
             let threadMessages = conversations[conversationId] ?? []
             let lastMessage = threadMessages.last
 
-            print("   • \(descriptor.title) (\(conversationId))")
-            print("     Messages: \(threadMessages.count)")
-            print("     Type: \(descriptor.conversationType)")
-            print("     IsFamily: \(descriptor.isFamily)")
-            print("     IsDirect: \(descriptor.isDirect)")
-            print("     ParticipantID: \(descriptor.participantId ?? "nil")")
+            LoggingService.network.info("   • \(descriptor.title) (\(conversationId))")
+            LoggingService.network.info("     Messages: \(threadMessages.count)")
+            LoggingService.network.info("     Type: \(descriptor.conversationType)")
+            LoggingService.network.info("     IsFamily: \(descriptor.isFamily)")
+            LoggingService.network.info("     IsDirect: \(descriptor.isDirect)")
+            LoggingService.network.info("     ParticipantID: \(descriptor.participantId ?? "nil")")
 
             summaries.append(
                 ConversationSummary(
@@ -611,8 +612,8 @@ class MessageStore: ObservableObject {
             )
         }
 
-        print("   Total summaries created: \(summaries.count)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("   Total summaries created: \(summaries.count)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Always ensure public conversation is first
         summaries.sort { summaryA, summaryB in
@@ -653,7 +654,7 @@ class MessageStore: ObservableObject {
         saveReadState()
         calculateUnreadCount()
 
-        print("📬 MessageStore: Marked all messages as read in conversation \(conversationId)")
+        LoggingService.network.info("📬 MessageStore: Marked all messages as read in conversation \(conversationId)")
     }
 
     /// Check if a message is read
@@ -676,9 +677,9 @@ class MessageStore: ObservableObject {
             total += messages.filter { !readMessageIds.contains($0.id) }.count
         }
         unreadCount = total
-        print("📊 MessageStore: Unread count updated to \(total)")
-        print("   Read messages: \(readMessageIds.count)")
-        print("   Total messages: \(conversations.values.flatMap { $0 }.count)")
+        LoggingService.network.info("📊 MessageStore: Unread count updated to \(total)")
+        LoggingService.network.info("   Read messages: \(self.readMessageIds.count)")
+        LoggingService.network.info("   Total messages: \(self.conversations.values.flatMap { $0 }.count)")
     }
 
     // MARK: - Read State Persistence
@@ -688,14 +689,14 @@ class MessageStore: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: readMessagesKey),
            let uuidStrings = try? JSONDecoder().decode([String].self, from: data) {
             readMessageIds = Set(uuidStrings.compactMap { UUID(uuidString: $0) })
-            print("📬 MessageStore: Loaded \(readMessageIds.count) read message IDs")
+            LoggingService.network.info("📬 MessageStore: Loaded \(self.readMessageIds.count) read message IDs")
         }
 
         // Load last read timestamps
         if let data = UserDefaults.standard.data(forKey: lastReadKey),
            let timestamps = try? JSONDecoder().decode([String: Date].self, from: data) {
             lastReadTimestamps = timestamps
-            print("📬 MessageStore: Loaded \(timestamps.count) last read timestamps")
+            LoggingService.network.info("📬 MessageStore: Loaded \(timestamps.count) last read timestamps")
         }
     }
 
@@ -735,13 +736,13 @@ class MessageStore: ObservableObject {
                 }
 
                 if hasReply {
-                    print("✅ MessageStore: Found reply from \(peerID) in conversation \(conversationId)")
+                    LoggingService.network.info("✅ MessageStore: Found reply from \(peerID) in conversation \(conversationId)")
                     return true
                 }
             }
         }
 
-        print("❌ MessageStore: No replies found from \(peerID)")
+        LoggingService.network.info("❌ MessageStore: No replies found from \(peerID)")
         return false
     }
 

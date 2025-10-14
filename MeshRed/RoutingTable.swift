@@ -8,6 +8,7 @@
 import Foundation
 import MultipeerConnectivity
 import Combine
+import os
 
 /// Manages network topology and calculates optimal routes to peers
 class RoutingTable: ObservableObject {
@@ -49,12 +50,12 @@ class RoutingTable: ObservableObject {
         // Recalculate routes
         recalculateRoutes()
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🗺️ TOPOLOGY UPDATED")
-        print("   Peer: \(peerId)")
-        print("   Connections: \(topologyMessage.connectedPeers.joined(separator: ", "))")
-        print("   Reachable Peers: \(reachablePeers.count)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🗺️ TOPOLOGY UPDATED")
+        LoggingService.network.info("   Peer: \(peerId)")
+        LoggingService.network.info("   Connections: \(topologyMessage.connectedPeers.joined(separator: ", "))")
+        LoggingService.network.info("   Reachable Peers: \(self.reachablePeers.count)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     /// Update topology for local peer's direct connections
@@ -77,7 +78,7 @@ class RoutingTable: ObservableObject {
         // Also remove from others' connection lists (will be updated by their topology broadcasts)
         recalculateRoutes()
 
-        print("🗺️ Removed \(peerId) from topology")
+        LoggingService.network.info("🗺️ Removed \(peerId) from topology")
     }
 
     // MARK: - Route Calculation (BFS)
@@ -121,7 +122,7 @@ class RoutingTable: ObservableObject {
             }
         }
 
-        print("🗺️ Routes recalculated: \(routes.count) peers reachable")
+        LoggingService.network.info("🗺️ Routes recalculated: \(self.routes.count) peers reachable")
     }
 
     // MARK: - Route Queries
@@ -160,7 +161,7 @@ class RoutingTable: ObservableObject {
         let stalePeers = topology.filter { $0.value.isStale(threshold: staleThreshold) }.map { $0.key }
 
         if !stalePeers.isEmpty {
-            print("🗺️ Removing \(stalePeers.count) stale topology entries")
+            LoggingService.network.info("🗺️ Removing \(stalePeers.count) stale topology entries")
             for peerId in stalePeers {
                 topology.removeValue(forKey: peerId)
             }
@@ -173,7 +174,7 @@ class RoutingTable: ObservableObject {
         topology.removeAll()
         routes.removeAll()
         reachablePeers.removeAll()
-        print("🗺️ Routing table cleared")
+        LoggingService.network.info("🗺️ Routing table cleared")
     }
 
     // MARK: - Diagnostics
@@ -201,6 +202,6 @@ class RoutingTable: ObservableObject {
     }
 
     func printTopology() {
-        print(getTopologyDiagnostics())
+        LoggingService.network.info("\(self.getTopologyDiagnostics())")
     }
 }

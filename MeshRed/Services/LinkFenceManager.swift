@@ -9,6 +9,7 @@ import Foundation
 import CoreLocation
 import Combine
 import UserNotifications
+import os
 
 /// Manages custom linkfences with entry/exit monitoring and LinkMesh network notifications
 class LinkFenceManager: NSObject, ObservableObject {
@@ -58,9 +59,9 @@ class LinkFenceManager: NSObject, ObservableObject {
         loadActiveGeofences()
         setupNotifications()
 
-        print("🔷 LinkFenceManager: Initialized")
-        print("   My Geofences: \(myGeofences.count)")
-        print("   Active Monitoring: \(activeGeofences.count)/\(Self.maxMonitoredGeofences)")
+        LoggingService.network.info("🔷 LinkFenceManager: Initialized")
+        LoggingService.network.info("   My Geofences: \(self.myGeofences.count)")
+        LoggingService.network.info("   Active Monitoring: \(self.activeGeofences.count)/\(Self.maxMonitoredGeofences)")
     }
 
     /// Set network manager reference (called after NetworkManager initializes)
@@ -98,7 +99,7 @@ class LinkFenceManager: NSObject, ObservableObject {
         if activeGeofences.count < Self.maxMonitoredGeofences {
             startMonitoringGeofence(linkfence)
         } else {
-            print("⚠️ LinkFenceManager: Cannot auto-activate - at \(Self.maxMonitoredGeofences) limit")
+            LoggingService.network.info("⚠️ LinkFenceManager: Cannot auto-activate - at \(Self.maxMonitoredGeofences) limit")
         }
 
         // Maintain legacy compatibility: set as activeGeofence
@@ -112,15 +113,15 @@ class LinkFenceManager: NSObject, ObservableObject {
             shareGeofence(linkfence, code: familyCode)
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔷 GEOFENCE CREATED")
-        print("   Name: \(name)")
-        print("   Center: \(center.latitude), \(center.longitude)")
-        print("   Radius: \(Int(radius))m")
-        print("   Category: \(category.rawValue)")
-        print("   Shared: \(shareWithFamily)")
-        print("   Monitoring: \(activeGeofences.count)/\(Self.maxMonitoredGeofences)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔷 GEOFENCE CREATED")
+        LoggingService.network.info("   Name: \(name)")
+        LoggingService.network.info("   Center: \(center.latitude), \(center.longitude)")
+        LoggingService.network.info("   Radius: \(Int(radius))m")
+        LoggingService.network.info("   Category: \(category.rawValue)")
+        LoggingService.network.info("   Shared: \(shareWithFamily)")
+        LoggingService.network.info("   Monitoring: \(self.activeGeofences.count)/\(Self.maxMonitoredGeofences)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     /// Activate monitoring for a linkfence
@@ -128,7 +129,7 @@ class LinkFenceManager: NSObject, ObservableObject {
         // Request Always authorization if needed
         let authStatus = locationService.authorizationStatus
         if authStatus != .authorizedAlways {
-            print("⚠️ LinkFenceManager: Always authorization required for linkfencing")
+            LoggingService.network.info("⚠️ LinkFenceManager: Always authorization required for linkfencing")
             if authStatus == .authorizedWhenInUse {
                 locationManager.requestAlwaysAuthorization()
             }
@@ -155,7 +156,7 @@ class LinkFenceManager: NSObject, ObservableObject {
             self.saveActiveGeofence()
         }
 
-        print("🔷 LinkFenceManager: Activated monitoring for '\(linkfence.name)'")
+        LoggingService.network.info("🔷 LinkFenceManager: Activated monitoring for '\(linkfence.name)'")
     }
 
     /// Deactivate current linkfence
@@ -170,7 +171,7 @@ class LinkFenceManager: NSObject, ObservableObject {
             self.saveActiveGeofence()
         }
 
-        print("🔷 LinkFenceManager: Deactivated monitoring")
+        LoggingService.network.info("🔷 LinkFenceManager: Deactivated monitoring")
     }
 
     /// Share linkfence with family via mesh
@@ -185,7 +186,7 @@ class LinkFenceManager: NSObject, ObservableObject {
         // Send via NetworkManager
         networkManager?.sendGeofenceShare(shareMessage)
 
-        print("🔷 LinkFenceManager: Shared linkfence '\(linkfence.name)' with family")
+        LoggingService.network.info("🔷 LinkFenceManager: Shared linkfence '\(linkfence.name)' with family")
     }
 
     /// Handle received linkfence share from family
@@ -193,18 +194,18 @@ class LinkFenceManager: NSObject, ObservableObject {
         // Verify family code matches
         guard let myCode = familyGroupManager.groupCode,
               myCode == shareMessage.familyGroupCode else {
-            print("⚠️ LinkFenceManager: LinkFence share code mismatch")
+            LoggingService.network.info("⚠️ LinkFenceManager: LinkFence share code mismatch")
             return
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔷 GEOFENCE SHARED RECEIVED")
-        print("   From: \(shareMessage.senderId)")
-        print("   Name: \(shareMessage.linkfence.name)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔷 GEOFENCE SHARED RECEIVED")
+        LoggingService.network.info("   From: \(shareMessage.senderId)")
+        LoggingService.network.info("   Name: \(shareMessage.linkfence.name)")
         if let msg = shareMessage.message {
-            print("   Message: \(msg)")
+            LoggingService.network.info("   Message: \(msg)")
         }
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Add to shared linkfences
         DispatchQueue.main.async {
@@ -231,7 +232,7 @@ class LinkFenceManager: NSObject, ObservableObject {
         // Verify family code matches
         guard let myCode = familyGroupManager.groupCode,
               myCode == eventMessage.familyGroupCode else {
-            print("⚠️ LinkFenceManager: Event code mismatch")
+            LoggingService.network.info("⚠️ LinkFenceManager: Event code mismatch")
             return
         }
 
@@ -240,12 +241,12 @@ class LinkFenceManager: NSObject, ObservableObject {
             return
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔷 GEOFENCE EVENT RECEIVED")
-        print("   From: \(eventMessage.senderNickname ?? eventMessage.senderId)")
-        print("   Event: \(eventMessage.eventType.rawValue)")
-        print("   Place: \(eventMessage.linkfenceName)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔷 GEOFENCE EVENT RECEIVED")
+        LoggingService.network.info("   From: \(eventMessage.senderNickname ?? eventMessage.senderId)")
+        LoggingService.network.info("   Event: \(eventMessage.eventType.rawValue)")
+        LoggingService.network.info("   Place: \(eventMessage.linkfenceName)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Update member location
         DispatchQueue.main.async {
@@ -293,7 +294,7 @@ class LinkFenceManager: NSObject, ObservableObject {
             if !self.myGeofences.contains(where: { $0.id == linkfence.id }) {
                 self.myGeofences.append(linkfence)
                 self.saveMyGeofences()
-                print("🔷 LinkFenceManager: Added linkfence '\(linkfence.name)' to my linkfences")
+                LoggingService.network.info("🔷 LinkFenceManager: Added linkfence '\(linkfence.name)' to my linkfences")
             }
         }
     }
@@ -310,21 +311,21 @@ class LinkFenceManager: NSObject, ObservableObject {
             self.linkfenceHistory.removeValue(forKey: linkfenceId)
             self.saveMyGeofences()
             self.saveGeofenceHistory()
-            print("🔷 LinkFenceManager: Removed linkfence \(linkfenceId)")
+            LoggingService.network.info("🔷 LinkFenceManager: Removed linkfence \(linkfenceId)")
         }
     }
 
     /// Start monitoring a linkfence (if under iOS 20 limit)
     func startMonitoringGeofence(_ linkfence: CustomLinkFence) {
         guard activeGeofences.count < Self.maxMonitoredGeofences else {
-            print("⚠️ LinkFenceManager: Cannot monitor - already at \(Self.maxMonitoredGeofences) limit")
+            LoggingService.network.info("⚠️ LinkFenceManager: Cannot monitor - already at \(Self.maxMonitoredGeofences) limit")
             return
         }
 
         // Request Always authorization if needed
         let authStatus = locationService.authorizationStatus
         if authStatus != .authorizedAlways {
-            print("⚠️ LinkFenceManager: Always authorization required for linkfencing")
+            LoggingService.network.info("⚠️ LinkFenceManager: Always authorization required for linkfencing")
             if authStatus == .authorizedWhenInUse {
                 locationManager.requestAlwaysAuthorization()
             }
@@ -349,13 +350,13 @@ class LinkFenceManager: NSObject, ObservableObject {
             self.saveMyGeofences()
         }
 
-        print("🔷 LinkFenceManager: Started monitoring '\(linkfence.name)' (\(activeGeofences.count + 1)/\(Self.maxMonitoredGeofences))")
+        LoggingService.network.info("🔷 LinkFenceManager: Started monitoring '\(linkfence.name)' (\(self.activeGeofences.count + 1)/\(Self.maxMonitoredGeofences))")
     }
 
     /// Stop monitoring a linkfence
     func stopMonitoringGeofence(_ linkfenceId: UUID) {
         guard let linkfence = activeGeofences[linkfenceId] else {
-            print("⚠️ LinkFenceManager: LinkFence \(linkfenceId) is not being monitored")
+            LoggingService.network.info("⚠️ LinkFenceManager: LinkFence \(linkfenceId) is not being monitored")
             return
         }
 
@@ -374,7 +375,7 @@ class LinkFenceManager: NSObject, ObservableObject {
             self.saveMyGeofences()
         }
 
-        print("🔷 LinkFenceManager: Stopped monitoring '\(linkfence.name)' (\(activeGeofences.count - 1)/\(Self.maxMonitoredGeofences))")
+        LoggingService.network.info("🔷 LinkFenceManager: Stopped monitoring '\(linkfence.name)' (\(self.activeGeofences.count - 1)/\(Self.maxMonitoredGeofences))")
     }
 
     /// Toggle monitoring for a linkfence
@@ -432,8 +433,8 @@ class LinkFenceManager: NSObject, ObservableObject {
 
     /// Load mock data for testing
     func loadMockData() {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔷 LOADING MOCK GEOFENCE DATA")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🔷 LOADING MOCK GEOFENCE DATA")
 
         DispatchQueue.main.async {
             self.myGeofences = MockLinkFenceData.mockLinkFences
@@ -454,16 +455,16 @@ class LinkFenceManager: NSObject, ObservableObject {
             self.saveActiveGeofences()
         }
 
-        print("   Loaded \(myGeofences.count) linkfences")
-        print("   Loaded \(linkfenceHistory.values.flatMap { $0 }.count) events")
-        print("   Monitoring \(activeGeofences.count) linkfences")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("   Loaded \(self.myGeofences.count) linkfences")
+        LoggingService.network.info("   Loaded \(self.linkfenceHistory.values.flatMap { $0 }.count) events")
+        LoggingService.network.info("   Monitoring \(self.activeGeofences.count) linkfences")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     // MARK: - Private Methods
 
     private func handleGeofenceEntry(_ linkfence: CustomLinkFence) {
-        print("✅ LinkFenceManager: ENTERED '\(linkfence.name)'")
+        LoggingService.network.info("✅ LinkFenceManager: ENTERED '\(linkfence.name)'")
 
         // Audio announcement
         AudioManager.shared.announceZoneTransition(entered: true, zoneName: linkfence.name)
@@ -482,7 +483,7 @@ class LinkFenceManager: NSObject, ObservableObject {
     }
 
     private func handleGeofenceExit(_ linkfence: CustomLinkFence) {
-        print("⚠️ LinkFenceManager: EXITED '\(linkfence.name)'")
+        LoggingService.network.info("⚠️ LinkFenceManager: EXITED '\(linkfence.name)'")
 
         // Audio announcement
         AudioManager.shared.announceZoneTransition(entered: false, zoneName: linkfence.name)
@@ -504,7 +505,7 @@ class LinkFenceManager: NSObject, ObservableObject {
         guard let currentLocation = locationService.currentLocation,
               let familyCode = familyGroupManager.groupCode,
               let currentMember = familyGroupManager.currentGroup?.currentDeviceMember else {
-            print("⚠️ LinkFenceManager: Cannot send event - missing data")
+            LoggingService.network.info("⚠️ LinkFenceManager: Cannot send event - missing data")
             return
         }
 
@@ -520,7 +521,7 @@ class LinkFenceManager: NSObject, ObservableObject {
         // Send via NetworkManager
         networkManager?.sendGeofenceEvent(eventMessage)
 
-        print("🔷 LinkFenceManager: Sent \(type.rawValue) event for '\(linkfence.name)'")
+        LoggingService.network.info("🔷 LinkFenceManager: Sent \(type.rawValue) event for '\(linkfence.name)'")
     }
 
     private func showLocalNotification(title: String, body: String) {
@@ -537,7 +538,7 @@ class LinkFenceManager: NSObject, ObservableObject {
 
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                print("❌ Failed to show notification: \(error)")
+                LoggingService.network.info("❌ Failed to show notification: \(error)")
             }
         }
     }
@@ -546,9 +547,9 @@ class LinkFenceManager: NSObject, ObservableObject {
         // Request notification permission
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if granted {
-                print("🔷 LinkFenceManager: Notification permission granted")
+                LoggingService.network.info("🔷 LinkFenceManager: Notification permission granted")
             } else if let error = error {
-                print("❌ LinkFenceManager: Notification permission error: \(error)")
+                LoggingService.network.info("❌ LinkFenceManager: Notification permission error: \(error)")
             }
         }
     }
@@ -556,14 +557,14 @@ class LinkFenceManager: NSObject, ObservableObject {
     private func loadActiveGeofence() {
         guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
               let linkfence = try? JSONDecoder().decode(CustomLinkFence.self, from: data) else {
-            print("🔷 LinkFenceManager: No saved linkfence found")
+            LoggingService.network.info("🔷 LinkFenceManager: No saved linkfence found")
             return
         }
 
         // Reactivate monitoring
         activateGeofence(linkfence)
 
-        print("🔷 LinkFenceManager: Loaded saved linkfence '\(linkfence.name)'")
+        LoggingService.network.info("🔷 LinkFenceManager: Loaded saved linkfence '\(linkfence.name)'")
     }
 
     private func saveActiveGeofence() {
@@ -571,13 +572,13 @@ class LinkFenceManager: NSObject, ObservableObject {
             if let linkfence = activeGeofence {
                 let data = try JSONEncoder().encode(linkfence)
                 UserDefaults.standard.set(data, forKey: userDefaultsKey)
-                print("💾 LinkFenceManager: Saved linkfence '\(linkfence.name)'")
+                LoggingService.network.info("💾 LinkFenceManager: Saved linkfence '\(linkfence.name)'")
             } else {
                 UserDefaults.standard.removeObject(forKey: userDefaultsKey)
-                print("💾 LinkFenceManager: Cleared linkfence")
+                LoggingService.network.info("💾 LinkFenceManager: Cleared linkfence")
             }
         } catch {
-            print("❌ LinkFenceManager: Failed to save: \(error)")
+            LoggingService.network.info("❌ LinkFenceManager: Failed to save: \(error)")
         }
     }
 
@@ -586,34 +587,34 @@ class LinkFenceManager: NSObject, ObservableObject {
     private func loadMyGeofences() {
         guard let data = UserDefaults.standard.data(forKey: myGeofencesKey),
               let linkfences = try? JSONDecoder().decode([CustomLinkFence].self, from: data) else {
-            print("🔷 LinkFenceManager: No saved linkfences found")
+            LoggingService.network.info("🔷 LinkFenceManager: No saved linkfences found")
             return
         }
 
         self.myGeofences = linkfences
-        print("🔷 LinkFenceManager: Loaded \(linkfences.count) saved linkfences")
+        LoggingService.network.info("🔷 LinkFenceManager: Loaded \(linkfences.count) saved linkfences")
     }
 
     private func saveMyGeofences() {
         do {
             let data = try JSONEncoder().encode(myGeofences)
             UserDefaults.standard.set(data, forKey: myGeofencesKey)
-            print("💾 LinkFenceManager: Saved \(myGeofences.count) linkfences")
+            LoggingService.network.info("💾 LinkFenceManager: Saved \(self.myGeofences.count) linkfences")
         } catch {
-            print("❌ LinkFenceManager: Failed to save linkfences: \(error)")
+            LoggingService.network.info("❌ LinkFenceManager: Failed to save linkfences: \(error)")
         }
     }
 
     private func loadGeofenceHistory() {
         guard let data = UserDefaults.standard.data(forKey: linkfenceHistoryKey),
               let history = try? JSONDecoder().decode([UUID: [LinkFenceEventMessage]].self, from: data) else {
-            print("🔷 LinkFenceManager: No event history found")
+            LoggingService.network.info("🔷 LinkFenceManager: No event history found")
             return
         }
 
         self.linkfenceHistory = history
         let totalEvents = history.values.flatMap { $0 }.count
-        print("🔷 LinkFenceManager: Loaded \(totalEvents) events across \(history.count) linkfences")
+        LoggingService.network.info("🔷 LinkFenceManager: Loaded \(totalEvents) events across \(history.count) linkfences")
     }
 
     private func saveGeofenceHistory() {
@@ -621,16 +622,16 @@ class LinkFenceManager: NSObject, ObservableObject {
             let data = try JSONEncoder().encode(linkfenceHistory)
             UserDefaults.standard.set(data, forKey: linkfenceHistoryKey)
             let totalEvents = linkfenceHistory.values.flatMap { $0 }.count
-            print("💾 LinkFenceManager: Saved \(totalEvents) events")
+            LoggingService.network.info("💾 LinkFenceManager: Saved \(totalEvents) events")
         } catch {
-            print("❌ LinkFenceManager: Failed to save history: \(error)")
+            LoggingService.network.info("❌ LinkFenceManager: Failed to save history: \(error)")
         }
     }
 
     private func loadActiveGeofences() {
         guard let data = UserDefaults.standard.data(forKey: activeGeofencesKey),
               let active = try? JSONDecoder().decode([UUID: CustomLinkFence].self, from: data) else {
-            print("🔷 LinkFenceManager: No active linkfences to restore")
+            LoggingService.network.info("🔷 LinkFenceManager: No active linkfences to restore")
             return
         }
 
@@ -644,16 +645,16 @@ class LinkFenceManager: NSObject, ObservableObject {
             }
         }
 
-        print("🔷 LinkFenceManager: Restored monitoring for \(activeGeofences.count) linkfences")
+        LoggingService.network.info("🔷 LinkFenceManager: Restored monitoring for \(self.activeGeofences.count) linkfences")
     }
 
     private func saveActiveGeofences() {
         do {
             let data = try JSONEncoder().encode(activeGeofences)
             UserDefaults.standard.set(data, forKey: activeGeofencesKey)
-            print("💾 LinkFenceManager: Saved \(activeGeofences.count) active linkfences")
+            LoggingService.network.info("💾 LinkFenceManager: Saved \(self.activeGeofences.count) active linkfences")
         } catch {
-            print("❌ LinkFenceManager: Failed to save active linkfences: \(error)")
+            LoggingService.network.info("❌ LinkFenceManager: Failed to save active linkfences: \(error)")
         }
     }
 }
@@ -701,22 +702,22 @@ extension LinkFenceManager: CLLocationManagerDelegate {
 
         switch state {
         case .inside:
-            print("🔷 LinkFenceManager: Initial state - INSIDE '\(linkfence.name)'")
+            LoggingService.network.info("🔷 LinkFenceManager: Initial state - INSIDE '\(linkfence.name)'")
         case .outside:
-            print("🔷 LinkFenceManager: Initial state - OUTSIDE '\(linkfence.name)'")
+            LoggingService.network.info("🔷 LinkFenceManager: Initial state - OUTSIDE '\(linkfence.name)'")
         case .unknown:
-            print("🔷 LinkFenceManager: Initial state - UNKNOWN for '\(linkfence.name)'")
+            LoggingService.network.info("🔷 LinkFenceManager: Initial state - UNKNOWN for '\(linkfence.name)'")
         }
     }
 
     func locationManager(_ manager: CLLocationManager, monitoringDidFailFor region: CLRegion?, withError error: Error) {
-        print("❌ LinkFenceManager: Monitoring failed: \(error.localizedDescription)")
+        LoggingService.network.info("❌ LinkFenceManager: Monitoring failed: \(error.localizedDescription)")
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         // Use the published property from locationService instead of direct access
         let status = locationService.authorizationStatus
-        print("🔷 LinkFenceManager: Authorization changed to \(status)")
+        LoggingService.network.info("🔷 LinkFenceManager: Authorization changed to \(String(describing: status), privacy: .public)")
 
         // If we got Always authorization and have a linkfence, restart monitoring
         if status == .authorizedAlways, let linkfence = activeGeofence {

@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import os
 
 /// Manages first message restrictions and conversation states
 /// - Tracks who has been sent a first message
@@ -80,23 +81,23 @@ class FirstMessageTracker: ObservableObject {
     /// Mark that a first message has been sent to a peer
     /// - Parameter peerID: The peer's identifier
     func markFirstMessageSent(to peerID: String) {
-        print("📤 FirstMessageTracker: Marking first message sent to \(peerID)")
+        LoggingService.network.info("📤 FirstMessageTracker: Marking first message sent to \(peerID)")
 
         sentFirstMessages.insert(peerID)
         savePersistedState()
 
-        print("   Sent messages list: \(sentFirstMessages)")
+        LoggingService.network.info("   Sent messages list: \(self.sentFirstMessages)")
     }
 
     /// Mark that a conversation has become active (received a reply)
     /// - Parameter peerID: The peer's identifier
     func markConversationActive(with peerID: String) {
-        print("✅ FirstMessageTracker: Marking conversation active with \(peerID)")
+        LoggingService.network.info("✅ FirstMessageTracker: Marking conversation active with \(peerID)")
 
         activeConversations.insert(peerID)
         savePersistedState()
 
-        print("   Active conversations: \(activeConversations)")
+        LoggingService.network.info("   Active conversations: \(self.activeConversations)")
     }
 
     /// Check and update conversation status when a message is received
@@ -109,7 +110,7 @@ class FirstMessageTracker: ObservableObject {
 
         // If we had sent a first message to this peer and conversation wasn't active
         if hasSentFirstMessage(to: peerID) && !isConversationActive(with: peerID) {
-            print("🎉 FirstMessageTracker: Received reply from \(peerID) - activating conversation!")
+            LoggingService.network.info("🎉 FirstMessageTracker: Received reply from \(peerID) - activating conversation!")
             markConversationActive(with: peerID)
         }
     }
@@ -117,7 +118,7 @@ class FirstMessageTracker: ObservableObject {
     /// Reset tracking for a specific peer (for testing or admin purposes)
     /// - Parameter peerID: The peer's identifier
     func resetTracking(for peerID: String) {
-        print("🔄 FirstMessageTracker: Resetting tracking for \(peerID)")
+        LoggingService.network.info("🔄 FirstMessageTracker: Resetting tracking for \(peerID)")
 
         sentFirstMessages.remove(peerID)
         activeConversations.remove(peerID)
@@ -126,7 +127,7 @@ class FirstMessageTracker: ObservableObject {
 
     /// Clear all tracking data
     func clearAllTracking() {
-        print("🗑 FirstMessageTracker: Clearing all tracking data")
+        LoggingService.network.info("🗑 FirstMessageTracker: Clearing all tracking data")
 
         sentFirstMessages.removeAll()
         activeConversations.removeAll()
@@ -194,19 +195,19 @@ class FirstMessageTracker: ObservableObject {
 
         // Don't add if already rejected
         guard !isRejected(peerID) else {
-            print("❌ FirstMessageTracker: Ignoring request from rejected peer \(peerID)")
+            LoggingService.network.info("❌ FirstMessageTracker: Ignoring request from rejected peer \(peerID)")
             return
         }
 
         // Don't add if conversation is already active
         guard !isConversationActive(with: peerID) else {
-            print("ℹ️ FirstMessageTracker: Conversation already active with \(peerID)")
+            LoggingService.network.info("ℹ️ FirstMessageTracker: Conversation already active with \(peerID)")
             return
         }
 
         // Limit to 10 pending requests (anti-spam)
         if pendingRequests.count >= 10 {
-            print("⚠️ FirstMessageTracker: Maximum pending requests reached")
+            LoggingService.network.info("⚠️ FirstMessageTracker: Maximum pending requests reached")
             return
         }
 
@@ -217,18 +218,18 @@ class FirstMessageTracker: ObservableObject {
         )
 
         pendingRequests[peerID] = request
-        print("📨 FirstMessageTracker: Added pending request from \(peerID)")
+        LoggingService.network.info("📨 FirstMessageTracker: Added pending request from \(peerID)")
         savePersistedState()
     }
 
     /// Accept a message request
     func acceptRequest(from peerID: String) {
         guard let request = pendingRequests[peerID] else {
-            print("⚠️ FirstMessageTracker: No pending request from \(peerID)")
+            LoggingService.network.info("⚠️ FirstMessageTracker: No pending request from \(peerID)")
             return
         }
 
-        print("✅ FirstMessageTracker: Accepting request from \(peerID)")
+        LoggingService.network.info("✅ FirstMessageTracker: Accepting request from \(peerID)")
 
         // Remove from pending
         pendingRequests.removeValue(forKey: peerID)
@@ -244,7 +245,7 @@ class FirstMessageTracker: ObservableObject {
 
     /// Reject a message request
     func rejectRequest(from peerID: String) {
-        print("❌ FirstMessageTracker: Rejecting request from \(peerID)")
+        LoggingService.network.info("❌ FirstMessageTracker: Rejecting request from \(peerID)")
 
         // Remove from pending
         pendingRequests.removeValue(forKey: peerID)
@@ -261,11 +262,11 @@ class FirstMessageTracker: ObservableObject {
     /// Defer a message request (decide later)
     func deferRequest(from peerID: String) {
         guard pendingRequests[peerID] != nil else {
-            print("⚠️ FirstMessageTracker: No pending request from \(peerID)")
+            LoggingService.network.info("⚠️ FirstMessageTracker: No pending request from \(peerID)")
             return
         }
 
-        print("🟡 FirstMessageTracker: Deferring request from \(peerID)")
+        LoggingService.network.info("🟡 FirstMessageTracker: Deferring request from \(peerID)")
 
         // Add to deferred list (keeps in pending too)
         deferredRequests.insert(peerID)
@@ -279,13 +280,13 @@ class FirstMessageTracker: ObservableObject {
         // Load sent messages
         if let sentData = UserDefaults.standard.array(forKey: sentMessagesKey) as? [String] {
             sentFirstMessages = Set(sentData)
-            print("📱 FirstMessageTracker: Loaded \(sentFirstMessages.count) sent messages")
+            LoggingService.network.info("📱 FirstMessageTracker: Loaded \(self.sentFirstMessages.count) sent messages")
         }
 
         // Load active conversations
         if let activeData = UserDefaults.standard.array(forKey: activeConversationsKey) as? [String] {
             activeConversations = Set(activeData)
-            print("📱 FirstMessageTracker: Loaded \(activeConversations.count) active conversations")
+            LoggingService.network.info("📱 FirstMessageTracker: Loaded \(self.activeConversations.count) active conversations")
         }
 
         // Load pending requests
@@ -293,19 +294,19 @@ class FirstMessageTracker: ObservableObject {
            let decoded = try? JSONDecoder().decode([String: PendingRequest].self, from: pendingData) {
             // Filter out expired requests
             pendingRequests = decoded.filter { !$0.value.isExpired }
-            print("📱 FirstMessageTracker: Loaded \(pendingRequests.count) pending requests")
+            LoggingService.network.info("📱 FirstMessageTracker: Loaded \(self.pendingRequests.count) pending requests")
         }
 
         // Load rejected requests
         if let rejectedData = UserDefaults.standard.array(forKey: rejectedRequestsKey) as? [String] {
             rejectedRequests = Set(rejectedData)
-            print("📱 FirstMessageTracker: Loaded \(rejectedRequests.count) rejected requests")
+            LoggingService.network.info("📱 FirstMessageTracker: Loaded \(self.rejectedRequests.count) rejected requests")
         }
 
         // Load deferred requests
         if let deferredData = UserDefaults.standard.array(forKey: deferredRequestsKey) as? [String] {
             deferredRequests = Set(deferredData)
-            print("📱 FirstMessageTracker: Loaded \(deferredRequests.count) deferred requests")
+            LoggingService.network.info("📱 FirstMessageTracker: Loaded \(self.deferredRequests.count) deferred requests")
         }
     }
 
@@ -327,7 +328,7 @@ class FirstMessageTracker: ObservableObject {
         // Save deferred requests
         UserDefaults.standard.set(Array(deferredRequests), forKey: deferredRequestsKey)
 
-        print("💾 FirstMessageTracker: State saved to UserDefaults")
+        LoggingService.network.info("💾 FirstMessageTracker: State saved to UserDefaults")
     }
 }
 
@@ -336,11 +337,11 @@ class FirstMessageTracker: ObservableObject {
 extension FirstMessageTracker {
     /// Print current state for debugging
     func printDebugState() {
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📊 FirstMessageTracker Debug State")
-        print("   Sent first messages: \(sentFirstMessages)")
-        print("   Active conversations: \(activeConversations)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📊 FirstMessageTracker Debug State")
+        LoggingService.network.info("   Sent first messages: \(self.sentFirstMessages)")
+        LoggingService.network.info("   Active conversations: \(self.activeConversations)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 }
 #endif

@@ -1,5 +1,6 @@
 import Foundation
 import MultipeerConnectivity
+import os
 
 /// Thread-safe mutex for managing connection operations
 /// Ensures only one connection operation happens per peer at a time
@@ -8,7 +9,14 @@ class ConnectionMutex {
     private var activeOperations: Set<String> = []
     private var pendingConnections: [String: Date] = [:]
     private var operationTypes: [String: String] = [:]  // Track operation type for each peer
-    private let operationTimeout: TimeInterval = 5.0  // Reduced to 5s for faster cleanup
+
+    // Dynamic timeout based on Lightning Mode
+    private var operationTimeout: TimeInterval {
+        if UserDefaults.standard.bool(forKey: "lightningModeUltraFast") {
+            return 3.0  // Ultra-fast: 3s timeout for FIFA 2026 stadiums
+        }
+        return 5.0  // Normal: 5s timeout
+    }
 
     /// Connection operation types
     enum Operation: String {
@@ -29,14 +37,14 @@ class ConnectionMutex {
 
             // Check if there's an active operation for this peer
             if activeOperations.contains(peerKey) {
-                print("🔒 Connection mutex: Operation already in progress for \(peerKey)")
+                LoggingService.network.info("🔒 Connection mutex: Operation already in progress for \(peerKey)")
                 return false
             }
 
             // Check if there's a recent pending connection
             if let pendingTime = pendingConnections[peerKey],
                now.timeIntervalSince(pendingTime) < 1.0 {  // Reduced to 1s for faster operations
-                print("🔒 Connection mutex: Recent pending connection for \(peerKey)")
+                LoggingService.network.info("🔒 Connection mutex: Recent pending connection for \(peerKey)")
                 return false
             }
 
@@ -44,7 +52,7 @@ class ConnectionMutex {
             activeOperations.insert(peerKey)
             pendingConnections[peerKey] = now
             operationTypes[peerKey] = operation.rawValue  // Store operation type
-            print("🔓 Connection mutex: Lock acquired for \(peerKey) - Operation: \(operation.rawValue)")
+            LoggingService.network.info("🔓 Connection mutex: Lock acquired for \(peerKey) - Operation: \(operation.rawValue)")
             return true
         }
     }
@@ -55,7 +63,7 @@ class ConnectionMutex {
             let peerKey = peer.displayName
             self?.activeOperations.remove(peerKey)
             self?.operationTypes.removeValue(forKey: peerKey)  // Clear operation type
-            print("🔓 Connection mutex: Lock released for \(peerKey)")
+            LoggingService.network.info("🔓 Connection mutex: Lock released for \(peerKey)")
         }
     }
 
@@ -75,24 +83,28 @@ class ConnectionMutex {
 
     /// Clean up expired operations (in case of failures)
     private func cleanupExpiredOperations(now: Date) {
-        pendingConnections = pendingConnections.filter { _, timestamp in
-            now.timeIntervalSince(timestamp) < operationTimeout
-        }
+        // Capture timeout value once to avoid repeated computed property access
+        let timeout = self.operationTimeout
 
-        // Also clean active operations if they've been stuck for too long
-        // This prevents deadlocks in case of failures
+        // Find expired peers BEFORE filtering (critical fix)
         let expiredPeers = pendingConnections.compactMap { peerKey, timestamp -> String? in
-            if now.timeIntervalSince(timestamp) >= operationTimeout {
+            if now.timeIntervalSince(timestamp) >= timeout {
                 return peerKey
             }
             return nil
         }
 
+        // Clean up expired operations
         for peerKey in expiredPeers {
             activeOperations.remove(peerKey)
             pendingConnections.removeValue(forKey: peerKey)
             operationTypes.removeValue(forKey: peerKey)
-            print("🧹 Connection mutex: Cleaned up expired operation for \(peerKey)")
+            LoggingService.network.info("🧹 Connection mutex: Cleaned up expired operation for \(peerKey) after \(timeout)s")
+        }
+
+        // Filter remaining non-expired connections
+        pendingConnections = pendingConnections.filter { _, timestamp in
+            now.timeIntervalSince(timestamp) < timeout
         }
     }
 
@@ -102,7 +114,7 @@ class ConnectionMutex {
             self?.activeOperations.removeAll()
             self?.pendingConnections.removeAll()
             self?.operationTypes.removeAll()
-            print("🗑️ Connection mutex: All locks cleared")
+            LoggingService.network.info("🗑️ Connection mutex: All locks cleared")
         }
     }
 
@@ -121,13 +133,13 @@ class ConnectionMutex {
             // Remove from active operations
             if self.activeOperations.contains(peerKey) {
                 self.activeOperations.remove(peerKey)
-                print("🔓 Connection mutex: FORCE released lock for \(peerKey)")
+                LoggingService.network.info("🔓 Connection mutex: FORCE released lock for \(peerKey)")
             }
 
             // Remove from pending connections
             if self.pendingConnections[peerKey] != nil {
                 self.pendingConnections.removeValue(forKey: peerKey)
-                print("🔓 Connection mutex: Cleared pending connection for \(peerKey)")
+                LoggingService.network.info("🔓 Connection mutex: Cleared pending connection for \(peerKey)")
             }
 
             // Remove operation type
@@ -158,9 +170,9 @@ class ConnectionConflictResolver {
 
         // BIDIRECTIONAL OVERRIDE: Allow both peers to attempt connection simultaneously
         if overrideBidirectional {
-            print("🔀 Conflict resolver: BIDIRECTIONAL MODE - Local(\(localName)) ATTEMPTS 🔄 with Remote(\(remoteName))")
-            print("   Override enabled: Both peers will attempt connection")
-            print("   Reason: Previous connection attempts failed with 'Connection refused'")
+            LoggingService.network.info("🔀 Conflict resolver: BIDIRECTIONAL MODE - Local(\(localName)) ATTEMPTS 🔄 with Remote(\(remoteName))")
+            LoggingService.network.info("   Override enabled: Both peers will attempt connection")
+            LoggingService.network.info("   Reason: Previous connection attempts failed with 'Connection refused'")
             return true  // Always return true when bidirectional mode is enabled
         }
 
@@ -178,9 +190,9 @@ class ConnectionConflictResolver {
             shouldInitiate = localPeer.hashValue > remotePeer.hashValue
         }
 
-        print("🎯 Conflict resolver: Local(\(localName)) \(shouldInitiate ? "INITIATES 🟢" : "WAITS 🟡") with Remote(\(remoteName))")
-        print("   String comparison: \"\(localName)\" \(shouldInitiate ? ">" : "<=") \"\(remoteName)\"")
-        print("   Decision: Local name \(shouldInitiate ? ">" : "<=") Remote name (lexicographic)")
+        LoggingService.network.info("🎯 Conflict resolver: Local(\(localName)) \(shouldInitiate ? "INITIATES 🟢" : "WAITS 🟡") with Remote(\(remoteName))")
+        LoggingService.network.info("   String comparison: \"\(localName)\" \(shouldInitiate ? ">" : "<=") \"\(remoteName)\"")
+        LoggingService.network.info("   Decision: Local name \(shouldInitiate ? ">" : "<=") Remote name (lexicographic)")
 
         return shouldInitiate
     }
@@ -193,7 +205,7 @@ class ConnectionConflictResolver {
     static func shouldAcceptInvitation(localPeer: MCPeerID, fromPeer: MCPeerID, overrideBidirectional: Bool = false) -> Bool {
         // BIDIRECTIONAL OVERRIDE: Always accept in bidirectional mode
         if overrideBidirectional {
-            print("🔀 Conflict resolver: BIDIRECTIONAL MODE - Accepting invitation from \(fromPeer.displayName)")
+            LoggingService.network.info("🔀 Conflict resolver: BIDIRECTIONAL MODE - Accepting invitation from \(fromPeer.displayName)")
             return true
         }
 

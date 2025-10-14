@@ -19,6 +19,7 @@
 import SwiftUI
 import MultipeerConnectivity
 import CoreLocation
+import os
 
 struct ImprovedHomeView: View {
     // MARK: - Environment
@@ -63,6 +64,19 @@ struct ImprovedHomeView: View {
             topBar
                 .accessibilityAddTraits(.isHeader)
                 .accessibilitySortPriority(100)
+
+            // Network Configuration Warning Banner (CRÍTICO para conexiones)
+            if networkManager.networkConfigDetector.isProblematic {
+                NetworkConfigurationWarningBanner(
+                    status: networkManager.networkConfigDetector.currentStatus,
+                    onFix: {
+                        networkManager.networkConfigDetector.openSettingsToFix()
+                    }
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .animation(.spring(), value: networkManager.networkConfigDetector.isProblematic)
+                .accessibilitySortPriority(99)
+            }
 
             // Main scrollable content
             ScrollView(showsIndicators: false) {
@@ -956,7 +970,7 @@ struct ImprovedHomeView: View {
     private func sendFirstMessage(to peer: MCPeerID, message: String) {
         let peerID = peer.displayName
 
-        print("📤 Sending first message request to \(peerID): \(message)")
+        LoggingService.network.info("📤 Sending first message request to \(peerID): \(message)")
 
         // Mark that we've sent a first message to this peer
         firstMessageTracker.markFirstMessageSent(to: peerID)
@@ -1046,7 +1060,7 @@ struct ImprovedHomeView: View {
     // MARK: - Request Handling Functions
 
     private func handleRequestAccept(request: FirstMessageTracker.PendingRequest) {
-        print("✅ Accepting request from \(request.fromPeerID)")
+        LoggingService.network.info("✅ Accepting request from \(request.fromPeerID)")
 
         // Accept the request
         firstMessageTracker.acceptRequest(from: request.fromPeerID)
@@ -1080,7 +1094,7 @@ struct ImprovedHomeView: View {
     }
 
     private func handleRequestReject(request: FirstMessageTracker.PendingRequest) {
-        print("❌ Rejecting request from \(request.fromPeerID)")
+        LoggingService.network.info("❌ Rejecting request from \(request.fromPeerID)")
 
         // Reject the request
         firstMessageTracker.rejectRequest(from: request.fromPeerID)
@@ -1095,7 +1109,7 @@ struct ImprovedHomeView: View {
     }
 
     private func handleRequestDefer(request: FirstMessageTracker.PendingRequest) {
-        print("🟡 Deferring request from \(request.fromPeerID)")
+        LoggingService.network.info("🟡 Deferring request from \(request.fromPeerID)")
 
         // Defer the request
         firstMessageTracker.deferRequest(from: request.fromPeerID)

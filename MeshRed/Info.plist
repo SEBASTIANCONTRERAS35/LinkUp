@@ -39,6 +39,10 @@
 	<string>StadiumConnect Pro necesita acceso a Nearby Interaction para localizar dispositivos cercanos con precisión centimétrica usando LinkFinder. Esto permite navegación con flecha direccional en tiempo real.</string>
 	<key>NSNearbyInteractionUsageDescription</key>
 	<string>StadiumConnect Pro usa Nearby Interaction (LinkFinder) para proporcionar navegación precisa hacia otros dispositivos, mostrándote la dirección y distancia exacta con precisión de centímetros.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>StadiumConnect Pro necesita acceso a la cámara para mejorar la precisión de LinkFinder mediante Camera Assistance (ARKit). La cámara permite mediciones de dirección más precisas en dispositivos iPhone 14 y posteriores.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>StadiumConnect Pro usa sensores de movimiento para mejorar la precisión de navegación LinkFinder y proporcionar mediciones de dirección más estables durante eventos masivos.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>

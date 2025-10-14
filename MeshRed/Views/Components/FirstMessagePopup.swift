@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import os
 
 struct FirstMessagePopup: View {
     // MARK: - Properties
@@ -350,10 +351,10 @@ struct FirstMessagePopup_Previews: PreviewProvider {
         FirstMessagePopup(
             recipientName: "María García",
             onSend: { message in
-                print("Sending: \(message)")
+                LoggingService.network.info("Sending: \(message)")
             },
             onCancel: {
-                print("Cancelled")
+                LoggingService.network.info("Cancelled")
             }
         )
         .previewDevice("iPhone 15")
