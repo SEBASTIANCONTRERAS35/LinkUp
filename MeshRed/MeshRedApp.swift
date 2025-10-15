@@ -102,6 +102,17 @@ struct MeshRedApp: App {
                 backgroundTimer = nil
                 LoggingService.network.info("   ⏱️ Background timer cancelled - app is active")
 
+                // ✅ SUSPENSION RECOVERY: Resume LinkFinder sessions if suspended
+                // NISession suspends when app backgrounds - we need to restart it
+                if #available(iOS 14.0, *), let uwbManager = networkManager.uwbSessionManager {
+                    LoggingService.network.info("   🔄 Notifying LinkFinder manager of foreground transition...")
+                    // Note: LinkFinderSessionManager also has its own UIApplication observer
+                    // This is a backup call in case the notification doesn't fire
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        uwbManager.resumeSuspendedSessionsIfNeeded()
+                    }
+                }
+
             case .inactive:
                 LoggingService.network.info("📱 App became inactive")
                 // Keep Live Activity running to maintain background priority

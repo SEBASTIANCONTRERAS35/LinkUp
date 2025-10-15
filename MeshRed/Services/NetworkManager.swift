@@ -69,6 +69,12 @@ class NetworkManager: NSObject, ObservableObject {
     let healthMonitor = PeerHealthMonitor()
     internal let connectionMutex = ConnectionMutex()
 
+    // NEW: Serial queue for ALL MultipeerConnectivity operations (thread-safety)
+    private let mcQueue = DispatchQueue(label: "meshred.mc.serial")
+
+    // NEW: Backoff scheduler for connection retries (replaces session recreation on error 61)
+    private let backoff = BackoffScheduler()
+
     // MARK: - Location Components
     let locationService = LocationService()
     let locationRequestManager = LocationRequestManager()
@@ -78,7 +84,8 @@ class NetworkManager: NSObject, ObservableObject {
     // GPS Location Sharing for Navigation
     private var locationSharingTimer: Timer?
     private var peersInNavigation: Set<String> = []
-    private let locationSharingInterval: TimeInterval = 5.0  // Broadcast every 5 seconds
+    private let locationSharingInterval: TimeInterval = 10.0  // ✅ THROTTLED: 10s (was 5s) - reduces network traffic 50%
+    private var lastBroadcastedLocation: CLLocation?  // Track last location sent to avoid redundant broadcasts
 
     private var processingTimer: Timer?
     private let processingQueue = DispatchQueue(label: "com.meshred.processing", qos: .userInitiated)
@@ -148,29 +155,30 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     override init() {
-        // PRODUCTION MODE: Use .optional encryption (allows both encrypted and unencrypted)
-        // .optional provides best balance: tries encryption but falls back if needed
-        // Previous diagnostic mode (.none) confirmed issue was NOT TLS-related but state corruption
-        // With improved session recreation and intelligent delays, .optional now works reliably
-
+        // SECURE MODE: Use .required encryption for all connections
+        // This eliminates TLS handshake variability as a source of connection issues
+        // All peers MUST support encryption (iOS 7+, all modern devices)
+        //
         // Encryption preference configuration:
-        // .none = No encryption (diagnostic only, fastest handshake)
-        // .optional = Preferred encryption with fallback (RECOMMENDED for production)
-        // .required = Always encrypted (most secure but may fail with older devices)
-        let encryptionMode: MCEncryptionPreference = .optional
+        // .none = No encryption (NEVER use in production)
+        // .optional = Preferred encryption with fallback (legacy compatibility)
+        // .required = Always encrypted (RECOMMENDED - eliminates encryption negotiation)
+        let encryptionMode: MCEncryptionPreference = .required
 
         self.session = MCSession(peer: localPeerID, securityIdentity: nil, encryptionPreference: encryptionMode)
 
         switch encryptionMode {
         case .none:
-            LoggingService.network.warning("🔓 [DIAGNOSTIC MODE] Using .none encryption - NO TLS HANDSHAKE")
-            LoggingService.network.warning("⚠️ Security DISABLED - Debug mode only")
+            LoggingService.network.error("🔓 [INSECURE] Using .none encryption - NOT ALLOWED")
+            LoggingService.network.error("❌ Security DISABLED - This should never happen")
         case .optional:
-            LoggingService.network.info("🔒 [PRODUCTION MODE] Using .optional encryption")
-            LoggingService.network.info("✅ Secure connections preferred, fallback available")
+            LoggingService.network.warning("🔒 [LEGACY] Using .optional encryption")
+            LoggingService.network.warning("⚠️ Consider upgrading to .required for better stability")
         case .required:
-            LoggingService.network.info("🔐 [SECURE MODE] Using .required encryption")
-            LoggingService.network.info("✅ All connections must be encrypted")
+            LoggingService.network.info("🔐 [SECURE MODE] Using .required encryption ✅")
+            LoggingService.network.info("✅ All connections encrypted")
+            LoggingService.network.info("✅ No TLS negotiation variability")
+            LoggingService.network.info("✅ Stable handshake behavior")
         @unknown default:
             LoggingService.network.error("❓ Unknown encryption mode")
         }
@@ -542,91 +550,51 @@ class NetworkManager: NSObject, ObservableObject {
 
         LoggingService.network.info("⚠️ Connection failure #\(failCount) for \(peerKey)")
 
-        // CRITICAL FIX: Recreate session IMMEDIATELY on first connection refused to prevent socket-level corruption
-        // Socket Error 61 (Connection Refused) indicates iOS networking stack has blacklisted the connection
-        // Only way to recover is to create a completely new MCSession on BOTH sides
-        // BUT: Only if no handshakes are currently in progress (prevents interrupting active connections)
-        if failCount >= 1 {
-            if connectingPeers.isEmpty {
-                // THROTTLING: Don't recreate session too frequently
-                // iOS needs time to fully clean up between recreations
-                let timeSinceLastRecreation = Date().timeIntervalSince(lastSessionRecreation)
-                let minRecreationInterval: TimeInterval = 5.0  // Minimum 5 seconds between recreations
+        // NEW APPROACH: Use exponential backoff with jitter instead of recreating MCSession
+        // Socket Error 61 (Connection Refused) does NOT require session recreation
+        // The real issue was collision of invitations - now fixed with immutable handshake role
+        // BackoffScheduler provides intelligent retry with exponential delay + jitter
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("⏱️ CONNECTION FAILURE - USING BACKOFF SCHEDULER")
+        LoggingService.network.info("   Peer: \(peerKey)")
+        LoggingService.network.info("   Attempt: \(failCount)")
+        LoggingService.network.info("   Strategy: Exponential backoff with jitter (NO session recreation)")
+        LoggingService.network.info("   Reason: Session recreation was causing dual session mismatch")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-                if timeSinceLastRecreation < minRecreationInterval {
-                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    LoggingService.network.info("⏰ SESSION RECREATION THROTTLED")
-                    LoggingService.network.info("   Reason: Too soon since last recreation")
-                    LoggingService.network.info("   Time since last: \(String(format: "%.1f", timeSinceLastRecreation))s")
-                    LoggingService.network.info("   Minimum interval: \(minRecreationInterval)s")
-                    LoggingService.network.info("   Action: Skipping recreation, will retry connection normally")
-                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        // NEW: Check if we are INVITER or ACCEPTOR for this peer
+        let weAreInviter = ConnectionConflictResolver.shouldInvite(localPeerID, peerID)
+
+        if weAreInviter {
+            // We are INVITER → use BackoffScheduler to retry invitation
+            LoggingService.network.info("   We are INVITER → scheduling backoff retry")
+
+            // Base: 0.6s, Factor: 2.0, Max: 8.0s, Jitter: ±20%
+            // Pattern: 0.6s → 1.2s → 2.4s → 4.8s → 8.0s (capped)
+            backoff.scheduleRetry(peerID, base: 0.6, factor: 2.0, max: 8.0, jitter: 0.2) { [weak self] in
+                guard let self = self else { return }
+
+                // Only retry if peer is still available and not connected
+                if self.availablePeers.contains(peerID) &&
+                   !self.connectedPeers.contains(peerID) &&
+                   self.sessionManager.shouldAttemptConnection(to: peerID) {
+                    LoggingService.network.info("🔄 BackoffScheduler: Retrying invitation to \(peerID.displayName) (we are INVITER)")
+                    self.connectToPeer(peerID)  // Retry with SAME session (no recreation)
                 } else {
-                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    LoggingService.network.info("🔄 RECREATING SESSION IMMEDIATELY")
-                    LoggingService.network.info("   Reason: \(failCount) connection refused (Socket Error 61)")
-                    LoggingService.network.info("   iOS networking stack has blacklisted this peer")
-                    LoggingService.network.info("   Session MUST be recreated to clear socket-level block")
-                    LoggingService.network.info("   No handshakes in progress - safe to recreate")
-                    LoggingService.network.info("   Time since last recreation: \(String(format: "%.1f", timeSinceLastRecreation))s ✅")
-                    LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-                    // Clear all state for this specific peer before recreating session
-                    sessionManager.clearPeerState(for: peerID)
-                    failedConnectionAttempts[peerKey] = 0
-
-                    recreateSession()
+                    LoggingService.network.info("⏭️ BackoffScheduler: Skipping retry for \(peerID.displayName) (no longer available or already connected)")
                 }
-            } else {
-                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                LoggingService.network.info("⏸️ DEFERRED SESSION RECREATION")
-                LoggingService.network.info("   Reason: \(failCount) connection refused with \(peerKey)")
-                LoggingService.network.info("   Handshakes in progress: \(self.connectingPeers.count)")
-                LoggingService.network.info("   Connecting to: \(Array(self.connectingPeers).joined(separator: ", "))")
-                LoggingService.network.info("   Will recreate after current handshakes complete")
-                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
+        } else {
+            // We are ACCEPTOR → DON'T retry, let them invite us
+            LoggingService.network.info("   We are ACCEPTOR → NOT scheduling retry (waiting for their invitation)")
+            LoggingService.network.info("   If they don't invite within 15s, stuck waiting detection will force reconnect")
         }
 
+        // Fallback: If too many consecutive failures across ALL peers, restart services
         if consecutiveFailures >= 5 {
             LoggingService.network.info("⚠️ Multiple connection failures detected (5+). Initiating recovery...")
             restartServicesIfNeeded()
             failedConnectionAttempts.removeAll()  // Reset after restart
-        } else {
-            // INTELLIGENT RETRY DELAY SYSTEM
-            // Base delay increased from 2s to 5s to give iOS more time to clean up state
-            // Exponential backoff: 5s, 10s, 16s (capped at 16s)
-            let baseDelay: TimeInterval = 5.0
-            let exponentialDelay = baseDelay * pow(2.0, Double(min(consecutiveFailures - 1, 2)))
-            var delay = min(exponentialDelay, 16.0)
-
-            // CRITICAL FIX: Add extra delay after session recreation
-            // iOS needs time to fully clean up internal MCSession state after disconnect
-            // INCREASED: 15s grace period to clear Socket Error 61 blacklist (was 5s - too fast)
-            let timeSinceRecreation = Date().timeIntervalSince(lastSessionRecreation)
-            if timeSinceRecreation < 20.0 {
-                // Session was recently recreated - add 15s grace period for iOS internal cleanup
-                // This prevents mDNS resolution failures, transport layer corruption, and Socket Error 61
-                // iOS networking stack needs more time to clear blacklisted peers
-                let extraDelay: TimeInterval = 15.0
-                delay += extraDelay
-                LoggingService.network.info("⏰ Session recently recreated (\(String(format: "%.1f", timeSinceRecreation))s ago)")
-                LoggingService.network.info("   Adding \(Int(extraDelay))s grace period for iOS cleanup (prevents transport corruption)")
-                LoggingService.network.info("   Total delay: \(Int(delay))s")
-            }
-
-            LoggingService.network.info("⏳ Will retry connection to \(peerKey) in \(Int(delay))s (attempt #\(failCount))")
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self = self else { return }
-
-                if self.availablePeers.contains(peerID) &&
-                   !self.connectedPeers.contains(peerID) &&
-                   self.sessionManager.shouldAttemptConnection(to: peerID) {
-                    LoggingService.network.info("🔄 Retrying connection to \(peerID.displayName) after failure")
-                    self.connectToPeer(peerID)  // Use proper connection method with SessionManager tracking
-                }
-            }
         }
     }
 
@@ -1710,23 +1678,24 @@ class NetworkManager: NSObject, ObservableObject {
             LoggingService.network.info("      Both peers will attempt connection simultaneously")
         }
 
-        // Check conflict resolution (unless forcing or bidirectional mode)
-        LoggingService.network.info("   Step 3: Checking conflict resolution...")
-        if !forceIgnoreConflictResolution && !useBidirectionalMode {
-            let shouldInitiate = ConnectionConflictResolver.shouldInitiateConnection(localPeer: localPeerID, remotePeer: peerID, overrideBidirectional: useBidirectionalMode)
-            LoggingService.network.info("      Should initiate: \(shouldInitiate)")
+        // NEW: Check IMMUTABLE conflict resolution (no overrides)
+        LoggingService.network.info("   Step 3: Checking IMMUTABLE conflict resolution...")
+        if !forceIgnoreConflictResolution {
+            // Use immutable handshake role - NO bidirectional override
+            let shouldInvite = ConnectionConflictResolver.shouldInvite(localPeerID, peerID)
+            LoggingService.network.info("      Should invite (immutable): \(shouldInvite)")
             LoggingService.network.info("      Local ID: \(self.localPeerID.displayName)")
             LoggingService.network.info("      Remote ID: \(peerID.displayName)")
-            guard shouldInitiate else {
-                LoggingService.network.info("🆔 CONNECT ABORTED: Conflict resolution says we should defer to \(peerID.displayName)")
+            LoggingService.network.info("      Role: \(shouldInvite ? "INVITER 🟢" : "ACCEPTOR 🟡")")
+
+            guard shouldInvite else {
+                LoggingService.network.info("🆔 CONNECT ABORTED: We are ACCEPTOR for \(peerID.displayName) - will wait for their invitation")
                 return
             }
-        } else if forceIgnoreConflictResolution {
-            LoggingService.network.info("⚡ FORCING connection - bypassing conflict resolution")
-        } else if useBidirectionalMode {
-            LoggingService.network.info("🔀 BIDIRECTIONAL MODE - bypassing conflict resolution")
+        } else {
+            LoggingService.network.info("⚡ FORCING connection - bypassing conflict resolution (debug/testing only)")
         }
-        LoggingService.network.info("   ✓ Conflict resolution passed")
+        LoggingService.network.info("   ✓ Conflict resolution passed - we are INVITER")
 
         // Acquire mutex lock to serialize invites
         LoggingService.network.info("   Step 4: Acquiring ConnectionMutex lock...")
@@ -1769,6 +1738,10 @@ class NetworkManager: NSObject, ObservableObject {
         LoggingService.network.info("   Adaptive Timeout: \(String(format: "%.1f", adaptiveTimeout))s (base: \(self.isUltraFastModeEnabled ? "15s" : "30s"))")
         LoggingService.network.info("   Timestamp: \(Date())")
         LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Mark outbound invitation started (for arbitration window detection)
+        uwbSessionManager?.markOutboundInviteStarted(for: peerID.displayName)
+        LoggingService.network.info("   ✓ Marked outbound invite started (arbitration window: 1.2s)")
 
         browser.invitePeer(peerID, to: session, withContext: nil, timeout: adaptiveTimeout)
 
@@ -2622,15 +2595,53 @@ class NetworkManager: NSObject, ObservableObject {
     }
 
     private func handleLocationResponse(_ response: LocationResponseMessage, from peerID: MCPeerID) {
-        LoggingService.network.info("📍 NetworkManager: Received location response: \(response.description)")
-        locationRequestManager.handleResponse(response)
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📍 RECEIVED LOCATION RESPONSE")
+        LoggingService.network.info("   From: \(peerID.displayName)")
+        LoggingService.network.info("   Response: \(response.description)")
 
-        // Auto-update PeerLocationTracker ONLY if we requested this location (privacy guard)
-        if locationRequestManager.pendingRequests[response.requestId] != nil,
-           response.responseType == .direct,
-           let location = response.directLocation {
-            peerLocationTracker.updatePeerLocation(peerID: response.responderId, location: location)
+        // FIXED: Detect if this is a broadcast (no pending request) or a response to our request
+        let isOurRequest = locationRequestManager.pendingRequests[response.requestId] != nil
+        let isBroadcast = !isOurRequest
+
+        LoggingService.network.info("   Type: \(isBroadcast ? "📡 BROADCAST (periodic GPS sharing)" : "📥 REQUEST RESPONSE")")
+
+        if isBroadcast {
+            LoggingService.network.info("   ✅ This is a GPS broadcast from peer")
+            LoggingService.network.info("   Purpose: Enable GPS+Compass fallback direction")
         }
+
+        // Allow broadcasts for GPS sharing (LinkFinder fallback direction)
+        locationRequestManager.handleResponse(response, allowBroadcast: true)
+
+        // Update PeerLocationTracker for both requests AND broadcasts
+        // This enables GPS+Compass fallback direction when UWB direction unavailable
+        if response.responseType == .direct, let location = response.directLocation {
+            LoggingService.network.info("   📍 Peer location: \(location.coordinateString)")
+            LoggingService.network.info("   Accuracy: ±\(String(format: "%.1f", location.accuracy))m")
+
+            peerLocationTracker.updatePeerLocation(peerID: response.responderId, location: location)
+            LoggingService.network.info("   💾 Stored in PeerLocationTracker")
+
+            if isBroadcast {
+                LoggingService.network.info("   🧭 Forwarding to LinkFinder fallback service for direction calculation")
+
+                // Notify LinkFinder fallback service about peer's GPS location
+                if #available(iOS 14.0, *), let uwbManager = uwbSessionManager {
+                    if let mcPeer = connectedPeers.first(where: { $0.displayName == response.responderId }) {
+                        let clLocation = location.toCLLocation()
+                        uwbManager.updatePeerGPSLocation(clLocation, for: mcPeer)
+                        LoggingService.network.info("   ✅ Forwarded to FallbackDirectionService")
+                    } else {
+                        LoggingService.network.info("   ⚠️ Could not find MCPeerID for \(response.responderId)")
+                    }
+                } else {
+                    LoggingService.network.info("   ⚠️ LinkFinder not available (iOS 14+ required)")
+                }
+            }
+        }
+
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 
     // MARK: - GPS Location Sharing for Navigation
@@ -2690,16 +2701,49 @@ class NetworkManager: NSObject, ObservableObject {
 
     /// Broadcast current GPS location to all peers in active navigation
     private func broadcastMyLocationToPeersInNavigation() {
-        guard !peersInNavigation.isEmpty else { return }
+        guard !peersInNavigation.isEmpty else {
+            // Silently skip if no peers in navigation
+            return
+        }
 
         guard let currentLocation = locationService.currentLocation else {
-            LoggingService.network.info("⚠️ NetworkManager: Cannot broadcast location - no GPS fix available")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("⚠️ CANNOT BROADCAST GPS LOCATION")
+            LoggingService.network.info("   Reason: No GPS fix available")
+            LoggingService.network.info("   Peers waiting: \(self.peersInNavigation)")
+            LoggingService.network.info("   Action: Check Location Services permissions")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             return
         }
 
         guard locationService.hasRecentLocation else {
-            LoggingService.network.info("⚠️ NetworkManager: Cannot broadcast location - GPS data is stale")
+            let age = Date().timeIntervalSince(currentLocation.timestamp)
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("⚠️ CANNOT BROADCAST GPS LOCATION")
+            LoggingService.network.info("   Reason: GPS data is stale (too old)")
+            LoggingService.network.info("   Location age: \(String(format: "%.1f", age)) seconds")
+            LoggingService.network.info("   Maximum age: 30 seconds")
+            LoggingService.network.info("   Peers waiting: \(self.peersInNavigation)")
+            LoggingService.network.info("   💡 Common causes:")
+            LoggingService.network.info("      • You are indoors (GPS weak/unavailable)")
+            LoggingService.network.info("      • Device in low power mode")
+            LoggingService.network.info("      • Location Services disabled")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             return
+        }
+
+        // ✅ THROTTLING: Skip broadcast if location hasn't changed significantly (>5 meters)
+        // Prevents redundant network traffic when user is stationary
+        if let lastLocation = lastBroadcastedLocation {
+            let distance = currentLocation.toCLLocation().distance(from: lastLocation)
+            if distance < 5.0 {
+                // Location hasn't changed significantly - skip broadcast
+                LoggingService.network.info("⏭️ SKIPPED GPS broadcast (no significant movement)")
+                LoggingService.network.info("   Distance from last broadcast: \(String(format: "%.1f", distance))m (<5m threshold)")
+                return
+            } else {
+                LoggingService.network.info("✅ Significant movement detected: \(String(format: "%.1f", distance))m (>5m threshold)")
+            }
         }
 
         // Create location response message (direct GPS response)
@@ -2709,6 +2753,15 @@ class NetworkManager: NSObject, ObservableObject {
             location: currentLocation
         )
 
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("📡 BROADCASTING MY GPS LOCATION")
+        LoggingService.network.info("   My location: \(currentLocation.coordinateString)")
+        LoggingService.network.info("   Accuracy: ±\(String(format: "%.1f", currentLocation.accuracy))m")
+        LoggingService.network.info("   Age: \(String(format: "%.1f", Date().timeIntervalSince(currentLocation.timestamp)))s")
+        LoggingService.network.info("   Broadcasting to \(self.peersInNavigation.count) peers: \(self.peersInNavigation)")
+        LoggingService.network.info("   Purpose: Enable GPS+Compass fallback direction")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
         // Send to all connected peers (they'll filter if needed)
         let payload = NetworkPayload.locationResponse(response)
 
@@ -2716,7 +2769,12 @@ class NetworkManager: NSObject, ObservableObject {
             let encoder = JSONEncoder()
             let data = try encoder.encode(payload)
             try safeSend(data, toPeers: connectedPeers, with: .reliable, context: "broadcastGPSLocation")
-            LoggingService.network.info("📍 NetworkManager: Broadcasted GPS location to \(self.connectedPeers.count) peers: \(currentLocation.coordinateString)")
+
+            // ✅ Update last broadcasted location to track future changes
+            self.lastBroadcastedLocation = currentLocation.toCLLocation()
+
+            LoggingService.network.info("   ✅ GPS broadcast sent successfully")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         } catch {
             LoggingService.network.info("❌ NetworkManager: Failed to broadcast GPS location: \(error.localizedDescription)")
         }
@@ -3438,6 +3496,16 @@ extension NetworkManager: MCSessionDelegate {
                 // Clean up certificate exchange tracking (connection succeeded)
                 self.certificateExchangeStarted.remove(peerID.displayName)
 
+                // NEW: Clear handshake state (connection established successfully)
+                LoggingService.network.info("   Step 0.5: Clearing handshake state...")
+                self.uwbSessionManager?.clearHandshakeState(for: peerID.displayName)
+                LoggingService.network.info("   ✓ Handshake state cleared")
+
+                // NEW: Reset backoff counter (connection succeeded)
+                LoggingService.network.info("   Step 0.6: Resetting backoff counter...")
+                self.backoff.reset(for: peerID)
+                LoggingService.network.info("   ✓ Backoff counter reset")
+
                 // Release any connection locks
                 LoggingService.network.info("   Step 1: Releasing connection mutex...")
                 self.connectionMutex.releaseLock(for: peerID)
@@ -3720,6 +3788,11 @@ extension NetworkManager: MCSessionDelegate {
 
                 // Clean up certificate exchange tracking
                 self.certificateExchangeStarted.remove(peerID.displayName)
+
+                // NEW: Clear handshake state (connection failed/closed)
+                LoggingService.network.info("   Clearing handshake state for \(peerID.displayName)...")
+                self.uwbSessionManager?.clearHandshakeState(for: peerID.displayName)
+                LoggingService.network.info("   ✓ Handshake state cleared")
 
                 // Aggressively release any connection locks
                 self.connectionMutex.releaseLock(for: peerID)
@@ -4054,47 +4127,94 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
         }
         LoggingService.network.info("   ✓ Max connections: \(self.connectedPeers.count)/\(self.config.maxConnections) - OK")
 
-        // Check conflict resolution - should we accept based on ID comparison?
-        // BUT: If we've had failures trying to connect to this peer OR SessionManager is blocking us, accept the invitation anyway
-        LoggingService.network.info("🔍 DEBUG STEP 6: Checking conflict resolution...")
-        let hasFailedConnections = (failedConnectionAttempts[peerKey] ?? 0) > 0
-        let sessionManagerBlocking = !sessionManager.shouldAttemptConnection(to: peerID)
-        // FIXED: Removed isUltraFastModeEnabled to prevent race conditions
-        let useBidirectionalMode = sessionManager.shouldUseBidirectionalConnection(for: peerID) // || isUltraFastModeEnabled
-        let conflictResolutionSaysAccept = ConnectionConflictResolver.shouldAcceptInvitation(localPeer: localPeerID, fromPeer: peerID, overrideBidirectional: useBidirectionalMode)
+        // NEW IMMUTABLE CONFLICT RESOLUTION + PREEMPTION
+        // Check if we should accept based on deterministic handshake role
+        LoggingService.network.info("🔍 DEBUG STEP 6: Checking IMMUTABLE conflict resolution + preemption...")
 
-        LoggingService.network.info("   Failed connections count: \(self.failedConnectionAttempts[peerKey] ?? 0)")
-        LoggingService.network.info("   SessionManager blocking: \(sessionManagerBlocking)")
-        LoggingService.network.info("   Bidirectional mode: \(useBidirectionalMode)")
-        LoggingService.network.info("   Conflict resolution says accept: \(conflictResolutionSaysAccept)")
+        // Determine our handshake role (NEVER overridden)
+        let weAreInviter = ConnectionConflictResolver.shouldInvite(localPeerID, peerID)
+        LoggingService.network.info("   Our handshake role: \(weAreInviter ? "INVITER 🟢" : "ACCEPTOR 🟡")")
 
-        if !hasFailedConnections && !sessionManagerBlocking && !useBidirectionalMode && !conflictResolutionSaysAccept {
-            LoggingService.network.info("🆔 Declining invitation - we should initiate to \(peerID.displayName)")
-            LoggingService.network.info("   Local ID: \(self.localPeerID.displayName)")
-            LoggingService.network.info("   Remote ID: \(peerID.displayName)")
-            LoggingService.network.info("   Comparison: \(self.localPeerID.displayName < peerID.displayName ? "Local < Remote" : "Local > Remote")")
+        // Check if we have an active outbound operation
+        let hasActiveOutbound = connectionMutex.currentOperation(for: peerID) == .browserInvite
+        LoggingService.network.info("   Active outbound invitation: \(hasActiveOutbound)")
+
+        // CRITICAL FIX: If NO active outbound, accept regardless of role
+        // This handles race condition where:
+        // 1. We invited (force reconnect)
+        // 2. Got error 61, cleaned up state
+        // 3. Their invitation arrives late
+        // Without active outbound, accepting is safe and prevents "never sent invitation" error
+        if !hasActiveOutbound {
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            LoggingService.network.info("🔓 NO ACTIVE OUTBOUND - ACCEPTING REGARDLESS OF ROLE")
+            LoggingService.network.info("   Scenario: No concurrent invitation from our side")
+            LoggingService.network.info("   Action: Accept (safe to do so)")
+            LoggingService.network.info("   This prevents 'never sent invitation' errors")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            // Accept immediately - no conflict
+            sessionManager.recordConnectionAttempt(to: peerID)
+            invitationHandler(true, session)
+
+            LoggingService.network.info("✅ INVITATION ACCEPTED (no active outbound)")
+            return
+        }
+
+        // PREEMPTION LOGIC: If we're inviter AND have active outbound, check for collision
+        if weAreInviter {
+            // Check if this is a collision scenario (we're inviting and they're inviting)
+            if let uwbMgr = uwbSessionManager,
+               uwbMgr.isWithinArbitrationWindow(for: peerKey) {
+
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("⚡ PREEMPTION DETECTED!")
+                LoggingService.network.info("   Scenario: We are INVITER but received inbound invitation")
+                LoggingService.network.info("   Timing: Within arbitration window (1.2s)")
+                LoggingService.network.info("   Action: ACCEPTING inbound to break deadlock")
+                LoggingService.network.info("   Previous operation: \(self.connectionMutex.getOperationType(for: peerID) ?? "unknown")")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                // Force swap mutex operation from browserInvite to acceptInvitation
+                connectionMutex.forceSwap(to: .acceptInvitation, for: peerID)
+
+                // Mark our outbound invitation as abandoned
+                uwbMgr.markOutboundInviteAbandoned(for: peerKey)
+
+                // Accept the incoming invitation (preemption)
+                LoggingService.network.info("✅ PREEMPTION: Accepting invitation from \(peerID.displayName)")
+                sessionManager.recordConnectionAttempt(to: peerID)
+                invitationHandler(true, session)
+
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                LoggingService.network.info("✅ INVITATION ACCEPTED (via preemption)")
+                LoggingService.network.info("   From: \(peerID.displayName)")
+                LoggingService.network.info("   Mutex operation swapped: browserInvite → acceptInvitation")
+                LoggingService.network.info("   Outbound invitation abandoned")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                return
+            }
+
+            // Outside arbitration window - we're inviter with active outbound, so REJECT
+            LoggingService.network.info("⛔ Declining invitation - we are INVITER (no arbitration window)")
+            LoggingService.network.info("   Local: \(self.localPeerID.displayName)")
+            LoggingService.network.info("   Remote: \(peerID.displayName)")
+            LoggingService.network.info("   Immutable rule: We should invite, not accept")
             connectionMutex.releaseLock(for: peerID)
             invitationHandler(false, nil)
-            sessionManager.recordConnectionDeclined(to: peerID, reason: "conflict resolution says we should initiate")
+            sessionManager.recordConnectionDeclined(to: peerID, reason: "we are inviter - immutable handshake role")
             return
-        } else if hasFailedConnections {
-            LoggingService.network.info("🔄 Accepting invitation despite conflict resolution - previous failures detected for \(peerKey)")
-        } else if sessionManagerBlocking {
-            LoggingService.network.info("🔄 Accepting invitation despite conflict resolution - SessionManager is blocking our attempts")
-        } else if useBidirectionalMode {
-            LoggingService.network.info("🔀 ACCEPTING invitation - BIDIRECTIONAL MODE active for \(peerKey)")
-            LoggingService.network.info("   Previous connection attempts failed with 'Connection refused'")
-            LoggingService.network.info("   Both peers attempting connection to maximize success")
-        } else {
-            LoggingService.network.info("   ✓ Conflict resolution: Accept invitation (we are slave)")
         }
+
+        // We are ACCEPTOR - always accept invitations (this is our role)
+        LoggingService.network.info("   ✓ Conflict resolution: ACCEPTOR role - will accept invitation")
 
         // NOTE: We already acquired the mutex lock at the beginning of this function
         // This ensures only ONE invitation is processed at a time per peer
         LoggingService.network.info("🔍 DEBUG STEP 7: Mutex lock verification...")
         LoggingService.network.info("   ✓ Mutex lock is held for accept_invitation operation")
 
-        // Accept invitation if we have failures OR SessionManager is blocking us (deadlock breaker)
+        // Accept invitation (we are ACCEPTOR)
         LoggingService.network.info("🔍 DEBUG STEP 8: Final acceptance decision...")
 
         // Use orchestrator decision if enabled
@@ -4103,31 +4223,26 @@ extension NetworkManager: MCNearbyServiceAdvertiserDelegate {
             LoggingService.network.info("   🎯 Using Orchestrator for invitation decision")
             shouldAccept = shouldAcceptInvitationFromPeer(peerID)
         } else {
-            // Legacy decision logic
-            shouldAccept = hasFailedConnections || sessionManagerBlocking || sessionManager.shouldAttemptConnection(to: peerID)
+            // Default: accept (we already passed the immutable role check above)
+            shouldAccept = sessionManager.shouldAttemptConnection(to: peerID)
         }
 
         LoggingService.network.info("   Should accept: \(shouldAccept)")
-        LoggingService.network.info("   Decision source: \(self.isOrchestratorEnabled ? "Orchestrator" : "Legacy logic")")
+        LoggingService.network.info("   Decision source: \(self.isOrchestratorEnabled ? "Orchestrator" : "SessionManager")")
 
         guard shouldAccept else {
-            LoggingService.network.info("⛔ Declining invitation from \(peerID.displayName) - connection not allowed")
+            LoggingService.network.info("⛔ Declining invitation from \(peerID.displayName) - connection not allowed by SessionManager/Orchestrator")
             connectionMutex.releaseLock(for: peerID)
             invitationHandler(false, nil)
             sessionManager.recordConnectionDeclined(to: peerID, reason: isOrchestratorEnabled ? "orchestrator declined" : "session manager not allowing")
             return
         }
 
-        // REMOVED: Unconditional SessionManager clearing
-        // This was causing race conditions when multiple invitations arrived simultaneously
-        // Now we only clear if this is genuinely the first invitation (protected by mutex)
+        // Session manager check
         LoggingService.network.info("🔍 DEBUG STEP 9: Session manager state check...")
-        if sessionManagerBlocking {
-            LoggingService.network.info("   ℹ️ SessionManager was blocking, but proceeding with invitation")
-            LoggingService.network.info("   (Mutex ensures this is the first/only invitation being processed)")
-        }
-        if hasFailedConnections {
-            LoggingService.network.info("   ℹ️ Previous connection failures detected: \(self.failedConnectionAttempts[peerKey] ?? 0)")
+        LoggingService.network.info("   ✓ SessionManager allows connection")
+        if let failCount = failedConnectionAttempts[peerKey], failCount > 0 {
+            LoggingService.network.info("   ℹ️ Previous connection failures: \(failCount) (will be reset on success)")
         }
 
         // Record attempt BEFORE accepting

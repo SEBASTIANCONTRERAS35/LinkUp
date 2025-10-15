@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(UIKit)
 import UIKit
+#endif
 import MultipeerConnectivity
 import Combine
 import os
@@ -215,7 +217,12 @@ class AdaptiveBackoffManager: ObservableObject {
     ) -> ConnectionContext {
 
         let hour = Calendar.current.component(.hour, from: Date())
+
+        #if canImport(UIKit)
         let batteryLevel = UIDevice.current.batteryLevel
+        #else
+        let batteryLevel: Float = 1.0  // Assume full battery on non-iOS platforms
+        #endif
 
         return ConnectionContext(
             timeOfDay: ConnectionContext.TimeOfDayCategory(hour: hour),

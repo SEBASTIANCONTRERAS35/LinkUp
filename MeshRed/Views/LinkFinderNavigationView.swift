@@ -30,15 +30,40 @@ struct LinkFinderNavigationView: View {
     // Proximity haptic engine for navigation feedback
     @State private var proximityEngine = ProximityHapticEngine()
 
-    // FIXED: Removed logging from computed properties
-    // These are accessed 60+ times/second during SwiftUI rendering
-    // Logging here caused 180+ logs/sec → performance degradation
+    // ✅ THROTTLING STATE (ANTI-TRABADO)
+    // Prevents .onChange from firing 30 times/second causing UI re-render storm
+    @State private var lastProximityUpdate: Date = .distantPast
+    @State private var lastBearingUpdate: Date = .distantPast
+
+    // ✅ SUSPENSION STATE TRACKING
+    @State private var showKeepOpenWarning: Bool = true  // Show initial warning
+    @State private var hasSeenWarning: Bool = false  // Track if user dismissed warning
+
+    private var isLinkFinderSuspended: Bool {
+        uwbManager.sessionStates[targetPeerID.displayName] == .suspended
+    }
+
     private var distance: Float? {
-        uwbManager.getDistance(to: targetPeerID)
+        let dist = uwbManager.getDistance(to: targetPeerID)
+        // Log every 60 frames (roughly 1x per second at 60fps)
+        if Int.random(in: 0..<60) == 0 {
+            LoggingService.network.info("🎯 LinkFinderNavigationView: distance = \(dist?.description ?? "nil")")
+        }
+        return dist
     }
 
     private var direction: DirectionVector? {
-        if let simd = uwbManager.getDirection(to: targetPeerID) {
+        let simd = uwbManager.getDirection(to: targetPeerID)
+        // Log every 60 frames (roughly 1x per second at 60fps)
+        if Int.random(in: 0..<60) == 0 {
+            if let simd = simd {
+                LoggingService.network.info("🎯 LinkFinderNavigationView: direction = SIMD3(x:\(simd.x), y:\(simd.y), z:\(simd.z))")
+            } else {
+                LoggingService.network.info("🎯 LinkFinderNavigationView: direction = NIL")
+            }
+        }
+
+        if let simd = simd {
             return DirectionVector(from: simd)
         }
         return nil
@@ -100,40 +125,71 @@ struct LinkFinderNavigationView: View {
     }
 
     private var currentNavigationLevel: NavigationLevel {
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        LoggingService.network.info("🎯 NAVIGATION LEVEL CALCULATION")
+        LoggingService.network.info("   Target: \(targetName)")
+        LoggingService.network.info("   isTriangulationMode: \(isTriangulationMode)")
+        LoggingService.network.info("   forceArrowNavigation: \(forceArrowNavigation)")
+        LoggingService.network.info("   distance: \(distance?.description ?? "nil")")
+        LoggingService.network.info("   direction: \(direction != nil ? "AVAILABLE" : "NIL")")
+        LoggingService.network.info("   peerLocation: \(peerLocation != nil ? "AVAILABLE" : "nil")")
+        LoggingService.network.info("   userLocation: \(userLocation != nil ? "AVAILABLE" : "nil")")
+        LoggingService.network.info("   userHeading: \(userHeading?.description ?? "nil")")
+
         // Level 4: User activated triangulation mode
         if isTriangulationMode {
+            LoggingService.network.info("   ➡️ RESULT: level4_triangulation")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             return .level4_triangulation
         }
 
         // If user manually switched to arrow navigation
         if forceArrowNavigation {
+            LoggingService.network.info("   User forced arrow navigation...")
             if direction != nil {
+                LoggingService.network.info("   ➡️ RESULT: level1_uwbPrecise (forced, has direction)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 return .level1_uwbPrecise
             } else if let _ = peerLocation, let _ = userLocation, let _ = userHeading {
+                LoggingService.network.info("   ➡️ RESULT: level2_gpsCompass (forced, has GPS+compass)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 return .level2_gpsCompass
             }
-            // If forced arrow but no data, fall back to radar
-            forceArrowNavigation = false
+            LoggingService.network.info("   Forced arrow but no data, falling through...")
+            // FIXED: Don't reset flag - let user keep arrow preference even without data
+            // Just fall through to check other conditions
         }
 
         // Check if we have LinkFinder distance
         guard distance != nil else {
+            LoggingService.network.info("   NO LinkFinder distance available")
             // No LinkFinder available - check if we can provide estimated distance
             if estimatedDistance != nil {
+                LoggingService.network.info("   ➡️ RESULT: level5_estimatedDistance (estimated: \(estimatedDistance!)m)")
+                LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 return .level5_estimatedDistance
             }
+            LoggingService.network.info("   ➡️ RESULT: loading (no distance data)")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             return .loading
         }
 
         // Check if we have direction (precise LinkFinder)
         if direction != nil {
-            // PRIORITY: Level 0 - Show radar view when direction is available
-            return .level0_radar
+            // FIXED: Show arrow navigation when direction IS available
+            LoggingService.network.info("   ✅ LinkFinder direction IS available!")
+            LoggingService.network.info("   ➡️ RESULT: level1_uwbPrecise (UWB with precise direction)")
+            LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            return .level1_uwbPrecise
         }
 
-        // If we have distance but no direction, still show radar view
-        // (Direction may be temporarily unavailable during ARKit convergence or without Motion permission)
-        return .level0_radar
+        // If we have distance but no direction, show distance only (NO radar)
+        // Direction failed permanently - don't try to get it again
+        LoggingService.network.info("   ⚠️ LinkFinder distance available but NO direction")
+        LoggingService.network.info("   Device cannot provide direction - showing distance only")
+        LoggingService.network.info("   ➡️ RESULT: level5_estimatedDistance (distance-only, no direction)")
+        LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        return .level5_estimatedDistance
     }
 
     var body: some View {
@@ -162,20 +218,7 @@ struct LinkFinderNavigationView: View {
                 loadingView
             }
 
-            // Overlay calibration indicator when converging
-            if uwbManager.isConverging && distance != nil {
-                VStack {
-                    CalibrationIndicatorView(
-                        uwbManager: uwbManager,
-                        targetName: targetName
-                    )
-                    .padding(.top, 100)
-
-                    Spacer()
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-                .animation(.easeInOut(duration: 0.3), value: uwbManager.isConverging)
-            }
+            // REMOVED: Calibration indicator (user doesn't want calibration UI)
         }
         .onAppear {
             LoggingService.network.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -225,12 +268,28 @@ struct LinkFinderNavigationView: View {
             LoggingService.network.info("🎯 LinkFinderNavigationView: Stopped proximity haptic engine")
         }
         .onChange(of: distance) { newDistance in
+            // ✅ THROTTLING: Limit proximity updates to 5/sec maximum (200ms interval)
+            // Prevents haptic engine overload from 30 updates/sec
+            let now = Date()
+            guard now.timeIntervalSince(lastProximityUpdate) >= 0.2 else {
+                return  // Skip update - too soon since last one
+            }
+            lastProximityUpdate = now
+
             // Update proximity engine when distance changes
             if let dist = newDistance {
                 proximityEngine.updateProximity(distance: dist, direction: uwbManager.getDirection(to: targetPeerID))
             }
         }
         .onChange(of: direction) { newDirection in
+            // ✅ THROTTLING: Limit bearing updates to 5/sec maximum (200ms interval)
+            // Prevents excessive bearing calculations
+            let now = Date()
+            guard now.timeIntervalSince(lastBearingUpdate) >= 0.2 else {
+                return  // Skip update - too soon since last one
+            }
+            lastBearingUpdate = now
+
             // Update bearing if we have direction + user heading
             if newDirection != nil, let heading = userHeading, let userLoc = userLocation, let peerLoc = peerLocation {
                 let relativeBearing = NavigationCalculator.calculateRelativeBearing(
@@ -241,6 +300,97 @@ struct LinkFinderNavigationView: View {
                 proximityEngine.updateBearing(relative: relativeBearing)
             }
         }
+        .overlay(alignment: .top) {
+            // ✅ SUSPENSION WARNING BANNER
+            suspensionWarningBanner
+        }
+    }
+
+    // MARK: - Suspension Warning Banner
+
+    @ViewBuilder
+    private var suspensionWarningBanner: some View {
+        VStack(spacing: 8) {
+            // Show suspension warning if LinkFinder is currently suspended
+            if isLinkFinderSuspended {
+                HStack(spacing: 12) {
+                    Image(systemName: "pause.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(.orange)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("LinkFinder Suspendido")
+                            .font(.headline)
+                            .foregroundColor(.white)
+
+                        Text("La app está en segundo plano. Abre la app para continuar.")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.9))
+                    }
+
+                    Spacer()
+                }
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.orange.opacity(0.95))
+                        .shadow(radius: 8)
+                )
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            // Show "keep open" warning for first 10 seconds
+            else if showKeepOpenWarning && !hasSeenWarning {
+                HStack(spacing: 12) {
+                    Image(systemName: "info.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(.blue)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Mantén la app abierta")
+                            .font(.headline)
+                            .foregroundColor(.white)
+
+                        Text("LinkFinder funciona mejor cuando la app está en primer plano")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.9))
+                    }
+
+                    Spacer()
+
+                    Button(action: {
+                        withAnimation(.spring()) {
+                            showKeepOpenWarning = false
+                            hasSeenWarning = true
+                        }
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                }
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.blue.opacity(0.95))
+                        .shadow(radius: 8)
+                )
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .onAppear {
+                    // Auto-dismiss after 10 seconds
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
+                        withAnimation(.spring()) {
+                            showKeepOpenWarning = false
+                        }
+                    }
+                }
+            }
+        }
+        .animation(.spring(), value: isLinkFinderSuspended)
+        .animation(.spring(), value: showKeepOpenWarning)
     }
 
     // MARK: - Level 0: Radar View (Priority)

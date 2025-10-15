@@ -63,27 +63,42 @@ class LocationRequestManager: ObservableObject {
     }
 
     /// Handle received location response
-    func handleResponse(_ response: LocationResponseMessage) {
+    func handleResponse(_ response: LocationResponseMessage, allowBroadcast: Bool = false) {
         LoggingService.network.info("📍 LocationRequestManager: Received response for request \(response.requestId)")
 
-        // Privacy Guard: Only process responses for requests WE made (not relayed)
-        guard pendingRequests[response.requestId] != nil else {
+        // Check if this is a response to our request OR a broadcast
+        let isOurRequest = pendingRequests[response.requestId] != nil
+
+        if !isOurRequest && !allowBroadcast {
+            // Privacy Guard: Only process responses for requests WE made (not relayed)
             LoggingService.network.info("   ↪ Ignoring relayed response for \(response.targetId) (not our request)")
             return
         }
 
-        // Cancel timeout timer
-        cancelTimeoutTimer(for: response.requestId)
+        if !isOurRequest && allowBroadcast {
+            LoggingService.network.info("   ✅ Accepting broadcast location from \(response.targetId) (allowBroadcast=true)")
+        }
+
+        // Cancel timeout timer (only if it was our request)
+        if isOurRequest {
+            cancelTimeoutTimer(for: response.requestId)
+        }
 
         // Update request state
         DispatchQueue.main.async {
+            // Update request state if it was our request
             if var state = self.pendingRequests[response.requestId] {
                 state.status = .received
                 self.pendingRequests[response.requestId] = state
             }
 
-            // Store response (only if we requested it)
+            // FIXED: Store response for both requests AND broadcasts
+            // This allows GPS sharing broadcasts to be used for fallback direction
             self.receivedResponses[response.targetId] = response
+
+            if !isOurRequest && allowBroadcast {
+                LoggingService.network.info("   💾 Stored broadcast location for \(response.targetId)")
+            }
         }
 
         // Calculate location if triangulated
