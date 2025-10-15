@@ -18,15 +18,12 @@ import os
 
 /// Direction measurement mode - indicates how direction is being calculated
 enum DirectionMode {
-    case waiting              // Waiting for first measurement
     case preciseUWB           // UWB + ARKit camera assistance (centimeter-level)
     case approximateCompass   // GPS + Compass fallback (meter-level)
     case unavailable          // No direction measurement possible
 
     var description: String {
         switch self {
-        case .waiting:
-            return "Calibrando..."
         case .preciseUWB:
             return "🎯 Dirección Precisa (UWB)"
         case .approximateCompass:
@@ -38,8 +35,6 @@ enum DirectionMode {
 
     var icon: String {
         switch self {
-        case .waiting:
-            return "hourglass"
         case .preciseUWB:
             return "location.fill"
         case .approximateCompass:
@@ -142,16 +137,18 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
     @Published var supportsDirectionMeasurement: Bool = false
     @Published var localDeviceCapabilities: DeviceCapabilities?
     @Published var peerCapabilities: [String: DeviceCapabilities] = [:]  // PeerID -> Capabilities
-    @Published var directionMode: DirectionMode = .waiting  // Current direction measurement mode
+    @Published var directionMode: DirectionMode = .unavailable  // Current direction measurement mode
     @Published var fallbackDirections: [String: FallbackDirection] = [:]  // PeerID -> Fallback direction
     @Published var convergenceReasons: [String] = []  // Current convergence issues
     @Published var isConverging: Bool = false  // True when actively trying to converge
+    @Published var directionHints: [String] = []  // UI hints for why direction might be nil
 
     // MARK: - Fallback & Permission Properties
     var fallbackService: FallbackDirectionService?
     var motionPermissionManager: MotionPermissionManager?
     private var arKitResourceManager: ARKitResourceManager?  // Manages ARKit session for camera assistance
     private var directionNilTimers: [String: Timer] = [:]  // PeerID -> Timer for nil direction detection
+    private var directionPermanentlyFailed: Set<String> = []  // PeerIDs where direction failed permanently (don't retry)
 
     // MARK: - Private Properties
     private var discoveryTokens: [String: NIDiscoveryToken] = [:]  // PeerID -> Remote peer's token
@@ -163,6 +160,19 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
 
     // FIXED: Throttling para convergence updates (previene ANR/crash)
     private var lastConvergenceUpdate: Date = .distantPast  // Última actualización de convergence
+    private var lastDidUpdateLog: [String: Date] = [:]  // PeerID -> Last log time (THROTTLE logging)
+
+    // MARK: - Throttling State (ANTI-TRABADO)
+    private var previousNearbyObjects: [String: NINearbyObject] = [:]  // PeerID -> Previous object (for change detection)
+
+    // MARK: - MultipeerConnectivity Handshake State (NEW)
+    // Coordinates handshake state for MC connections to prevent dual-invitation collisions
+    private var outboundInviteStartedAt: [String: Date] = [:]  // PeerID -> Timestamp when we started inviting
+    private var abandonedOutbound: Set<String> = []  // Peers for which we abandoned our outbound invite (accepted inbound instead)
+    private let arbitrationWindowDuration: TimeInterval = 1.2  // 1.2 seconds for collision detection
+
+    // MARK: - App Lifecycle Observers (SUSPENSION RECOVERY)
+    private var foregroundObserver: NSObjectProtocol?  // Detects app returning to foreground
 
     // MARK: - Delegates
     weak var delegate: LinkFinderSessionManagerDelegate?
@@ -195,7 +205,114 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
             print("   Note: Will prepare ARKit session when starting UWB")
         }
 
+        // ✅ SUSPENSION RECOVERY: Listen for app returning to foreground
+        setupForegroundObserver()
+
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
+
+    deinit {
+        // Clean up foreground observer
+        if let observer = foregroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    // MARK: - App Lifecycle Management (SUSPENSION RECOVERY)
+
+    /// Setup observer for app returning to foreground
+    /// CRITICAL: iOS suspends NISession when app backgrounds - we need to recover automatically
+    private func setupForegroundObserver() {
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleAppReturningToForeground()
+        }
+        print("   ✅ Foreground observer registered (suspension recovery)")
+    }
+
+    /// Handle app returning to foreground after suspension
+    private func handleAppReturningToForeground() {
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🔄 APP RETURNED TO FOREGROUND")
+        print("   Checking for suspended LinkFinder sessions...")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Wait 2 seconds to see if iOS automatically resumes sessions
+        // If sessionSuspensionEnded() gets called, great!
+        // If not, we'll force restart
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.resumeSuspendedSessionsIfNeeded()
+        }
+    }
+
+    /// Force resume any sessions still in .suspended state
+    /// BACKGROUND: Sometimes iOS doesn't call sessionSuspensionEnded() if app was background >3 minutes
+    /// SOLUTION: Manually check and restart suspended sessions
+    func resumeSuspendedSessionsIfNeeded() {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+
+            var suspendedCount = 0
+            var resumedCount = 0
+
+            for (peerId, state) in self.sessionStates {
+                if state == .suspended {
+                    suspendedCount += 1
+
+                    guard let session = self.activeSessions[peerId],
+                          let token = self.discoveryTokens[peerId] else {
+                        print("⚠️ Cannot resume \(peerId) - missing session or token")
+                        continue
+                    }
+
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("🔄 FORCE RESUMING SUSPENDED SESSION")
+                    print("   Peer: \(peerId)")
+                    print("   Reason: sessionSuspensionEnded() was not called by iOS")
+                    print("   Action: Manually restarting NISession")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                    // Create configuration
+                    let config = NINearbyPeerConfiguration(peerToken: token)
+
+                    // Enable camera assistance if supported
+                    if #available(iOS 16.0, *) {
+                        if NISession.deviceCapabilities.supportsCameraAssistance {
+                            config.isCameraAssistanceEnabled = true
+                            print("   ✅ Camera assistance enabled")
+                        }
+                    }
+
+                    // Restart session
+                    session.run(config)
+                    resumedCount += 1
+
+                    DispatchQueue.main.async {
+                        self.sessionStates[peerId] = .running
+                    }
+
+                    print("   ✅ Session restarted - should resume ranging shortly")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                    // Haptic feedback: session resumed
+                    HapticManager.shared.play(.success, priority: .navigation)
+                }
+            }
+
+            if suspendedCount > 0 {
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("📊 SUSPENSION RECOVERY SUMMARY")
+                print("   Total suspended sessions: \(suspendedCount)")
+                print("   Successfully resumed: \(resumedCount)")
+                print("   Failed to resume: \(suspendedCount - resumedCount)")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            } else {
+                print("✅ No suspended sessions found - all good!")
+            }
+        }
     }
 
     // MARK: - Public Methods
@@ -251,37 +368,38 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
                 print("   Camera assistance (ARKit): \(supportsCameraAssist ? "✅" : "❌")")
             }
 
-            // Trust the API for direction capability
-            let effectiveDirectionSupport: Bool
-
             // Log actual API values for debugging
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print("📱 REAL API CAPABILITIES:")
             print("   supportsDirectionMeasurement: \(nativeDirectionSupport)")
             print("   supportsCameraAssistance: \(supportsCameraAssist)")
 
+            // TRUST THE API: If supportsDirectionMeasurement OR supportsCameraAssistance = true,
+            // device CAN provide direction (either via hardware or ARKit)
+            let effectiveDirectionSupport = nativeDirectionSupport || supportsCameraAssist
+
             if nativeDirectionSupport && !supportsCameraAssist {
-                // iPhone 11-13: Native direction via multiple UWB antennas
-                effectiveDirectionSupport = true
-                print("   ✅ Native UWB direction (multiple antennas)")
-                print("   ℹ️ iPhone 11-13 with U1 chip")
+                // iPhone 11-13: Native direction via multiple UWB antennas (U1 chip)
+                print("   ✅ Native UWB direction (hardware triangulation)")
+                print("   ℹ️ Likely iPhone 11-13 with U1 chip")
                 print("   💡 Direction via time-of-flight triangulation")
-            } else if supportsCameraAssist {
-                // iPhone 14 Pro+: Direction via camera assistance
-                effectiveDirectionSupport = true
-                print("   ✅ Direction via camera assistance")
+                print("   ⚡ NO ARKit needed - instant, low power")
+            } else if nativeDirectionSupport && supportsCameraAssist {
+                // Device with BOTH native + camera assistance (unlikely combo)
+                print("   ✅ Native UWB direction + camera assistance available")
+                print("   ℹ️ Will prefer native hardware direction")
+                print("   💡 ARKit can be used as optional enhancement")
+            } else if !nativeDirectionSupport && supportsCameraAssist {
+                // iPhone 14 Pro/Max: NO native direction, but camera assistance available
+                print("   📱 Direction via camera assistance ONLY")
+                print("   ℹ️ Likely iPhone 14 Pro/Max (1 UWB antenna)")
                 print("   ⚠️ Requires: Camera + Motion permissions")
                 print("   ⚠️ Requires: Device movement for ARKit calibration")
-            } else if !nativeDirectionSupport && !supportsCameraAssist {
-                // iPhone 14 base or devices without direction capability
-                effectiveDirectionSupport = false
-                print("   ❌ Direction NOT AVAILABLE")
-                print("   ℹ️ Device limitation (possibly iPhone 14 base with 1 antenna)")
-                print("   💡 Will use GPS+Compass fallback for direction")
             } else {
-                // Trust the API response
-                effectiveDirectionSupport = nativeDirectionSupport || supportsCameraAssist
-                print("   ℹ️ Using combined capability: \(effectiveDirectionSupport)")
+                // iPhone 14 base or older devices without direction capability
+                print("   ❌ Direction NOT AVAILABLE")
+                print("   ℹ️ Device limitation (no native hardware, no camera assist)")
+                print("   💡 Will use GPS+Compass fallback for direction")
             }
 
             print("   Final effectiveDirectionSupport: \(effectiveDirectionSupport)")
@@ -558,6 +676,10 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
         print("   Token extracted: \(String(describing: token).prefix(40))...")
         print("   State: preparing")
         print("   Ready to send token to peer")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📡 COMPARTIENDO TOKEN UWB con \(peerId)")
+        print("   Este token se enviará al peer para iniciar ranging")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         return token
     }
@@ -611,9 +733,8 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
             // Configure and run session with remote peer's token
             let config = NINearbyPeerConfiguration(peerToken: remotePeerToken)
 
-            // Enable camera assistance ONLY if device NEEDS it (iPhone 14+ without native direction)
+            // Enable camera assistance if available (iOS 16+)
             if #available(iOS 16.0, *) {
-                // CRITICAL: Only use camera assistance if device doesn't have native direction
                 let hasNativeDirection = NISession.deviceCapabilities.supportsDirectionMeasurement
                 let supportsCameraAssist = NISession.deviceCapabilities.supportsCameraAssistance
 
@@ -628,42 +749,58 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
                 let isIPhone17OrNewer = deviceModel.contains("iPhone 17") || deviceModel.contains("iPhone 18")
 
                 // U1 Chip Detection (iPhone 11-13)
-                // Since iOS 16, U1 chips REQUIRE ARKit for direction measurement
-                // Apple deprecated native direction for U1, now needs camera assistance
                 let isU1ChipDevice = deviceModel.contains("iPhone 11") ||
                                      deviceModel.contains("iPhone 12") ||
                                      deviceModel.contains("iPhone 13")
 
-                // U2 Chip (iPhone 15+) has true native direction without ARKit
+                // U2 Chip Detection (iPhone 15+)
                 let isU2ChipDevice = deviceModel.contains("iPhone 15") ||
                                      deviceModel.contains("iPhone 16") ||
                                      isIPhone17OrNewer
 
-                // Determine if camera assistance is needed
-                let needsCameraForDirection = isU1ChipDevice && hasNativeDirection
+                // FIXED: Always enable camera assistance if supported
+                // Reason: iOS 16+ may require ARKit even for U1 devices in peer-to-peer sessions
+                // Research shows this improves compatibility between U1↔U2 devices
+                let needsCameraForDirection = supportsCameraAssist
 
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 if needsCameraForDirection {
-                    print("⚡ U1 CHIP DETECTED - ARKit Required for Direction")
-                    print("   Device: \(deviceModel)")
-                    print("   Since iOS 16, U1 chips need camera assistance")
-                    print("   Will enable: Camera + Motion + ARKit for precise direction")
-                } else if isU2ChipDevice {
-                    print("⚡ U2 CHIP DETECTED - Native Direction Available")
-                    print("   Device: \(deviceModel)")
-                    print("   No ARKit needed - pure hardware direction")
+                    if isU1ChipDevice {
+                        print("📱 ENABLING ARKIT FOR U1 CHIP (iPhone 11-13)")
+                        print("   Device: \(deviceModel)")
+                        print("   Reason: iOS 16+ compatibility + U1↔U2 peer support")
+                        print("   Hardware: 3 UWB antennas (native AoA)")
+                        print("   Enhancement: ARKit fusion improves precision")
+                        print("   ⚠️ Research shows U1 benefits from ARKit in peer sessions")
+                    } else if deviceModel.contains("iPhone 14") {
+                        print("📱 CAMERA ASSISTANCE REQUIRED (iPhone 14)")
+                        print("   Device: \(deviceModel)")
+                        print("   Reason: Single UWB antenna (no native direction)")
+                        print("   Method: ARKit + UWB fusion")
+                    } else if isU2ChipDevice {
+                        print("📱 CAMERA ASSISTANCE FOR U2 CHIP (iPhone 15+)")
+                        print("   Device: \(deviceModel)")
+                        print("   ⚠️ WARNING: U2 chip has known direction regression")
+                        print("   See: Apple Developer Forums thread 719378")
+                        print("   Activating ARKit to attempt workaround")
+                    } else {
+                        print("📱 CAMERA ASSISTANCE AVAILABLE")
+                        print("   Device: \(deviceModel)")
+                        print("   Enabling ARKit for improved direction accuracy")
+                    }
                 } else {
-                    print("⚠️ NO DIRECTION SUPPORT - Using Fallback")
+                    print("⚠️ NO CAMERA ASSISTANCE AVAILABLE")
                     print("   Device: \(deviceModel)")
-                    print("   Will use: GPS + Compass bearing")
+                    print("   Will attempt UWB-only direction (may not work)")
+                    print("   Fallback: GPS + Compass if direction = nil")
                 }
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 if needsCameraForDirection {
                     #if !targetEnvironment(simulator)
-                    print("   📱 Device REQUIRES camera assistance for direction (iPhone 14+ without native support)")
-                    print("   Native direction: \(hasNativeDirection)")
-                    print("   Camera assist available: \(supportsCameraAssist)")
+                    print("   📱 Device REQUIRES camera assistance for direction")
+                    print("   Native direction: \(hasNativeDirection) (NO native hardware)")
+                    print("   Camera assist available: \(supportsCameraAssist) (Will use ARKit)")
 
                     // Step 1: Check camera permission
                     let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
@@ -688,74 +825,18 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
 
                         if cameraStatus == .authorized && motionAuthorized {
                             print("   ✅ BOTH permissions granted - camera assistance will work")
+                            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            print("📱 ENABLING CAMERA ASSISTANCE")
+                            print("   IMPORTANT: NISession manages ARKit internally")
+                            print("   Do NOT create separate ARSession (causes camera conflict)")
+                            print("   Error -17281 fixed by letting NISession handle ARKit")
+                            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-                            // CRITICAL: Prepare ARKit session BEFORE enabling camera assistance
-                            var arKitReady = false
-                            if #available(iOS 16.0, *),
-                               let arManager = self.arKitResourceManager {
-                                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                                print("🎯 PREPARING ARKIT FOR CAMERA ASSISTANCE")
+                            // Enable camera assistance - NISession handles ARKit internally
+                            config.isCameraAssistanceEnabled = true
 
-                                // Step 1: Prepare ARKit session
-                                if arManager.prepareARKitSession() {
-                                    print("   ✅ ARKit session prepared")
-
-                                    // Step 2: Start ARKit session (minimal resources)
-                                    arManager.startARKitSession()
-
-                                    // Step 3: Wait briefly for ARKit to initialize (ASYNC - NO BLOCKING)
-                                    print("   ⏳ Waiting for ARKit initialization (async)...")
-
-                                    // FIXED: Use DispatchQueue.asyncAfter instead of Thread.sleep to avoid blocking main thread
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                                        guard let self = self else { return }
-
-                                        arKitReady = true
-                                        print("   ✅ ARKit ready for NearbyInteraction")
-
-                                        // Now configure and run session
-                                        print("   Direction mode: Precise UWB + ARKit")
-                                        config.isCameraAssistanceEnabled = true
-
-                                        DispatchQueue.main.async {
-                                            self.directionMode = .preciseUWB
-                                        }
-
-                                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-                                        // Run session with configured settings
-                                        session.run(config)
-
-                                        DispatchQueue.main.async {
-                                            self.sessionStates[peerId] = .running
-                                            print("📡 LinkFinderSessionManager: Session RUNNING for \(peerId)")
-                                            print("   State: \(currentState) → running")
-                                            print("   Total active sessions: \(self.activeSessions.count)")
-                                            print("   Waiting for ranging to establish...")
-                                        }
-
-                                        // Start timer: if direction still nil after 10s → fallback
-                                        self.startDirectionNilTimer(for: peerId)
-
-                                        // Start health monitoring
-                                        self.startHealthCheck(for: peerId, initialDelay: 15.0)
-                                    }
-
-                                    // Exit early - async completion will handle session start
-                                    return
-
-                                } else {
-                                    print("   ❌ Failed to prepare ARKit session")
-                                    print("   Fallback: Will attempt without camera assistance")
-                                    config.isCameraAssistanceEnabled = false
-                                    // Clean up ARKit to prevent resource leaks
-                                    arManager.cleanup()
-
-                                    DispatchQueue.main.async {
-                                        self.activateFallbackMode(for: peerId, reason: "ARKit initialization failed")
-                                    }
-                                }
-                                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            DispatchQueue.main.async {
+                                self.directionMode = .preciseUWB
                             }
                         } else {
                             print("   ⚠️ Missing permissions - activating FALLBACK mode")
@@ -804,43 +885,15 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
                     print("   ✅ Camera assistance ENABLED (simulator)")
                     #endif
                 } else {
-                    // ARKit NOT needed - either U2 chip or no direction support
+                    // Camera assistance not supported - will try UWB-only
+                    config.isCameraAssistanceEnabled = false
 
-                    if isU2ChipDevice {
-                        // iPhone 15+ with U2 chip - true native direction
-                        print("   ✅ U2 Chip native direction enabled")
-                        print("   📱 Using U2 chip's advanced triangulation")
-                        print("   🎯 NO ARKit needed - pure hardware")
+                    print("   ⚠️ Camera assistance NOT supported on this device")
+                    print("   Attempting UWB-only direction measurement")
+                    print("   Note: May activate fallback mode if direction = nil")
 
-                        config.isCameraAssistanceEnabled = false
-
-                        DispatchQueue.main.async {
-                            self.directionMode = .preciseUWB
-                        }
-                    } else if hasNativeDirection && !isU1ChipDevice {
-                        // Unknown device claiming native direction (not U1, not U2)
-                        print("   ✅ Device reports native direction")
-                        print("   Attempting without ARKit...")
-
-                        config.isCameraAssistanceEnabled = false
-
-                        DispatchQueue.main.async {
-                            self.directionMode = .preciseUWB
-                        }
-
-                        // Start timer - fallback if direction never arrives
-                        self.startDirectionNilTimer(for: peerId)
-                    } else {
-                        // No direction capability at all
-                        print("   ⚠️ Device has NO direction capability")
-                        print("   Fallback: GPS + Compass bearing")
-
-                        config.isCameraAssistanceEnabled = false
-
-                        DispatchQueue.main.async {
-                            self.activateFallbackMode(for: peerId, reason: "No direction support")
-                        }
-                    }
+                    // Start timer to detect if direction never arrives
+                    self.startDirectionNilTimer(for: peerId)
                 }
             }
 
@@ -882,6 +935,7 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
                     self.sessionRetryCount.removeValue(forKey: peerId)
                     self.lastRestartTime.removeValue(forKey: peerId)
                     self.directionNilTimers.removeValue(forKey: peerId)  // FIXED: Also remove from dictionary
+                    self.previousNearbyObjects.removeValue(forKey: peerId)  // FIXED: Clean throttling state
                 }
 
                 print("📡 LinkFinderSessionManager: Stopped session with \(peerId)")
@@ -1050,13 +1104,35 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
     /// Get current distance to a peer (if available)
     func getDistance(to peerID: MCPeerID) -> Float? {
         let peerId = peerID.displayName
-        return nearbyObjects[peerId]?.distance
+        let dist = nearbyObjects[peerId]?.distance
+
+        // Log occasionally for debugging
+        if Int.random(in: 0..<120) == 0 {
+            LoggingService.network.info("📏 LinkFinderSessionManager.getDistance(\(peerId)) → \(dist?.description ?? "nil")")
+        }
+
+        return dist
     }
 
     /// Get current direction to a peer (if available)
     func getDirection(to peerID: MCPeerID) -> SIMD3<Float>? {
         let peerId = peerID.displayName
-        return nearbyObjects[peerId]?.direction
+        let dir = nearbyObjects[peerId]?.direction
+
+        // Log occasionally for debugging
+        if Int.random(in: 0..<120) == 0 {
+            if let dir = dir {
+                LoggingService.network.info("🧭 LinkFinderSessionManager.getDirection(\(peerId)) → SIMD3(x:\(dir.x), y:\(dir.y), z:\(dir.z))")
+            } else {
+                LoggingService.network.info("🧭 LinkFinderSessionManager.getDirection(\(peerId)) → NIL")
+                LoggingService.network.info("   nearbyObject exists: \(self.nearbyObjects[peerId] != nil)")
+                if self.nearbyObjects[peerId] != nil {
+                    LoggingService.network.info("   ⚠️ Object exists but direction is nil - check device capabilities or ARKit convergence")
+                }
+            }
+        }
+
+        return dir
     }
 
     /// Check if we have an active LinkFinder session with a peer
@@ -1164,6 +1240,34 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
                 print("   Distance: \(compatibility.distance ? "✅ Compatible" : "❌ Not compatible")")
                 print("   Direction: \(compatibility.direction ? "✅ Compatible" : "❌ Requires both devices to have UWB")")
 
+                // Detect U2 chip regression (iPhone 15/16/17)
+                let isU2Device = capabilities.deviceModel.contains("iPhone 15") ||
+                                capabilities.deviceModel.contains("iPhone 16") ||
+                                capabilities.deviceModel.contains("iPhone 17") ||
+                                capabilities.deviceModel.contains("iPhone 18")
+
+                if isU2Device {
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("⚠️ U2 CHIP REGRESSION DETECTED")
+                    print("   Peer device: \(capabilities.deviceModel)")
+                    print("   Known issue: U2 chips may return direction = nil")
+                    print("   Source: Apple Developer Forums thread 719378 (2024)")
+                    print("   Impact: Distance works ✅, Direction may fail ❌")
+                    print("   Mitigation: Will activate GPS+Compass fallback faster")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                    // Activate fallback mode proactively for U2 peers
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                        guard let self = self else { return }
+                        // Only activate if direction is still nil after 3 seconds
+                        if self.nearbyObjects[peerId]?.direction == nil {
+                            print("⚠️ U2 peer (\(capabilities.deviceModel)) has no direction after 3s")
+                            print("   Activating GPS+Compass fallback due to U2 regression")
+                            self.activateFallbackMode(for: peerId, reason: "U2 chip direction regression")
+                        }
+                    }
+                }
+
                 if !compatibility.direction && localCaps.hasUWB && !capabilities.hasUWB {
                     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     print("⚠️ HARDWARE LIMITATION DETECTED")
@@ -1210,6 +1314,19 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
         print("   Peer: \(peerId)")
         print("   Reason: \(reason)")
         print("   Method: GPS + Compass bearing")
+        print("")
+        print("   📊 Device Capabilities Summary:")
+        if let localCaps = localDeviceCapabilities {
+            print("      Local Device: \(localCaps.deviceModel)")
+            print("      Supports Direction: \(localCaps.supportsDirection)")
+            print("      Has Camera Assist: \(localCaps.supportsCameraAssist)")
+        }
+        if let peerCaps = peerCapabilities[peerId] {
+            print("      Peer Device: \(peerCaps.deviceModel)")
+            print("      Supports Direction: \(peerCaps.supportsDirection)")
+        }
+        print("")
+        print("   🔄 Switching direction mode: \(directionMode) → approximateCompass")
 
         directionMode = .approximateCompass
 
@@ -1224,9 +1341,14 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
         // Start GPS location sharing with peer for fallback direction calculation
         if let peerID = activeSessions.keys.first(where: { $0 == peerId }) {
             if let mcPeerID = networkManager?.connectedPeers.first(where: { $0.displayName == peerID }) {
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("📍 COMPARTIENDO MI UBICACIÓN GPS con \(peerId)")
                 print("   🔄 Starting GPS location sharing with peer...")
+                print("   Modo: Fallback direction (UWB + GPS + Compass)")
+                print("   Frecuencia: Cada vez que cambia mi ubicación")
                 networkManager?.startGPSLocationSharingForLinkFinder(with: mcPeerID)
-                print("   ✅ GPS sharing initiated")
+                print("   ✅ GPS sharing iniciado - enviando ubicación activamente")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             } else {
                 print("   ⚠️ Peer not found in NetworkManager - GPS sharing delayed")
             }
@@ -1240,14 +1362,44 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
     }
 
     /// Start timer to detect persistent nil direction
+    /// IMPORTANT: If direction is nil on first update, mark as permanently failed
     private func startDirectionNilTimer(for peerId: String) {
-        print("⏱️ Starting direction nil timer for \(peerId) (10 seconds)")
+        // DON'T retry if already marked as permanently failed
+        if directionPermanentlyFailed.contains(peerId) {
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("⏸️ SKIPPING DIRECTION RETRY")
+            print("   Peer: \(peerId)")
+            print("   Reason: Direction permanently failed (won't retry)")
+            print("   Using GPS+Compass permanently")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            return
+        }
+
+        // Shorter timeout - mark as failed faster
+        let timeout: TimeInterval = 2.0  // Only 2 seconds to fail permanently
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("⏱️ STARTING DIRECTION CHECK (PERMANENT)")
+        print("   Peer: \(peerId)")
+        print("   Timeout: \(timeout) seconds")
+        print("   If nil after \(timeout)s → PERMANENTLY FAILED (no retries)")
+        print("   Purpose: Single attempt to get direction, then give up")
+
+        // Check current state
+        if let object = nearbyObjects[peerId] {
+            print("   Current distance: \(object.distance?.description ?? "nil")")
+            print("   Current direction: \(object.direction != nil ? "AVAILABLE" : "NIL")")
+        } else {
+            print("   No nearby object yet (waiting for first update)")
+        }
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         // Cancel existing timer if any
         directionNilTimers[peerId]?.invalidate()
 
-        // Create new timer
-        let timer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
+        // Create new timer with adaptive timeout
+        let timer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
             self?.checkDirectionNilTimeout(for: peerId)
         }
 
@@ -1255,24 +1407,41 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
     }
 
     /// Check if direction is still nil after timeout
+    /// If nil, mark as permanently failed and never try again
     private func checkDirectionNilTimeout(for peerId: String) {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("⏱️ DIRECTION NIL TIMEOUT CHECK")
+        print("⏱️ DIRECTION CHECK (2 SECONDS ELAPSED)")
         print("   Peer: \(peerId)")
-        print("   Time elapsed: 10 seconds")
+        print("   This is the ONLY check - if nil, permanent failure")
 
         guard let object = nearbyObjects[peerId] else {
             print("   ⚠️ No nearby object found")
+            print("   Reason: Session may not have established ranging yet")
+            print("   Action: No fallback activation (waiting for ranging)")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             return
         }
 
+        print("   Distance available: \(object.distance?.description ?? "nil")")
+        print("   Direction available: \(object.direction != nil ? "YES" : "NO")")
+
         if object.direction == nil {
-            print("   ❌ Direction STILL NIL after 10 seconds")
-            print("   🔄 Activating fallback mode")
-            activateFallbackMode(for: peerId, reason: "Direction nil timeout (10s)")
+            print("   ❌ DIRECTION NIL - MARKING AS PERMANENTLY FAILED")
+            print("   This device cannot provide direction to peer: \(peerId)")
+            print("   Will NOT retry - switching to GPS+Compass permanently")
+
+            // Mark as permanently failed - NEVER try again
+            directionPermanentlyFailed.insert(peerId)
+
+            print("")
+            print("   🔄 ACTIVATING PERMANENT FALLBACK MODE")
+            print("   Method: GPS + Compass (no retries)")
+            print("   Reason: Direction not available on first attempt")
+            activateFallbackMode(for: peerId, reason: "Direction permanently unavailable")
         } else {
-            print("   ✅ Direction now available: \(object.direction!)")
+            print("   ✅ DIRECTION NOW AVAILABLE!")
+            print("   Direction: x=\(object.direction!.x), y=\(object.direction!.y), z=\(object.direction!.z)")
+            print("   Switching to precise UWB mode")
             directionMode = .preciseUWB
         }
 
@@ -1282,17 +1451,76 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
         directionNilTimers.removeValue(forKey: peerId)
     }
 
+    // MARK: - MultipeerConnectivity Handshake Coordination (NEW)
+
+    /// Mark that we've started an outbound invitation to a peer
+    /// Used for arbitration window detection
+    func markOutboundInviteStarted(for peerID: String) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+            self.outboundInviteStartedAt[peerID] = Date()
+            print("🔵 HandshakeCoordinator: Outbound invite STARTED to \(peerID) at \(Date())")
+        }
+    }
+
+    /// Mark that we've abandoned our outbound invitation (accepted inbound instead)
+    func markOutboundInviteAbandoned(for peerID: String) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+            self.abandonedOutbound.insert(peerID)
+            print("⚠️ HandshakeCoordinator: Outbound invite ABANDONED for \(peerID) (accepted inbound instead)")
+        }
+    }
+
+    /// Check if an inbound invitation is within the arbitration window
+    /// Returns true if we started an outbound invite recently (within 1.2s)
+    func isWithinArbitrationWindow(for peerID: String) -> Bool {
+        return queue.sync {
+            guard let startTime = self.outboundInviteStartedAt[peerID] else {
+                return false  // No outbound invite in progress
+            }
+
+            let elapsed = Date().timeIntervalSince(startTime)
+            let isWithin = elapsed <= self.arbitrationWindowDuration
+
+            if isWithin {
+                print("⏱️ HandshakeCoordinator: Inbound invitation from \(peerID) is WITHIN arbitration window")
+                print("   Elapsed: \(String(format: "%.3f", elapsed))s / \(self.arbitrationWindowDuration)s")
+            }
+
+            return isWithin
+        }
+    }
+
+    /// Check if we abandoned an outbound invite for this peer
+    func didAbandonOutbound(for peerID: String) -> Bool {
+        return queue.sync {
+            return self.abandonedOutbound.contains(peerID)
+        }
+    }
+
+    /// Clear handshake state for a peer (call when connection established or definitively failed)
+    func clearHandshakeState(for peerID: String) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+            self.outboundInviteStartedAt.removeValue(forKey: peerID)
+            self.abandonedOutbound.remove(peerID)
+            print("🧹 HandshakeCoordinator: Cleared handshake state for \(peerID)")
+        }
+    }
+
     /// Update peer GPS location for fallback direction calculation
     /// Called when NetworkManager receives GPS location from peer
     func updatePeerGPSLocation(_ location: CLLocation, for peerID: MCPeerID) {
         let peerId = peerID.displayName
 
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📍 RECEIVED PEER GPS LOCATION")
-        print("   Peer: \(peerId)")
+        print("📍 RECIBIENDO UBICACIÓN GPS de \(peerId)")
+        print("   El peer está compartiendo su ubicación conmigo")
         print("   Latitude: \(location.coordinate.latitude)")
         print("   Longitude: \(location.coordinate.longitude)")
         print("   Accuracy: \(location.horizontalAccuracy)m")
+        print("   Timestamp: \(location.timestamp)")
 
         // Update fallback service with peer location
         fallbackService?.updatePeerLocation(location, for: peerId)
@@ -1311,6 +1539,44 @@ class LinkFinderSessionManager: NSObject, ObservableObject {
 
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
+
+    // MARK: - Throttling Helper (ANTI-TRABADO)
+
+    /// Detecta si hubo un cambio SIGNIFICATIVO entre el objeto anterior y el nuevo
+    /// Solo actualizamos @Published si el cambio es relevante para la UI
+    /// OBJETIVO: Reducir actualizaciones de 30/seg → 2-3/seg
+    private func hasSignificantChange(previous: NINearbyObject?, new: NINearbyObject) -> Bool {
+        guard let prev = previous else {
+            return true  // Primer update siempre es significativo
+        }
+
+        // DISTANCIA: Cambio significativo si >10cm (0.1m)
+        let distanceThreshold: Float = 0.1
+        let prevDistance = prev.distance ?? 0.0
+        let newDistance = new.distance ?? 0.0
+        let distanceChanged = abs(newDistance - prevDistance) > distanceThreshold
+
+        // DIRECCIÓN: Cambio significativo si cualquier componente cambió >0.087 radianes (~5°)
+        let directionThreshold: Float = 0.087
+        var directionChanged = false
+
+        if let prevDir = prev.direction, let newDir = new.direction {
+            // Ambos tienen dirección - comparar componentes
+            let xChanged = abs(newDir.x - prevDir.x) > directionThreshold
+            let yChanged = abs(newDir.y - prevDir.y) > directionThreshold
+            let zChanged = abs(newDir.z - prevDir.z) > directionThreshold
+            directionChanged = xChanged || yChanged || zChanged
+        } else if prev.direction == nil && new.direction != nil {
+            // Dirección apareció (nil → valor)
+            directionChanged = true
+        } else if prev.direction != nil && new.direction == nil {
+            // Dirección desapareció (valor → nil)
+            directionChanged = true
+        }
+        // Si ambos son nil, directionChanged = false (sin cambio)
+
+        return distanceChanged || directionChanged
+    }
 }
 
 // MARK: - NISessionDelegate
@@ -1319,11 +1585,20 @@ extension LinkFinderSessionManager: NISessionDelegate {
     func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
         // Find which peer this session belongs to
         guard let peerId = activeSessions.first(where: { $0.value === session })?.key else {
-            print("⚠️ LinkFinderSessionManager: didUpdate called but no matching session found")
+            // No logging here - this delegate fires 10-30 times/second
             return
         }
 
-        print("🎯 LinkFinderSessionManager: didUpdate called for \(peerId) with \(nearbyObjects.count) objects")
+        // CRITICAL: THROTTLE LOGGING to prevent I/O saturation and ANR
+        // didUpdate fires 10-30 times/second → 600+ print()/second → Main thread ANR
+        let now = Date()
+        let lastLog = lastDidUpdateLog[peerId] ?? .distantPast
+        let shouldLog = now.timeIntervalSince(lastLog) >= 2.0  // Log every 2 seconds max
+
+        if shouldLog {
+            lastDidUpdateLog[peerId] = now
+            print("🎯 LinkFinderSessionManager: didUpdate called for \(peerId) with \(nearbyObjects.count) objects")
+        }
 
         // Track if this is first update
         let isFirstUpdate = self.nearbyObjects[peerId] == nil
@@ -1331,32 +1606,171 @@ extension LinkFinderSessionManager: NISessionDelegate {
 
         // Update nearby object for this peer
         if let object = nearbyObjects.first {
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("📊 LinkFinder UPDATE DETAILS")
-            print("   Peer: \(peerId)")
-            print("   Distance: \(object.distance?.description ?? "nil")")
-            if let dir = object.direction {
-                print("   Direction SIMD: x=\(dir.x), y=\(dir.y), z=\(dir.z)")
-            } else {
-                print("   Direction: nil")
+            // THROTTLED logging - only log every 2 seconds
+            if shouldLog {
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("📊 LinkFinder UPDATE DETAILS")
+                print("   Peer: \(peerId)")
+                print("   Distance: \(object.distance?.description ?? "nil")")
             }
-            print("   IsFirstUpdate: \(isFirstUpdate)")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-            DispatchQueue.main.async {
-                self.nearbyObjects[peerId] = object
-                print("✅ Published nearbyObjects update for \(peerId) to @Published property")
+            if let dir = object.direction {
+                if shouldLog {
+                    // Calculate bearing for debugging
+                    let bearing = atan2(Double(dir.x), Double(-dir.z)) * 180.0 / .pi
+                    let normalizedBearing = bearing >= 0 ? bearing : bearing + 360.0
+                    print("   Direction SIMD: x=\(dir.x), y=\(dir.y), z=\(dir.z)")
+                    print("   Direction Bearing: \(Int(normalizedBearing))° (calculated from SIMD)")
 
-                // Transition to .ranging state when we receive ranging data
-                if self.sessionStates[peerId] != .ranging {
-                    self.sessionStates[peerId] = .ranging
-                    print("✅ Published sessionStates update: \(previousState) → ranging")
-                    // Reset retry count since ranging is working
-                    self.sessionRetryCount[peerId] = 0
-                    self.lastRestartTime.removeValue(forKey: peerId)
+                    // Cardinal direction
+                    let cardinalDir: String
+                    switch normalizedBearing {
+                    case 337.5..<360.0, 0..<22.5: cardinalDir = "Norte"
+                    case 22.5..<67.5: cardinalDir = "Noreste"
+                    case 67.5..<112.5: cardinalDir = "Este"
+                    case 112.5..<157.5: cardinalDir = "Sureste"
+                    case 157.5..<202.5: cardinalDir = "Sur"
+                    case 202.5..<247.5: cardinalDir = "Suroeste"
+                    case 247.5..<292.5: cardinalDir = "Oeste"
+                    case 292.5..<337.5: cardinalDir = "Noroeste"
+                    default: cardinalDir = "Desconocido"
+                    }
+                    print("   Direction Cardinal: \(cardinalDir)")
+                }
+            } else {
+                // Direction is NIL - log only when throttle allows
+                if shouldLog {
+                    print("   Direction: ❌ NIL")
+                    print("   ⚠️ DIRECTION IS NIL - INVESTIGATING WHY:")
+
+                    // Check device capabilities
+                    if let localCaps = localDeviceCapabilities {
+                        print("      • Local device supports direction: \(localCaps.supportsDirection)")
+                        print("      • Device model: \(localCaps.deviceModel)")
+                        print("      • Has camera assist: \(localCaps.supportsCameraAssist)")
+                    }
+
+                    // Check peer capabilities
+                    if let peerCaps = peerCapabilities[peerId] {
+                        print("      • Peer device supports direction: \(peerCaps.supportsDirection)")
+                        print("      • Peer model: \(peerCaps.deviceModel)")
+
+                        // Check compatibility
+                        if let compatibility = getCompatibilityStatus(with: MCPeerID(displayName: peerId)) {
+                            print("      • Direction compatibility: \(compatibility.direction ? "✅ COMPATIBLE" : "❌ INCOMPATIBLE")")
+                            if !compatibility.direction {
+                                print("      • ⚠️ BOTH devices need UWB direction support for direction to work")
+                            }
+                        }
+                    } else {
+                        print("      • ⚠️ Peer capabilities not yet received")
+                    }
+
+                    // Check device orientation (FOV requirement)
+                    let deviceOrientation = UIDevice.current.orientation
+                    print("      • Device orientation: \(deviceOrientation.description)")
+
+                    if !deviceOrientation.isPortrait && deviceOrientation != .unknown {
+                        print("      • ⚠️ NON-PORTRAIT orientation detected")
+                        print("      • Requirement: Both devices should be in PORTRAIT")
+                    }
+
+                    // Check ARKit convergence state
+                    print("      • Direction mode: \(directionMode.description)")
+                    if isConverging {
+                        print("      • 🔄 ARKit is CONVERGING (not ready yet)")
+                        print("      • Convergence reasons: \(convergenceReasons)")
+                    } else {
+                        print("      • ARKit convergence: Not converging (either converged or not using ARKit)")
+                    }
+
+                    // Field of View (FOV) reminder
+                    print("      • 📱 FOV Requirement:")
+                    print("      • Both devices must POINT AT EACH OTHER")
+                    print("      • FOV = Ultra Wide camera cone (~120° from back)")
+                    print("      • Outside FOV: Distance ✅, Direction ❌")
+                }
+
+                // Build UI hints (do this even if not logging - UI needs updates)
+                let deviceOrientation = UIDevice.current.orientation
+                var hints: [String] = []
+
+                if !deviceOrientation.isPortrait && deviceOrientation != .unknown {
+                    hints.append("Sostén el iPhone en modo vertical (portrait)")
+                }
+
+                if isConverging {
+                    hints.append(contentsOf: convergenceReasons)
+                }
+
+                hints.append("Apunta tu iPhone hacia el otro dispositivo")
+
+                // Check for U2 peer
+                if let peerCaps = peerCapabilities[peerId] {
+                    let isU2 = peerCaps.deviceModel.contains("iPhone 15") ||
+                              peerCaps.deviceModel.contains("iPhone 16") ||
+                              peerCaps.deviceModel.contains("iPhone 17")
+
+                    if isU2 {
+                        hints.append("⚠️ El otro dispositivo tiene un chip U2 (puede tener limitaciones)")
+                    }
+                }
+
+                // Update published hints for UI (always update, regardless of logging)
+                DispatchQueue.main.async {
+                    self.directionHints = hints
                 }
             }
 
+            if shouldLog {
+                print("   IsFirstUpdate: \(isFirstUpdate)")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            }
+
+            // ✅ THROTTLING: Solo actualizar @Published si el cambio es significativo
+            // OBJETIVO: Reducir actualizaciones de 30/seg → 2-3/seg
+            let previousObject = self.previousNearbyObjects[peerId]
+            let shouldUpdate = hasSignificantChange(previous: previousObject, new: object)
+
+            if shouldUpdate {
+                // Guardar objeto actual como "previous" para próxima comparación
+                self.previousNearbyObjects[peerId] = object
+
+                DispatchQueue.main.async {
+                    self.nearbyObjects[peerId] = object
+
+                    if shouldLog {
+                        print("✅ PUBLISHED nearbyObjects update (SIGNIFICANT CHANGE detected)")
+                        if let prev = previousObject {
+                            if let prevDist = prev.distance, let newDist = object.distance {
+                                let distDelta = abs(newDist - prevDist)
+                                print("   Distance change: \(String(format: "%.3f", distDelta))m")
+                            }
+                        }
+                    }
+
+                    // Transition to .ranging state when we receive ranging data
+                    if self.sessionStates[peerId] != .ranging {
+                        self.sessionStates[peerId] = .ranging
+                        if shouldLog {
+                            print("✅ Published sessionStates update: \(previousState) → ranging")
+                        }
+                        // Reset retry count since ranging is working
+                        self.sessionRetryCount[peerId] = 0
+                        self.lastRestartTime.removeValue(forKey: peerId)
+                    }
+                }
+            } else if shouldLog {
+                print("⏭️ SKIPPED nearbyObjects update (no significant change)")
+                if let prev = previousObject {
+                    if let prevDist = prev.distance, let newDist = object.distance {
+                        let distDelta = abs(newDist - prevDist)
+                        print("   Distance delta: \(String(format: "%.3f", distDelta))m (<0.1m threshold)")
+                    }
+                }
+            }
+
+            // ALWAYS log first update (important milestone)
             if isFirstUpdate {
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 print("🎉 LinkFinder RANGING ESTABLISHED")
@@ -1370,9 +1784,11 @@ extension LinkFinderSessionManager: NISessionDelegate {
             }
 
             if let distance = object.distance {
-                let directionString = object.direction != nil ? "with direction" : "no direction"
-                print("📡 LinkFinder: \(peerId) - \(String(format: "%.2f", distance))m (\(directionString))")
-            } else {
+                if shouldLog {
+                    let directionString = object.direction != nil ? "with direction" : "no direction"
+                    print("📡 LinkFinder: \(peerId) - \(String(format: "%.2f", distance))m (\(directionString))")
+                }
+            } else if shouldLog {
                 print("⚠️ LinkFinderSessionManager: Object detected but no distance for \(peerId)")
             }
 
@@ -1386,12 +1802,17 @@ extension LinkFinderSessionManager: NISessionDelegate {
 
                 DispatchQueue.main.async {
                     self.directionMode = .preciseUWB
+                    self.directionHints = []  // Clear hints when direction is available
                 }
 
                 // Stop GPS location sharing since we have precise direction now
                 if let mcPeerID = networkManager?.connectedPeers.first(where: { $0.displayName == peerId }) {
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("📍 DETENIENDO COMPARTIR UBICACIÓN GPS con \(peerId)")
+                    print("   Razón: UWB direction ahora disponible (más preciso)")
+                    print("   ✅ Ahorrando batería - GPS ya no necesario")
                     networkManager?.stopGPSLocationSharingForLinkFinder(with: mcPeerID)
-                    print("   ✅ GPS sharing stopped (no longer needed)")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 }
 
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -1509,7 +1930,7 @@ extension LinkFinderSessionManager: NISessionDelegate {
             print("   Camera assistance: Fully calibrated")
 
             // Update direction mode if we were waiting
-            if directionMode == .waiting || directionMode == .approximateCompass {
+            if directionMode == .unavailable || directionMode == .approximateCompass {
                 print("   🎯 Switching from \(directionMode) → preciseUWB")
                 DispatchQueue.main.async {
                     self.directionMode = .preciseUWB
@@ -1527,10 +1948,10 @@ extension LinkFinderSessionManager: NISessionDelegate {
             print("   Reasons count: \(reasons.count)")
             print("   Impact: Direction will be NIL until converged")
 
-            // Set to waiting mode if not already in fallback
-            if directionMode == .preciseUWB || directionMode == .waiting {
+            // Set to unavailable mode if not already in fallback
+            if directionMode == .preciseUWB || directionMode == .unavailable {
                 DispatchQueue.main.async {
-                    self.directionMode = .waiting
+                    self.directionMode = .unavailable
                 }
             }
 
@@ -1712,6 +2133,30 @@ extension NINearbyObject.RemovalReason {
             return "Peer Ended"
         @unknown default:
             return "Unknown"
+        }
+    }
+}
+
+// MARK: - UIDeviceOrientation Extension
+extension UIDeviceOrientation {
+    var description: String {
+        switch self {
+        case .unknown:
+            return "Unknown"
+        case .portrait:
+            return "Portrait"
+        case .portraitUpsideDown:
+            return "Portrait Upside Down"
+        case .landscapeLeft:
+            return "Landscape Left"
+        case .landscapeRight:
+            return "Landscape Right"
+        case .faceUp:
+            return "Face Up"
+        case .faceDown:
+            return "Face Down"
+        @unknown default:
+            return "Unknown Orientation"
         }
     }
 }
