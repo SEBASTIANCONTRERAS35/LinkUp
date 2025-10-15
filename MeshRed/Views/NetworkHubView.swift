@@ -45,7 +45,7 @@ struct NetworkHubView: View {
                 // Radar section (fixed, always visible)
                 radarSection
                     .frame(height: 340)
-                    .background(colorScheme == .dark ? Color.black.opacity(0.95) : Color(UIColor.systemBackground))
+                    .background(Color.appBackgroundSecondary)
 
                 // Tab selector
                 tabSelector
@@ -102,7 +102,7 @@ struct NetworkHubView: View {
                 HStack(spacing: 6) {
                     ForEach(0..<maxConnections, id: \.self) { index in
                         Circle()
-                            .fill(index < totalConnectedCount ? Mundial2026Colors.verde : Color.gray.opacity(0.3))
+                            .fill(index < totalConnectedCount ? Color.appAccent : Color.gray.opacity(0.3))
                             .frame(width: 10, height: 10)
                     }
                 }
@@ -192,18 +192,18 @@ struct NetworkHubView: View {
 
     private var radarBackground: some View {
         ZStack {
-            // Adaptive background
-            (colorScheme == .dark ? Color.black.opacity(0.95) : Color(UIColor.systemBackground))
+            // Modern background
+            Color.appBackgroundSecondary
 
             // Radar circles with adaptive gradient
             Circle()
                 .fill(
                     RadialGradient(
                         colors: colorScheme == .dark ? [
-                            Color.green.opacity(0.1),
+                            Color.appAccent.opacity(0.1),
                             Color.black.opacity(0.3)
                         ] : [
-                            Mundial2026Colors.verde.opacity(0.08),
+                            Color.appAccent.opacity(0.08),
                             Color.gray.opacity(0.15)
                         ],
                         center: .center,
@@ -218,8 +218,8 @@ struct NetworkHubView: View {
                 Circle()
                     .stroke(
                         colorScheme == .dark ?
-                            Color.green.opacity(0.2) :
-                            Mundial2026Colors.verde.opacity(0.3),
+                            Color.appAccent.opacity(0.2) :
+                            Color.appAccent.opacity(0.3),
                         lineWidth: 1
                     )
                     .frame(
@@ -237,8 +237,8 @@ struct NetworkHubView: View {
             }
             .stroke(
                 colorScheme == .dark ?
-                    Color.green.opacity(0.2) :
-                    Mundial2026Colors.verde.opacity(0.3),
+                    Color.appAccent.opacity(0.2) :
+                    Color.appAccent.opacity(0.3),
                 lineWidth: 1
             )
         }
@@ -277,7 +277,7 @@ struct NetworkHubView: View {
                 .frame(width: 8, height: 8)
 
             Circle()
-                .stroke(Mundial2026Colors.azul, lineWidth: 2)
+                .stroke(Color.appSecondary, lineWidth: 2)
                 .frame(width: 12, height: 12)
         }
     }
@@ -285,7 +285,7 @@ struct NetworkHubView: View {
     private var dataSourceBadge: some View {
         HStack(spacing: 4) {
             Circle()
-                .fill(Mundial2026Colors.verde)
+                .fill(Color.appAccent)
                 .frame(width: 6, height: 6)
 
             Text("LinkFinder \(uwbSessionCount)/2")
@@ -963,12 +963,12 @@ struct CompactPeerCard: View {
                 // Icon
                 ZStack {
                     Circle()
-                        .fill(isConnected ? Mundial2026Colors.verde.opacity(0.2) : Mundial2026Colors.azul.opacity(0.2))
+                        .fill(isConnected ? Color.appAccent.opacity(0.2) : Color.appSecondary.opacity(0.2))
                         .frame(width: 44, height: 44)
 
                     Image(systemName: "person.fill")
                         .font(.system(size: 18))
-                        .foregroundColor(isConnected ? Mundial2026Colors.verde : Mundial2026Colors.azul)
+                        .foregroundColor(isConnected ? Color.appAccent : Color.appSecondary)
                 }
 
                 // Info
@@ -1002,7 +1002,7 @@ struct CompactPeerCard: View {
                     Button(action: messageAction) {
                         Image(systemName: "message.fill")
                             .font(.system(size: 20))
-                            .foregroundColor(Mundial2026Colors.azul)
+                            .foregroundColor(Color.appSecondary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -1011,7 +1011,7 @@ struct CompactPeerCard: View {
                 Button(action: onAction) {
                     Image(systemName: isConnected ? "xmark.circle.fill" : "plus.circle.fill")
                         .font(.system(size: 24))
-                        .foregroundColor(isConnected ? Mundial2026Colors.rojo : Mundial2026Colors.verde)
+                        .foregroundColor(isConnected ? Mundial2026Colors.rojo : Color.appAccent)
                 }
                 .buttonStyle(.plain)
             }
@@ -1049,12 +1049,12 @@ struct MockPeerCard: View {
                 // Icon
                 ZStack {
                     Circle()
-                        .fill(isConnected ? Mundial2026Colors.verde.opacity(0.2) : Mundial2026Colors.azul.opacity(0.2))
+                        .fill(isConnected ? Color.appAccent.opacity(0.2) : Color.appSecondary.opacity(0.2))
                         .frame(width: 44, height: 44)
 
                     Image(systemName: "person.fill")
                         .font(.system(size: 18))
-                        .foregroundColor(isConnected ? Mundial2026Colors.verde : Mundial2026Colors.azul)
+                        .foregroundColor(isConnected ? Color.appAccent : Color.appSecondary)
                 }
 
                 // Info
@@ -1088,7 +1088,7 @@ struct MockPeerCard: View {
                     Button(action: messageAction) {
                         Image(systemName: "message.fill")
                             .font(.system(size: 20))
-                            .foregroundColor(Mundial2026Colors.azul)
+                            .foregroundColor(Color.appSecondary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -1097,7 +1097,7 @@ struct MockPeerCard: View {
                 Button(action: onAction) {
                     Image(systemName: isConnected ? "xmark.circle.fill" : "plus.circle.fill")
                         .font(.system(size: 24))
-                        .foregroundColor(isConnected ? Mundial2026Colors.rojo : Mundial2026Colors.verde)
+                        .foregroundColor(isConnected ? Mundial2026Colors.rojo : Color.appAccent)
                 }
                 .buttonStyle(.plain)
             }
@@ -1142,9 +1142,9 @@ struct RadarSweepView: View {
             .stroke(
                 LinearGradient(
                     colors: [
-                        Color.green.opacity(0.8),
-                        Color.green.opacity(0.3),
-                        Color.green.opacity(0.0)
+                        Color.appAccent.opacity(0.8),
+                        Color.appAccent.opacity(0.3),
+                        Color.appAccent.opacity(0.0)
                     ],
                     startPoint: .bottom,
                     endPoint: .top
@@ -1159,10 +1159,10 @@ struct RadarSweepView: View {
                 .stroke(
                     AngularGradient(
                         gradient: Gradient(colors: [
-                            Color.green.opacity(0.0),
-                            Color.green.opacity(0.15),
-                            Color.green.opacity(0.3),
-                            Color.green.opacity(0.0)
+                            Color.appAccent.opacity(0.0),
+                            Color.appAccent.opacity(0.15),
+                            Color.appAccent.opacity(0.3),
+                            Color.appAccent.opacity(0.0)
                         ]),
                         center: .center,
                         startAngle: .degrees(-90),

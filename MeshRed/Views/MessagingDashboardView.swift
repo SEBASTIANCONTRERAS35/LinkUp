@@ -11,6 +11,7 @@ import Combine
 
 struct MessagingDashboardView: View {
     @EnvironmentObject var networkManager: NetworkManager
+    @Environment(\.colorScheme) var colorScheme
 
     // MARK: - State
     @State private var showBroadcastComposer = false
@@ -74,10 +75,10 @@ struct MessagingDashboardView: View {
                 Text("Mensajes")
                     .font(.headline)
                     .fontWeight(.semibold)
-                    .foregroundColor(.white) // ✅ Blanco sobre fondo oscuro
+                    .foregroundColor(.primary)
                 Text("\(networkManager.connectedPeers.count) conectados")
                     .font(.subheadline)
-                    .foregroundColor(.white.opacity(0.7)) // ✅ Blanco semi-transparente
+                    .foregroundColor(.secondary)
             }
 
             Spacer()
@@ -109,8 +110,8 @@ struct MessagingDashboardView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(Color.white.opacity(0.95))
-        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+        .background(colorScheme == .dark ? Color.appBackgroundSecondary : Color(.systemGray6))
+        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.1 : 0.05), radius: 4, x: 0, y: 2)
     }
 
     // MARK: - Family Groups Section
@@ -249,7 +250,7 @@ struct MessagingDashboardView: View {
 
     // MARK: - Helpers
     private var appBackgroundColor: Color {
-        Color(red: 0.98, green: 0.98, blue: 0.99)
+        colorScheme == .dark ? Color.appBackgroundDark : Color(.systemBackground)
     }
 
     private func getReachableFamilyMembers() -> [(peerID: String, displayName: String, route: [String])] {
@@ -287,6 +288,8 @@ struct MessagingDashboardView: View {
 
 // MARK: - Chat Row Item Component
 struct ChatRowItemView: View {
+    @Environment(\.colorScheme) var colorScheme
+    
     let icon: String
     let title: String
     let subtitle: String
@@ -347,11 +350,11 @@ struct ChatRowItemView: View {
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white)
+                    .fill(colorScheme == .dark ? Color.appBackgroundSecondary : Color(.systemGray6))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.gray.opacity(0.1), lineWidth: 1)
+                    .stroke(Color.gray.opacity(colorScheme == .dark ? 0.2 : 0.15), lineWidth: 1)
             )
     }
 }
@@ -382,6 +385,7 @@ struct ChatItem: Identifiable, Hashable {
 // MARK: - Broadcast Message Composer
 struct BroadcastMessageComposer: View {
     @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
     @ObservedObject var networkManager: NetworkManager
     @State private var messageText = ""
     @State private var selectedType: MessageType = .chat
@@ -412,7 +416,7 @@ struct BroadcastMessageComposer: View {
                     TextEditor(text: $messageText)
                         .frame(height: 150)
                         .padding(8)
-                        .background(Color.gray.opacity(0.1))
+                        .background(colorScheme == .dark ? Color.appBackgroundSecondary.opacity(0.5) : Color(.systemGray6))
                         .cornerRadius(12)
                 }
 
@@ -476,6 +480,8 @@ struct BroadcastMessageComposer: View {
 
 // MARK: - Chat Conversation View
 struct ChatConversationView: View {
+    @Environment(\.colorScheme) var colorScheme
+    
     let chat: ChatItem
     @ObservedObject var networkManager: NetworkManager
     @State private var messageText = ""
@@ -542,7 +548,7 @@ struct ChatConversationView: View {
                         .textFieldStyle(.plain)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
-                        .background(Color.gray.opacity(0.1))
+                        .background(colorScheme == .dark ? Color.appBackgroundSecondary : Color(.systemGray6))
                         .cornerRadius(24)
                         .submitLabel(.send)
                         .onSubmit {
@@ -561,7 +567,7 @@ struct ChatConversationView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background(
-                    Color.white
+                    (colorScheme == .dark ? Color.appBackgroundSecondary : Color(.systemBackground))
                         .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: -2)
                 )
                 .padding(.bottom, 100) // Space for bottom nav bar
@@ -773,6 +779,7 @@ struct SimulatedMessageBubble: View {
 
 // MARK: - LinkFinder Not Available View
 struct UWBNotAvailableView: View {
+    @Environment(\.colorScheme) var colorScheme
     let onDismiss: () -> Void
 
     var body: some View {
@@ -823,7 +830,7 @@ struct UWBNotAvailableView: View {
                     }
                     .foregroundColor(.white.opacity(0.9))
                     .padding()
-                    .background(Color.white.opacity(0.1))
+                    .background(colorScheme == .dark ? Color.appBackgroundSecondary.opacity(0.3) : Color.black.opacity(0.1))
                     .cornerRadius(12)
                 }
                 .padding(.horizontal)
@@ -859,6 +866,8 @@ struct UWBNotAvailableView: View {
 
 // MARK: - Mock Message Bubble
 struct MockMessageBubble: View {
+    @Environment(\.colorScheme) var colorScheme
+    
     let message: MockMessage
     let isFromLocal: Bool
 
@@ -900,7 +909,7 @@ struct MockMessageBubble: View {
         if isFromLocal {
             return Color.appSecondary // ✅ Cyan para mensajes enviados
         } else {
-            return Color.gray.opacity(0.2)
+            return colorScheme == .dark ? Color.gray.opacity(0.2) : Color(.systemGray5)
         }
     }
 }

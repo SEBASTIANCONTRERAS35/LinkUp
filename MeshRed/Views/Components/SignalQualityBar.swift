@@ -81,25 +81,25 @@ struct SignalQualityBar: View {
 
     private var qualityColor: Color {
         if quality >= 0.8 {
-            return Mundial2026Colors.verde
+            return Color.appAccent
         } else if quality >= 0.6 {
-            return Mundial2026Colors.azul
+            return Color.appPrimary
         } else if quality >= 0.4 {
             return .orange
         } else {
-            return Mundial2026Colors.rojo
+            return Mundial2026Colors.rojo // Mantener rojo para calidad pobre
         }
     }
 
     private var qualityGradient: [Color] {
         if quality >= 0.8 {
-            return [Mundial2026Colors.verde.opacity(0.7), Mundial2026Colors.verde]
+            return [Color.appAccent.opacity(0.7), Color.appAccent]
         } else if quality >= 0.6 {
-            return [Mundial2026Colors.azul.opacity(0.7), Mundial2026Colors.azul]
+            return [Color.appPrimary.opacity(0.7), Color.appPrimary]
         } else if quality >= 0.4 {
             return [.orange.opacity(0.7), .orange]
         } else {
-            return [Mundial2026Colors.rojo.opacity(0.7), Mundial2026Colors.rojo]
+            return [Mundial2026Colors.rojo.opacity(0.7), Mundial2026Colors.rojo] // Mantener rojo para calidad pobre
         }
     }
 

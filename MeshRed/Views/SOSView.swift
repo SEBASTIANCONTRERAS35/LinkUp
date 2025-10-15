@@ -38,7 +38,7 @@ struct SOSView: View {
 
                 Spacer()
             }
-            .background(Mundial2026Colors.background.ignoresSafeArea())
+            .background(Color.appBackgroundDark.ignoresSafeArea())
             .sheet(item: $selectedSOSType) { sosType in
                 SOSConfirmationView(
                     sosType: sosType,
@@ -68,7 +68,7 @@ struct SOSView: View {
             // Connection status
             HStack(spacing: 6) {
                 Circle()
-                    .fill(networkManager.connectedPeers.isEmpty ? Color.orange : Mundial2026Colors.verde)
+                    .fill(networkManager.connectedPeers.isEmpty ? Color.orange : Color.appAccent)
                     .frame(width: 8, height: 8)
                 Text("\(networkManager.connectedPeers.count)")
                     .font(.caption)
@@ -370,7 +370,7 @@ struct SOSConfirmationView: View {
                 }
                 .padding(.horizontal, 20)
             }
-            .background(Mundial2026Colors.background.ignoresSafeArea())
+            .background(Color.appBackgroundDark.ignoresSafeArea())
             .navigationTitle("Confirmar Solicitud")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -115,13 +115,13 @@ struct FamilyGroupView: View {
                 .padding(20)
                 .background(
                     LinearGradient(
-                        colors: [Color.blue, Color.cyan.opacity(0.7)],
+                        colors: [Color.appPrimary, Color.appSecondary.opacity(0.7)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .shadow(color: .blue.opacity(0.3), radius: 12, x: 0, y: 6)
+                .shadow(color: Color.appPrimary.opacity(0.3), radius: 12, x: 0, y: 6)
 
                 // Members List
                 VStack(alignment: .leading, spacing: 16) {
@@ -201,7 +201,7 @@ struct FamilyGroupView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.blue)
+                        .background(Color.appPrimary)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .buttonStyle(.plain)
@@ -258,11 +258,7 @@ struct FamilyGroupView: View {
     }
 
     private var appBackgroundColor: Color {
-        #if os(iOS)
-        Color(.systemGroupedBackground)
-        #else
-        Color(NSColor.windowBackgroundColor)
-        #endif
+        Color.appBackgroundDark
     }
 }
 
@@ -396,10 +392,6 @@ struct ShareSheet: NSViewRepresentable {
 
 private extension Color {
     static var meshCardBackground: Color {
-        #if os(iOS)
-        return Color(.secondarySystemBackground)
-        #else
-        return Color(NSColor.controlBackgroundColor)
-        #endif
+        return Color.appBackgroundSecondary
     }
 }

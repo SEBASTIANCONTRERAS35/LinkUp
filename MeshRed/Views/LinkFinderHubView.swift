@@ -42,7 +42,7 @@ struct LinkFinderHubView: View {
                 // Radar section (fixed, always visible)
                 radarSection
                     .frame(height: 340)
-                    .background(colorScheme == .dark ? Color.black.opacity(0.95) : Color(UIColor.systemBackground))
+                    .background(Color.appBackgroundSecondary)
 
                 // Tab selector
                 tabSelector
@@ -187,8 +187,8 @@ struct LinkFinderHubView: View {
 
     private var radarBackground: some View {
         ZStack {
-            // Adaptive background
-            (colorScheme == .dark ? Color.black.opacity(0.95) : Color(UIColor.systemBackground))
+            // Modern background
+            Color.appBackgroundSecondary
 
             // Radar circles with adaptive gradient
             Circle()

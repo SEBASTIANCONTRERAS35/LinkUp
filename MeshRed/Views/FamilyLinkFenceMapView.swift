@@ -128,7 +128,7 @@ struct FamilyLinkFenceMapView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+        .background(Color.appBackgroundDark)
     }
 
     private var bottomInfoPanel: some View {
@@ -357,7 +357,7 @@ struct FamilyLinkFenceMapView: View {
             Spacer()
 
             Circle()
-                .fill(event.eventType == .entry ? Color.green : Color.red)
+                .fill(event.eventType == .entry ? Color.appAccent : Color.red)
                 .frame(width: 8, height: 8)
         }
         .padding(.vertical, 8)
@@ -521,9 +521,9 @@ struct FamilyMapViewMultiple: UIViewRepresentable {
                     renderer.strokeColor = UIColor(color)
                     renderer.lineWidth = 2
                 } else {
-                    // Fallback to default blue
-                    renderer.fillColor = UIColor.systemBlue.withAlphaComponent(0.15)
-                    renderer.strokeColor = UIColor.systemBlue
+                    // Fallback to app primary color
+                    renderer.fillColor = UIColor.appPrimary.withAlphaComponent(0.15)
+                    renderer.strokeColor = UIColor.appPrimary
                     renderer.lineWidth = 2
                 }
                 return renderer

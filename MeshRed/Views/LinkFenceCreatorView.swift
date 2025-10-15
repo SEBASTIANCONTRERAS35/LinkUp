@@ -326,8 +326,8 @@ struct GeofenceMapEditor: UIViewRepresentable {
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             if let circle = overlay as? MKCircle {
                 let renderer = MKCircleRenderer(circle: circle)
-                renderer.fillColor = UIColor.systemBlue.withAlphaComponent(0.2)
-                renderer.strokeColor = UIColor.systemBlue
+                renderer.fillColor = UIColor.appPrimary.withAlphaComponent(0.2)
+                renderer.strokeColor = UIColor.appPrimary
                 renderer.lineWidth = 2
                 return renderer
             }

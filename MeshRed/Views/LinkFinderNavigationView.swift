@@ -541,8 +541,8 @@ struct DirectionalArrow: View {
                 .fill(
                     RadialGradient(
                         gradient: Gradient(colors: [
-                            Color.cyan.opacity(0.3),
-                            Color.cyan.opacity(0.1),
+                            Color.appSecondary.opacity(0.3),
+                            Color.appSecondary.opacity(0.1),
                             Color.clear
                         ]),
                         center: .center,
@@ -559,7 +559,7 @@ struct DirectionalArrow: View {
 
             // Anillo exterior
             Circle()
-                .stroke(Color.cyan.opacity(0.3), lineWidth: 2)
+                .stroke(Color.appSecondary.opacity(0.3), lineWidth: 2)
                 .frame(width: 220, height: 220)
 
             // Marcadores cardinales
@@ -571,25 +571,25 @@ struct DirectionalArrow: View {
                 Triangle()
                     .fill(
                         LinearGradient(
-                            gradient: Gradient(colors: [Color.cyan, Color.blue]),
+                            gradient: Gradient(colors: [Color.appSecondary, Color.appPrimary]),
                             startPoint: .top,
                             endPoint: .bottom
                         )
                     )
                     .frame(width: 40, height: 50)
-                    .shadow(color: .cyan, radius: 10, x: 0, y: 0)
+                    .shadow(color: Color.appSecondary, radius: 10, x: 0, y: 0)
 
                 // Cuerpo de la flecha
                 Rectangle()
                     .fill(
                         LinearGradient(
-                            gradient: Gradient(colors: [Color.blue, Color.cyan]),
+                            gradient: Gradient(colors: [Color.appPrimary, Color.appSecondary]),
                             startPoint: .top,
                             endPoint: .bottom
                         )
                     )
                     .frame(width: 20, height: 60)
-                    .shadow(color: .cyan, radius: 10, x: 0, y: 0)
+                    .shadow(color: Color.appSecondary, radius: 10, x: 0, y: 0)
             }
             .rotationEffect(.degrees(-direction.bearing)) // Rotar según bearing
             .scaleEffect(isAnimating ? 1.15 : 1.0)
@@ -605,7 +605,7 @@ struct DirectionalArrow: View {
                 .frame(width: 16, height: 16)
                 .overlay(
                     Circle()
-                        .stroke(Color.cyan, lineWidth: 2)
+                        .stroke(Color.appSecondary, lineWidth: 2)
                 )
         }
         .onAppear {
@@ -657,7 +657,7 @@ struct PulsingCircle: View {
             // Ondas expansivas
             ForEach(0..<3) { index in
                 Circle()
-                    .stroke(Color.cyan.opacity(0.4), lineWidth: 3)
+                    .stroke(Color.appSecondary.opacity(0.4), lineWidth: 3)
                     .scaleEffect(isPulsing ? 1.5 : 0.3)
                     .opacity(isPulsing ? 0.0 : 1.0)
                     .animation(
@@ -672,7 +672,7 @@ struct PulsingCircle: View {
             Circle()
                 .fill(
                     RadialGradient(
-                        gradient: Gradient(colors: [Color.cyan, Color.blue]),
+                        gradient: Gradient(colors: [Color.appSecondary, Color.appPrimary]),
                         center: .center,
                         startRadius: 20,
                         endRadius: 80

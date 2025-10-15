@@ -216,7 +216,7 @@ struct StadiumModeSettingsView: View {
                     .padding()
                     .background(
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.purple)
+                            .fill(Color.appPrimary)
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -641,7 +641,7 @@ struct ExplanationStep: View {
         HStack(alignment: .top, spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(Color.blue)
+                    .fill(Color.appPrimary)
                     .frame(width: 28, height: 28)
 
                 Text("\(number)")

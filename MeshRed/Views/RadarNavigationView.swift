@@ -74,7 +74,7 @@ struct RadarNavigationView: View {
 
                     // Target ring (pulsing at target distance)
                     Circle()
-                        .stroke(Color.cyan, lineWidth: 4)
+                        .stroke(Color.appSecondary, lineWidth: 4)
                         .frame(width: targetRadius * 2, height: targetRadius * 2)
                         .scaleEffect(isPulsing ? 1.1 : 1.0)
                         .opacity(isPulsing ? 0.6 : 1.0)
@@ -86,7 +86,7 @@ struct RadarNavigationView: View {
 
                     // Target dot
                     Circle()
-                        .fill(Color.cyan)
+                        .fill(Color.appSecondary)
                         .frame(width: 12, height: 12)
                         .offset(y: -targetRadius)  // Position at top of circle
                         .scaleEffect(isPulsing ? 1.3 : 1.0)
@@ -99,7 +99,7 @@ struct RadarNavigationView: View {
                     // Center marker (user position)
                     ZStack {
                         Circle()
-                            .fill(Color.blue)
+                            .fill(Color.appPrimary)
                             .frame(width: 16, height: 16)
 
                         Circle()
@@ -152,7 +152,7 @@ struct RadarNavigationView: View {
                         .padding()
                         .background(
                             LinearGradient(
-                                gradient: Gradient(colors: [Color.green, Color.green.opacity(0.8)]),
+                                gradient: Gradient(colors: [Color.appAccent, Color.appAccent.opacity(0.8)]),
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
@@ -213,9 +213,9 @@ struct RadarSweep: View {
                 .fill(
                     AngularGradient(
                         gradient: Gradient(colors: [
-                            Color.cyan.opacity(0.0),
-                            Color.cyan.opacity(0.3),
-                            Color.cyan.opacity(0.6)
+                            Color.appSecondary.opacity(0.0),
+                            Color.appSecondary.opacity(0.3),
+                            Color.appSecondary.opacity(0.6)
                         ]),
                         center: .center,
                         startAngle: .degrees(0),
@@ -226,7 +226,7 @@ struct RadarSweep: View {
 
             // Sweep line
             Rectangle()
-                .fill(Color.cyan.opacity(0.8))
+                .fill(Color.appSecondary.opacity(0.8))
                 .frame(width: 2, height: 150)
                 .offset(y: -75)
                 .rotationEffect(.degrees(rotation))

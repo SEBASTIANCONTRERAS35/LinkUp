@@ -111,17 +111,17 @@ struct StatusBadge: View {
     var body: some View {
         HStack(spacing: 4) {
             Circle()
-                .fill(isInside ? Color.green : Color.gray.opacity(0.3))
+                .fill(isInside ? Color.appAccent : Color.gray.opacity(0.3))
                 .frame(width: 8, height: 8)
 
             Text(isInside ? "Dentro" : "Fuera")
                 .font(.caption2.bold())
-                .foregroundColor(isInside ? .green : .secondary)
+                .foregroundColor(isInside ? Color.appAccent : .secondary)
                 .accessibleText()
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .accessibleBackground(isInside ? Color.green : Color.gray, opacity: isInside ? 0.1 : 0.08)
+        .accessibleBackground(isInside ? Color.appAccent : Color.gray, opacity: isInside ? 0.1 : 0.08)
         .cornerRadius(12)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(isInside ? "Dentro del linkfence" : "Fuera del linkfence")
@@ -152,5 +152,5 @@ struct StatusBadge: View {
         )
     }
     .padding()
-    .background(Mundial2026Colors.background)
+    .background(Color.appBackgroundDark)
 }

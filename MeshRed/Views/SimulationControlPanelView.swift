@@ -54,7 +54,7 @@ struct SimulationControlPanelView: View {
                 }
                 .padding(20)
             }
-            .background(Color(UIColor.systemGroupedBackground).ignoresSafeArea())
+            .background(Color.appBackgroundDark.ignoresSafeArea())
             .navigationTitle("Grupos de Prueba")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -75,7 +75,7 @@ struct SimulationControlPanelView: View {
             // Status indicator
             HStack {
                 Circle()
-                    .fill(mockManager.isSimulationActive ? Color.green : Color.gray)
+                    .fill(mockManager.isSimulationActive ? Color.appAccent : Color.gray)
                     .frame(width: 12, height: 12)
 
                 Text(mockManager.isSimulationActive ? "Grupo Activo" : "Sin Grupo Activo")
@@ -167,7 +167,7 @@ struct SimulationControlPanelView: View {
                     .padding(.vertical, 6)
                     .background(
                         Capsule()
-                            .fill(Color.blue.opacity(0.1))
+                            .fill(Color.appPrimary.opacity(0.1))
                     )
             }
 
@@ -210,7 +210,7 @@ struct SimulationControlPanelView: View {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .fill(
                                 LinearGradient(
-                                    colors: [Color.green, Color.green.opacity(0.8)],
+                                    colors: [Color.appAccent, Color.appAccent.opacity(0.8)],
                                     startPoint: .leading,
                                     endPoint: .trailing
                                 )
@@ -231,12 +231,12 @@ struct SimulationControlPanelView: View {
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
                         }
-                        .foregroundColor(.blue)
+                        .foregroundColor(.appPrimary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
                         .background(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Color.blue, lineWidth: 2)
+                                .stroke(Color.appPrimary, lineWidth: 2)
                         )
                     }
                     .buttonStyle(.plain)
@@ -411,11 +411,11 @@ struct ScenarioCard: View {
                 // Icon
                 Image(systemName: scenario.icon)
                     .font(.system(size: 32))
-                    .foregroundColor(isSelected ? .white : .blue)
+                    .foregroundColor(isSelected ? .white : .appPrimary)
                     .frame(width: 56, height: 56)
                     .background(
                         Circle()
-                            .fill(isSelected ? Color.blue : Color.blue.opacity(0.1))
+                            .fill(isSelected ? Color.appPrimary : Color.appPrimary.opacity(0.1))
                     )
 
                 // Text
@@ -438,16 +438,16 @@ struct ScenarioCard: View {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.title2)
-                        .foregroundColor(.blue)
+                        .foregroundColor(.appPrimary)
                 }
             }
             .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(isSelected ? Color.blue : Color.gray.opacity(0.2), lineWidth: 2)
+                    .stroke(isSelected ? Color.appPrimary : Color.gray.opacity(0.2), lineWidth: 2)
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(isSelected ? Color.blue.opacity(0.05) : Color.white)
+                            .fill(isSelected ? Color.appPrimary.opacity(0.05) : Color.white)
                     )
             )
         }

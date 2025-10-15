@@ -71,25 +71,25 @@ struct GPSNavigationView: View {
                 Triangle()
                     .fill(
                         LinearGradient(
-                            gradient: Gradient(colors: [Color.blue, Color.cyan]),
+                            gradient: Gradient(colors: [Color.appPrimary, Color.appSecondary]),
                             startPoint: .top,
                             endPoint: .bottom
                         )
                     )
                     .frame(width: 40, height: 50)
-                    .shadow(color: .blue, radius: 10, x: 0, y: 0)
+                    .shadow(color: Color.appPrimary, radius: 10, x: 0, y: 0)
 
                 // Cuerpo de la flecha
                 Rectangle()
                     .fill(
                         LinearGradient(
-                            gradient: Gradient(colors: [Color.cyan, Color.blue]),
+                            gradient: Gradient(colors: [Color.appSecondary, Color.appPrimary]),
                             startPoint: .top,
                             endPoint: .bottom
                         )
                     )
                     .frame(width: 20, height: 60)
-                    .shadow(color: .blue, radius: 10, x: 0, y: 0)
+                    .shadow(color: Color.appPrimary, radius: 10, x: 0, y: 0)
             }
             .rotationEffect(.degrees(-relativeBearing))  // Rotate based on relative bearing
             .scaleEffect(isAnimating ? 1.15 : 1.0)
@@ -106,12 +106,12 @@ struct GPSNavigationView: View {
                     .frame(width: 28, height: 28)
                     .overlay(
                         Circle()
-                            .stroke(Color.blue, lineWidth: 2)
+                            .stroke(Color.appPrimary, lineWidth: 2)
                     )
 
                 Image(systemName: "location.north.circle.fill")
                     .font(.system(size: 18))
-                    .foregroundColor(.blue)
+                    .foregroundColor(Color.appPrimary)
             }
 
             // Distance accuracy indicator

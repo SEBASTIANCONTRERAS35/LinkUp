@@ -147,7 +147,7 @@ struct CreateFamilyGroupView: View {
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(Color.blue)
+                            .background(Color.appPrimary)
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                     .buttonStyle(.plain)
@@ -157,7 +157,7 @@ struct CreateFamilyGroupView: View {
                 Button(action: { dismiss() }) {
                     Text("Listo")
                         .font(.subheadline.bold())
-                        .foregroundColor(.blue)
+                        .foregroundColor(Color.appPrimary)
                         .frame(maxWidth: .infinity)
                         .padding()
                         .background(Color.blue.opacity(0.1))

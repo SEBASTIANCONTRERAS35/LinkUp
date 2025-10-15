@@ -54,14 +54,14 @@ struct InfoRow: View {
             icon: "ruler",
             label: "Distancia",
             value: "5.3 m",
-            color: Mundial2026Colors.azul
+            color: Color.appSecondary
         )
 
         InfoRow(
             icon: "location.fill",
             label: "Fuente de datos",
             value: "LinkFinder Preciso",
-            color: Mundial2026Colors.verde
+            color: Color.appAccent
         )
 
         InfoRow(

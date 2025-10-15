@@ -53,7 +53,7 @@ struct ContentView: View {
     private var mainContent: some View {
         VStack(spacing: 0) {
             ScrollView {
-                LazyVStack(spacing: 20) {
+                LazyVStack(spacing: 24) {
                     StatusOverviewCard(
                         deviceName: networkManager.localDeviceName,
                         statusText: connectionStatusText,
@@ -136,8 +136,8 @@ struct ContentView: View {
                     )
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, 24)
-                .padding(.bottom, 32)
+                .padding(.top, 28)
+                .padding(.bottom, 40)
             }
 
             MessageComposerBar(
@@ -191,19 +191,11 @@ struct ContentView: View {
     }
 
     private var appBackgroundColor: Color {
-        #if os(iOS)
-        Color(.systemGroupedBackground)
-        #else
-        Color(NSColor.windowBackgroundColor)
-        #endif
+        Color.appBackgroundDark
     }
 
     private var inputBackgroundColor: Color {
-        #if os(iOS)
-        Color(.systemBackground)
-        #else
-        Color(NSColor.controlBackgroundColor)
-        #endif
+        Color.appBackgroundSecondary
     }
 
     private var connectionStatusColor: Color {
@@ -553,6 +545,10 @@ struct ContentView: View {
 // MARK: - Main Sections
 
 private struct StatusOverviewCard: View {
+    @Environment(\.colorScheme) var colorScheme
+    @State private var pulseAnimation = false
+    @State private var relayRotation: Double = 0
+    
     let deviceName: String
     let statusText: String
     let statusColor: Color
@@ -572,199 +568,301 @@ private struct StatusOverviewCard: View {
     let hasActiveGeofence: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 10) {
+        VStack(spacing: 16) {
+            // Header card modernizado
+            VStack(alignment: .leading, spacing: 20) {
+                // Device name y status
+                HStack(alignment: .top, spacing: 16) {
+                    // Status indicator con animación pulsante
+                    ZStack {
+                        // Outer pulse ring
+                        Circle()
+                            .fill(statusColor.opacity(0.3))
+                            .frame(width: 56, height: 56)
+                            .scaleEffect(pulseAnimation ? 1.1 : 1.0)
+                            .opacity(pulseAnimation ? 0 : 1)
+                        
+                        Circle()
+                            .fill(statusColor.opacity(0.2))
+                            .frame(width: 56, height: 56)
+                        
                         Circle()
                             .fill(statusColor)
-                            .frame(width: 12, height: 12)
-
+                            .frame(width: 16, height: 16)
+                    }
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: false)) {
+                            pulseAnimation = true
+                        }
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 6) {
                         Text(deviceName)
-                            .font(.headline)
-                            .foregroundColor(.white)
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.primary)
+                        
+                        Text(statusText)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
                     }
-
-                    Text(statusText)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white.opacity(0.9))
-                }
-
-                Spacer()
-
-                if relayingMessage {
-                    Label("Reenviando", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.caption.bold())
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.18))
-                        .clipShape(Capsule())
-                        .foregroundColor(.white)
-                }
-            }
-
-            HStack(spacing: 12) {
-                qualityBadge
-
-                Spacer(minLength: 0)
-
-                HStack(spacing: 10) {
-                    // Family Group Badge
-                    Button(action: onOpenFamilyGroup) {
-                        Label {
-                            Text(hasFamilyGroup ? "\(familyMemberCount)" : "Grupo")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                        } icon: {
-                            Image(systemName: hasFamilyGroup ? "person.3.fill" : "person.3")
+                    
+                    Spacer()
+                    
+                    if relayingMessage {
+                        VStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.title3)
+                                .foregroundColor(.appSecondary)
+                                .rotationEffect(.degrees(relayRotation))
+                                .onAppear {
+                                    withAnimation(.linear(duration: 2.0).repeatForever(autoreverses: false)) {
+                                        relayRotation = 360
+                                    }
+                                }
+                            Text("Relay")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(hasFamilyGroup ? Color.green.opacity(0.2) : Color.white.opacity(0.12))
-                        .clipShape(Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(hasFamilyGroup ? Color.green.opacity(0.7) : Color.white.opacity(0.3), lineWidth: 1)
-                        )
-                        .foregroundColor(.white)
                     }
-                    .buttonStyle(.plain)
-
-                    // LinkFence Badge
-                    Button(action: onOpenGeofenceMap) {
-                        Label {
-                            Text(hasActiveGeofence ? "Activo" : "LinkFence")
+                }
+                
+                // Quality indicator destacado
+                HStack(spacing: 12) {
+                    HStack(spacing: 10) {
+                        Text(connectionQuality.rawValue)
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundColor(.primary)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Señal")
                                 .font(.caption)
-                                .fontWeight(.semibold)
-                        } icon: {
-                            Image(systemName: hasActiveGeofence ? "map.circle.fill" : "map.circle")
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(hasActiveGeofence ? Color.blue.opacity(0.2) : Color.white.opacity(0.12))
-                        .clipShape(Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(hasActiveGeofence ? Color.blue.opacity(0.7) : Color.white.opacity(0.3), lineWidth: 1)
-                        )
-                        .foregroundColor(.white)
-                    }
-                    .buttonStyle(.plain)
-
-                    locationBadge
-
-                    if let onRequestPermissions {
-                        Button(action: onRequestPermissions) {
-                            Text("Permitir")
+                                .foregroundColor(.secondary)
+                            Text(connectionQuality.displayName)
                                 .font(.caption.bold())
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(Color.white)
-                                .foregroundColor(statusColor)
-                                .clipShape(Capsule())
+                                .foregroundColor(qualityColor)
                         }
-                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(colorScheme == .dark ? Color.appBackgroundSecondary : Color(.systemGray6))
+                    .cornerRadius(16)
+                    
+                    Spacer()
+                }
+                
+                // Métricas en grid compacto
+                HStack(spacing: 12) {
+                    MetricCard(
+                        value: "\(connectedPeers)",
+                        label: "Conectados",
+                        icon: "link.circle.fill",
+                        color: .appSecondary
+                    )
+                    
+                    MetricCard(
+                        value: "\(availablePeers)",
+                        label: "Disponibles",
+                        icon: "wave.3.right.circle.fill",
+                        color: .appAccent
+                    )
+                    
+                    if pendingAcks > 0 {
+                        MetricCard(
+                            value: "\(pendingAcks)",
+                            label: "ACKs",
+                            icon: "clock.circle.fill",
+                            color: .yellow
+                        )
                     }
                 }
             }
-
-            Divider()
-                .overlay(Color.white.opacity(0.2))
-
-            HStack(spacing: 16) {
-                StatusMetric(
-                    title: "Conectados",
-                    value: "\(connectedPeers)",
-                    icon: "link",
-                    tint: .white
-                )
-
-                StatusMetric(
-                    title: "Disponibles",
-                    value: "\(availablePeers)",
-                    icon: "antenna.radiowaves.left.and.right",
-                    tint: .white.opacity(0.85)
-                )
-
-                StatusMetric(
-                    title: "ACKs",
-                    value: "\(pendingAcks)",
-                    icon: "clock.arrow.circlepath",
-                    tint: pendingAcks > 0 ? .yellow : .white.opacity(0.85)
-                )
-            }
-
-            if blockedPeers > 0 {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                    Text("\(blockedPeers) bloqueados por estabilidad de red")
-                        .font(.caption)
+            .padding(20)
+            .background(colorScheme == .dark ? Color.appBackgroundSecondary : Color(.systemBackground))
+            .cornerRadius(24)
+            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.3 : 0.08), radius: 12, x: 0, y: 4)
+            
+            // Feature cards en grid
+            VStack(spacing: 12) {
+                HStack(spacing: 12) {
+                    // Family Group card
+                    HomeFeatureCard(
+                        title: hasFamilyGroup ? "Tu Grupo" : "Grupo Familiar",
+                        subtitle: hasFamilyGroup ? "\(familyMemberCount) miembros" : "Crear grupo",
+                        icon: "person.3.fill",
+                        isActive: hasFamilyGroup,
+                        activeColor: .appAccent,
+                        action: onOpenFamilyGroup
+                    )
+                    
+                    // LinkFence card
+                    HomeFeatureCard(
+                        title: "LinkFence",
+                        subtitle: hasActiveGeofence ? "Activo" : "Configurar",
+                        icon: "map.circle.fill",
+                        isActive: hasActiveGeofence,
+                        activeColor: .appPrimary,
+                        action: onOpenGeofenceMap
+                    )
                 }
-                .foregroundColor(.white.opacity(0.9))
+                
+                HStack(spacing: 12) {
+                    // Location status card
+                    HomeFeatureCard(
+                        title: "Ubicación",
+                        subtitle: locationStatusText,
+                        icon: "location.circle.fill",
+                        isActive: locationStatusText == "Activa",
+                        activeColor: locationStatusColor,
+                        action: onRequestPermissions ?? {}
+                    )
+                    .disabled(onRequestPermissions == nil)
+                    .opacity(onRequestPermissions == nil ? 0.6 : 1.0)
+                    
+                    // LinkMesh status
+                    HomeFeatureCard(
+                        title: "LinkMesh",
+                        subtitle: connectedPeers > 0 ? "En línea" : "Desconectado",
+                        icon: "network",
+                        isActive: connectedPeers > 0,
+                        activeColor: .green,
+                        action: {}
+                    )
+                    .disabled(true)
+                    .opacity(0.6)
+                }
+            }
+            
+            // Warning si hay bloqueados
+            if blockedPeers > 0 {
+                HStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.body)
+                        .foregroundColor(.orange)
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Dispositivos bloqueados")
+                            .font(.footnote.bold())
+                            .foregroundColor(.primary)
+                        Text("\(blockedPeers) dispositivos por estabilidad de red")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                }
+                .padding(12)
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(12)
             }
         }
-        .padding(20)
-        .background(gradientBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-        )
-        .shadow(color: statusColor.opacity(0.25), radius: 12, x: 0, y: 6)
     }
-
-    private var gradientBackground: LinearGradient {
-        LinearGradient(
-            colors: [statusColor.opacity(0.9), accentColor.opacity(0.75)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    private var accentColor: Color {
+    
+    private var qualityColor: Color {
         switch connectionQuality {
-        case .excellent: return .blue
-        case .good: return .teal
-        case .poor: return .red
+        case .excellent: return .green
+        case .good: return .blue
+        case .poor: return .orange
         case .unknown: return .gray
         }
     }
+}
 
-    private var qualityBadge: some View {
-        HStack(spacing: 8) {
-            Text(connectionQuality.rawValue)
-                .font(.title3)
-
-            Text(connectionQuality.displayName)
+// MARK: - Metric Card Component
+private struct MetricCard: View {
+    @Environment(\.colorScheme) var colorScheme
+    let value: String
+    let label: String
+    let icon: String
+    let color: Color
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundColor(color)
+                
+                Text(value)
+                    .font(.title2.bold())
+                    .foregroundColor(.primary)
+            }
+            
+            Text(label)
                 .font(.caption)
-                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .foregroundColor(.white)
-        .background(Color.white.opacity(0.15))
-        .clipShape(Capsule())
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .padding(.horizontal, 12)
+        .background(colorScheme == .dark ? Color.appBackgroundDark.opacity(0.5) : Color(.systemGray6).opacity(0.5))
+        .cornerRadius(16)
     }
+}
 
-    private var locationBadge: some View {
-        Label {
-            Text(locationStatusText)
-                .font(.caption)
-                .fontWeight(.semibold)
-        } icon: {
-            Image(systemName: "location.circle")
+// MARK: - Feature Card Component
+private struct HomeFeatureCard: View {
+    @Environment(\.colorScheme) var colorScheme
+    @State private var isPressed = false
+    
+    let title: String
+    let subtitle: String
+    let icon: String
+    let isActive: Bool
+    let activeColor: Color
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: {
+            // Haptic feedback
+            let impact = UIImpactFeedbackGenerator(style: .medium)
+            impact.impactOccurred()
+            action()
+        }) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    ZStack {
+                        Circle()
+                            .fill(isActive ? activeColor.opacity(0.15) : Color.gray.opacity(0.1))
+                            .frame(width: 44, height: 44)
+                        
+                        Image(systemName: icon)
+                            .font(.title3)
+                            .foregroundColor(isActive ? activeColor : .secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    if isActive {
+                        Circle()
+                            .fill(activeColor)
+                            .frame(width: 8, height: 8)
+                    }
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.subheadline.bold())
+                        .foregroundColor(.primary)
+                    
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(colorScheme == .dark ? Color.appBackgroundSecondary : Color(.systemBackground))
+            .cornerRadius(20)
+            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.3 : 0.05), radius: 8, x: 0, y: 2)
+            .scaleEffect(isPressed ? 0.96 : 1.0)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(Color.white.opacity(0.12))
-        .clipShape(Capsule())
-        .overlay(
-            Capsule()
-                .stroke(locationStatusColor.opacity(0.7), lineWidth: 1)
-        )
-        .foregroundColor(.white)
+        .buttonStyle(.plain)
+        .onLongPressGesture(minimumDuration: .infinity, maximumDistance: .infinity, pressing: { pressing in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isPressed = pressing
+            }
+        }, perform: {})
     }
 }
 
@@ -1394,7 +1492,7 @@ private struct ConversationCard: View {
                     HStack(spacing: 6) {
                         // Connection status indicator
                         Circle()
-                            .fill(isConnected ? Color.green : Color.gray)
+                            .fill(isConnected ? Color.appAccent : Color.gray)
                             .frame(width: 6, height: 6)
 
                         // Icon based on conversation type
@@ -1587,7 +1685,7 @@ private struct ConnectedPeerRow: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 Circle()
-                    .fill(Color.green)
+                    .fill(Color.appAccent)
                     .frame(width: 8, height: 8)
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -1628,8 +1726,8 @@ private struct ConnectedPeerRow: View {
                                 .font(.caption.bold())
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
-                                .background(Color.cyan.opacity(0.2))
-                                .foregroundColor(.cyan)
+                                .background(Color.appSecondary.opacity(0.2))
+                                .foregroundColor(Color.appSecondary)
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)

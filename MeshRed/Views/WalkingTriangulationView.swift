@@ -385,7 +385,7 @@ struct WalkingTriangulationView: View {
                 .foregroundColor(.white)
                 .padding(.horizontal, 30)
                 .padding(.vertical, 12)
-                .background(Color.green)
+                .background(Color.appAccent)
                 .cornerRadius(25)
             }
         }
@@ -475,7 +475,7 @@ struct WalkingTriangulationView: View {
                 .foregroundColor(.white)
                 .padding(.horizontal, 30)
                 .padding(.vertical, 12)
-                .background(Color.green)
+                .background(Color.appAccent)
                 .cornerRadius(25)
             }
 
@@ -489,7 +489,7 @@ struct WalkingTriangulationView: View {
                 .foregroundColor(.white)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
-                .background(canTakeReading ? Color.green : Color.gray)
+                .background(canTakeReading ? Color.appAccent : Color.gray)
                 .cornerRadius(25)
             }
             .disabled(!canTakeReading)
@@ -527,7 +527,7 @@ struct WalkingTriangulationView: View {
                     .frame(height: 20)
 
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.green)
+                    .fill(Color.appAccent)
                     .frame(width: CGFloat(min(walked / 10.0, 1.0)) * 280, height: 20)
             }
             .frame(width: 280)

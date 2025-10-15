@@ -23,7 +23,7 @@ struct ConnectionLimitIndicator: View {
         } else if current >= maximum - 1 {
             return Color.orange // Almost full - Orange
         } else {
-            return Mundial2026Colors.verde // Available - Green
+            return Color.appAccent // Available - Teal
         }
     }
 
@@ -109,7 +109,7 @@ struct CompactConnectionLimitIndicator: View {
         } else if current >= maximum - 1 {
             return Color.orange
         } else {
-            return Mundial2026Colors.verde
+            return Color.appAccent
         }
     }
 
@@ -160,5 +160,5 @@ struct CompactConnectionLimitIndicator: View {
         CompactConnectionLimitIndicator(current: 3, maximum: 5)
     }
     .padding()
-    .background(Mundial2026Colors.background)
+    .background(Color.appBackgroundDark)
 }

@@ -201,7 +201,7 @@ struct StadiumDashboardView: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(Color.white.opacity(0.15), lineWidth: 1)
         )
-        .shadow(color: Mundial2026Colors.verde.opacity(0.2), radius: 12, x: 0, y: 8)
+        .shadow(color: Color.appAccent.opacity(0.2), radius: 12, x: 0, y: 8)
     }
 
     private var matchScoreStack: some View {
@@ -341,7 +341,7 @@ struct StadiumDashboardView: View {
             FeatureCard(
                 title: "Tu red",
                 icon: "person.3.fill",
-                iconColor: Mundial2026Colors.verde,
+                iconColor: Color.appAccent,
                 backgroundColor: Color(red: 0.9, green: 0.95, blue: 1.0)
             ) {
                 // Action for network

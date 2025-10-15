@@ -186,16 +186,16 @@ struct DistancePulseIndicator: View {
 
             // Main circle
             Circle()
-                .fill(Color.cyan.opacity(0.3))
+                .fill(Color.appSecondary.opacity(0.3))
                 .frame(width: circleSize, height: circleSize)
                 .overlay(
                     Circle()
-                        .stroke(Color.cyan, lineWidth: 3)
+                        .stroke(Color.appSecondary, lineWidth: 3)
                 )
 
             // Center dot
             Circle()
-                .fill(Color.cyan)
+                .fill(Color.appSecondary)
                 .frame(width: 12, height: 12)
         }
         .onAppear {

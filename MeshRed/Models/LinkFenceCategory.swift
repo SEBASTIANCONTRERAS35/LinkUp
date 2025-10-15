@@ -59,29 +59,29 @@ enum LinkFenceCategory: String, Codable, CaseIterable {
     var defaultColor: Color {
         switch self {
         case .stadium:
-            return Mundial2026Colors.verde
+            return Color.appAccent
         case .concert:
             return Mundial2026Colors.rojo
         case .restaurant:
             return Color.orange
         case .shopping:
-            return Mundial2026Colors.azul
+            return Color.appPrimary
         case .home:
-            return Color.purple
+            return Color.appPrimary
         case .work:
             return Color.gray
         case .school:
-            return Color.blue
+            return Color.appSecondary
         case .custom:
-            return Mundial2026Colors.azul
+            return Color.appPrimary
         case .bathrooms:
-            return Color.blue
+            return Color.appSecondary
         case .exits:
             return Color.orange
         case .concessions:
-            return Color.green
+            return Color.appAccent
         case .familyZone:
-            return Mundial2026Colors.verde
+            return Color.appAccent
         }
     }
 

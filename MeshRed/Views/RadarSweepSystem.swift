@@ -58,9 +58,7 @@ struct RadarSweepLine: View {
     }
 
     private var sweepColor: Color {
-        colorScheme == .dark ?
-            Color.green :
-            Mundial2026Colors.verde
+        Color.appAccent
     }
 }
 

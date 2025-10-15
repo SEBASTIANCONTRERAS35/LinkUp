@@ -36,8 +36,8 @@ struct PeerConnectionCard: View {
 
         var color: Color {
             switch self {
-            case .excellent: return Mundial2026Colors.verde
-            case .good: return Mundial2026Colors.azul
+            case .excellent: return Color.appAccent
+            case .good: return Color.appSecondary
             case .poor: return Mundial2026Colors.rojo
             case .unknown: return .gray
             }
@@ -57,11 +57,11 @@ struct PeerConnectionCard: View {
         HStack(spacing: 16) {
             // Status indicator dot
             Circle()
-                .fill(isConnected ? Mundial2026Colors.verde : Mundial2026Colors.azul.opacity(0.5))
+                .fill(isConnected ? Color.appAccent : Color.appSecondary.opacity(0.5))
                 .frame(width: 12, height: 12)
                 .overlay(
                     Circle()
-                        .stroke(isConnected ? Mundial2026Colors.verde : Mundial2026Colors.azul, lineWidth: 2)
+                        .stroke(isConnected ? Color.appAccent : Color.appSecondary, lineWidth: 2)
                         .scaleEffect(isConnected ? 1.5 : 1.0)
                         .opacity(isConnected ? 0.3 : 0)
                 )
@@ -73,14 +73,14 @@ struct PeerConnectionCard: View {
                 Text(peer.displayName)
                     .font(.body)
                     .fontWeight(.semibold)
-                    .foregroundColor(Mundial2026Colors.textPrimary)
+                    .foregroundColor(.primary)
 
                 // Status and distance
                 HStack(spacing: 8) {
                     // Connection status badge
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(isConnected ? Mundial2026Colors.verde : Color.gray)
+                            .fill(isConnected ? Color.appAccent : Color.gray)
                             .frame(width: 6, height: 6)
                         Text(isConnected ? "Conectado" : "Disponible")
                             .font(.caption2)
@@ -90,7 +90,7 @@ struct PeerConnectionCard: View {
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(isConnected ? Mundial2026Colors.verde.opacity(0.1) : Color.gray.opacity(0.1))
+                            .fill(isConnected ? Color.appAccent.opacity(0.1) : Color.gray.opacity(0.1))
                     )
 
                     // Distance (if available)
@@ -140,10 +140,10 @@ struct PeerConnectionCard: View {
                     .padding(.vertical, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(isConnected ? Mundial2026Colors.rojo : Mundial2026Colors.azul)
+                            .fill(isConnected ? Mundial2026Colors.rojo : Color.appSecondary)
                     )
                     .shadow(
-                        color: (isConnected ? Mundial2026Colors.rojo : Mundial2026Colors.azul).opacity(0.3),
+                        color: (isConnected ? Mundial2026Colors.rojo : Color.appSecondary).opacity(0.3),
                         radius: isPressed ? 2 : 6,
                         x: 0,
                         y: isPressed ? 1 : 3
@@ -175,7 +175,7 @@ struct PeerConnectionCard: View {
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(
-                    isConnected ? Mundial2026Colors.verde.opacity(0.3) : Mundial2026Colors.azul.opacity(0.2),
+                    isConnected ? Color.appAccent.opacity(0.3) : Color.appSecondary.opacity(0.2),
                     lineWidth: isConnected ? 2 : 1
                 )
         )
@@ -207,5 +207,5 @@ struct PeerConnectionCard: View {
         )
     }
     .padding()
-    .background(Mundial2026Colors.background)
+    .background(Color.appBackgroundDark)
 }

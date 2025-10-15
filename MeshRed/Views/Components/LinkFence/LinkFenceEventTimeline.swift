@@ -170,7 +170,7 @@ struct GeofenceEventRow: View {
     }
 
     private var eventColor: Color {
-        event.eventType == .entry ? Color.green : Mundial2026Colors.rojo
+        event.eventType == .entry ? Color.appAccent : Mundial2026Colors.rojo
     }
 
     private func formatTime(_ date: Date) -> String {
@@ -203,5 +203,5 @@ struct GeofenceEventRow: View {
         )
         .padding()
     }
-    .background(Mundial2026Colors.background)
+    .background(Color.appBackgroundDark)
 }
